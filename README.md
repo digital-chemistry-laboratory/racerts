@@ -1,4 +1,4 @@
-<img src="https://github.com/digital-chemistry-laboratory/racerts/blob/8074daa0ae89513eec6f441e67a84e792608a0c1/docs/img/TOC.png" alt="Logo" width="1000">
+<img src="https://github.com/digital-chemistry-laboratory/racerts/blob/8074daa0ae89513eec6f441e67a84e792608a0c1/docs/img/logo.png" alt="Logo" width="1000">
 
 **R**apid and **A**ccurate **C**onformer **E**nsembles with **R**DKit for **T**ransition **S**tates
 

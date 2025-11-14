@@ -1,0 +1,9 @@
+racerts.egg-info
+dist*
+.vscode/
+__pycache__/
+.pytest*
+**/__pycache__/
+site*
+zenodo*
+.DS_Store

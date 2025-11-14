@@ -1,0 +1,46 @@
+site_name: "racerTS documentation"
+site_description: Rapid and Accurate Conformer Ensembles with RDKit for Transition States
+copyright: "Copyright © 2025 ETH Zürich"
+site_dir: site
+strict: false
+use_directory_urls: true
+
+docs_dir: docs
+
+theme:
+  name: readthedocs
+  logo: img/logo.png
+  favicon: img/favicon.ico
+  features:
+    - search.highlight
+    - content.code.copy
+    - navigation.footer
+plugins:
+  - search
+  - redirects:
+      redirect_maps:
+        'index.md': 'getting-started.md'
+
+markdown_extensions:
+  - admonition
+  - toc:
+      permalink: true
+  - tables
+  - attr_list
+  - md_in_html
+
+extra_css:
+  - styles/overrides.css
+  - styles/extra.css
+nav:
+  - Getting started: getting-started.md
+  - CLI: cli.md
+  - Modules:
+      - Overview: modules/README.md
+      - conformer_generator: modules/conformer_generator.md
+      - mol_getter: modules/mol_getter.md
+      - embedder: modules/embedder.md
+      - optimizer: modules/ff_optimizer.md
+      - pruner: modules/pruner.md
+
+site_url: "https://digital-chemistry-laboratory.github.io/racerTS/"

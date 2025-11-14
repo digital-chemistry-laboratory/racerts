@@ -1,0 +1,19 @@
+[flake8]
+select = ANN,C,E,F,W,I,BLK,B,B9,D,DAR
+ignore = ANN002,ANN003,ANN101,ANN401,B905,E203,E501,E704,E741,W503,D105,D107,DAR203,E266
+max-line-length = 90
+max-complexity = 15
+application-import-names = src,test
+import-order-style = google
+docstring-convention = google
+strictness = short
+per-file-ignores =
+    test/*:S101,ANN
+    setup.py:D100
+builtins =
+    AllChem
+    Chem,
+    rdkit,
+    Draw,
+    IPythonConsole,
+    pytest,

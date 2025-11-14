@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><link rel="canonical" href="https://digital-chemistry-laboratory.github.io/racerTS/modules/conformer_generator/" />
+      <link rel="shortcut icon" href="../../img/favicon.ico" />
+    <title>conformer_generator - racerTS documentation</title>
+    <link rel="stylesheet" href="../../css/theme.css" />
+    <link rel="stylesheet" href="../../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+        <link href="../../styles/overrides.css" rel="stylesheet" />
+        <link href="../../styles/extra.css" rel="stylesheet" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "conformer_generator";
+        var mkdocs_page_input_path = "modules/conformer_generator.md";
+        var mkdocs_page_url = "/racerTS/modules/conformer_generator/";
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href="../..">
+          <img src="../../img/logo.png" class="logo" alt="Logo"/>
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../../getting-started/">Getting started</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../../cli/">CLI</a>
+                </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Modules</span></p>
+              <ul class="current">
+                  <li class="toctree-l1"><a class="reference internal" href="../">Overview</a>
+                  </li>
+                  <li class="toctree-l1 current"><a class="reference internal current" href="#">conformer_generator</a>
+    <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#settings">Settings</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#functions">Functions</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#generate_conformersfile_name-charge0-reacting_atoms-frozen_atoms-input_smiles-number_of_conformers-1-conf_factor30-auto_fallbacktrue">generate_conformers(file_name, charge=0, reacting_atoms=[], frozen_atoms=[], input_smiles=[], number_of_conformers=-1, conf_factor=30, auto_fallback=True)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#get_molfile_name-charge-reacting_atoms-input_smiles-auto_fallbacktrue">get_mol(file_name, charge, reacting_atoms, input_smiles=[], auto_fallback=True)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#embed_tsmol_ts-new_mol-reacting_atoms-frozen_atoms-number_of_conformers-1-conf_factor30">embed_TS(mol_ts, new_mol, reacting_atoms, frozen_atoms, number_of_conformers=-1, conf_factor=30)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#force_fieldnew_mol-mol_ts-frozen_atoms-auto_fallbacktrue">force_field(new_mol, mol_ts, frozen_atoms, auto_fallback=True)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#prunemol">prune(mol)</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#write_xyzfile_name-use_energyfalse-comment0-1">write_xyz(file_name, use_energy=False, comment="0 1")</a>
+    </li>
+        </ul>
+    </li>
+    </ul>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../mol_getter/">mol_getter</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../embedder/">embedder</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../ff_optimizer/">optimizer</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../pruner/">pruner</a>
+                  </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../..">racerTS documentation</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../.." class="icon icon-home" aria-label="Docs"></a></li>
+          <li class="breadcrumb-item">Modules</li>
+      <li class="breadcrumb-item active">conformer_generator</li>
+    <li class="wy-breadcrumbs-aside">
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="conformer_generator"><strong>conformer_generator</strong><a class="headerlink" href="#conformer_generator" title="Permanent link">&para;</a></h1>
+<p>The central orchestrator for generating TS-constrained conformer ensembles.</p>
+<pre><code class="language-python">from racerts import ConformerGenerator
+cg = ConformerGenerator(verbose=False, randomSeed=12, num_threads=1)
+</code></pre>
+<h3 id="settings">Settings<a class="headerlink" href="#settings" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>verbose</code> : print additional information on the progress and diagnostics</li>
+<li><code>randomSeed</code> : seed for randomization</li>
+<li><code>num_threads</code> : multithreading</li>
+</ul>
+<p>The conformer generator object is initialized with this default configuration with default parameters:</p>
+<pre><code class="language-python">cg.mol_getter = MolGetterSMILES()
+cg.embedder = CmapEmbedder()
+cg.optimizer = MMFFOptimizer()
+cg.energy_pruner = EnergyPruner()
+cg.rmsd_pruner = RMSDPruner()
+</code></pre>
+<p>You can swap components via properties, for example:</p>
+<pre><code class="language-python">cg.mol_getter = MolGetterBonds(assignBonds=True, allowChargedFragments=True)
+cg.embedder = BoundsMatrixEmbedder(...)
+cg.optimizer = UFFOptimizer(...)
+cg.energy_pruner = EnergyPruner(threshold=20.0, ...)
+cg.rmsd_pruner = RMSDPruner(threshold=0.125, ...)
+</code></pre>
+<h3 id="functions">Functions<a class="headerlink" href="#functions" title="Permanent link">&para;</a></h3>
+<p><a id="generate_conformers"></a></p>
+<h6 id="generate_conformersfile_name-charge0-reacting_atoms-frozen_atoms-input_smiles-number_of_conformers-1-conf_factor30-auto_fallbacktrue">generate_conformers(file_name, charge=0, reacting_atoms=[], frozen_atoms=[], input_smiles=[], number_of_conformers=-1, conf_factor=30, auto_fallback=True)<a class="headerlink" href="#generate_conformersfile_name-charge0-reacting_atoms-frozen_atoms-input_smiles-number_of_conformers-1-conf_factor30-auto_fallbacktrue" title="Permanent link">&para;</a></h6>
+<p>End-to-end ensemble generation:</p>
+<blockquote>
+<ol>
+<li>Build mol (<a href="#get_mol"><code>get_mol</code></a>)</li>
+<li>Embed conformers (<a href="#embed_TS"><code>embed_TS</code></a>)</li>
+<li>Refine conformers with a force field (<a href="#optimize"><code>optimize</code></a>)</li>
+<li>Prune by force field energy and RMSD (<a href="#prune"><code>prune</code></a>)</li>
+</ol>
+</blockquote>
+<p>Main parameters:</p>
+<ul>
+<li><code>reacting_atoms</code> : (0-based) indices of atoms whose connectivity changes; drives constraints</li>
+<li><code>file_name</code> : .xyz file path with a single TS geometry (3D)</li>
+<li><code>charge</code> : total molecular charge (important for <code>MolGetterBonds</code>)</li>
+<li><code>input_smiles</code> : optional SMILES fragments to define topology (used by <code>MolGetterSMILES</code>)</li>
+</ul>
+<p>Additional options to configure the workflow:</p>
+<ul>
+<li><code>number_of_conformers</code> : number of generated conformers (see <a href="#embed_TS">embed_TS(...)</a>)</li>
+<li><code>conf_factor</code> : tunes the number of generated conformers (see <a href="#embed_TS">embed_TS(...)</a>)</li>
+<li><code>auto_fallback</code> : activate fallback (see <a href="#get_mol">get_mol(...)</a>)</li>
+<li><code>frozen_atoms</code> : optional way to override the set to constrained atoms <br>(if omitted, <code>reacting_atoms</code> and neighboring atoms are used)</li>
+</ul>
+<p><a id="get_mol"></a></p>
+<h6 id="get_molfile_name-charge-reacting_atoms-input_smiles-auto_fallbacktrue">get_mol(file_name, charge, reacting_atoms, input_smiles=[], auto_fallback=True)<a class="headerlink" href="#get_molfile_name-charge-reacting_atoms-input_smiles-auto_fallbacktrue" title="Permanent link">&para;</a></h6>
+<p>Builds the starting molecule using the configured getter. If that fails (and <code>auto_fallback=True</code>) a fallback mechanism automatically tries alternative options in with priority:</p>
+<blockquote>
+<ol>
+<li><a href="./#get_mol"><code>MolGetterSMILES</code></a><br></li>
+<li><a href="./#get_mol"><code>MolGetterBonds</code></a><br></li>
+<li><a href="./#get_mol"><code>MolGetterConnectivity</code></a><br></li>
+</ol>
+</blockquote>
+<p><a id="embed_TS"></a></p>
+<h6 id="embed_tsmol_ts-new_mol-reacting_atoms-frozen_atoms-number_of_conformers-1-conf_factor30">embed_TS(mol_ts, new_mol, reacting_atoms, frozen_atoms, number_of_conformers=-1, conf_factor=30)<a class="headerlink" href="#embed_tsmol_ts-new_mol-reacting_atoms-frozen_atoms-number_of_conformers-1-conf_factor30" title="Permanent link">&para;</a></h6>
+<p>Embeds conformers with the configured embedder variant.<br />
+The number of conformers can be set with the <code>number_of_conformers</code> parameter.
+Otherwise, it is calculated using the <code>conf_factor</code>, proportional to the number of rotatable bonds of the molecule, <code>#rotatable_bonds</code>:</p>
+<blockquote>
+<p><code>number_of_conformers =  #rotatable_bonds * conf_factor + 30</code>.</p>
+</blockquote>
+<p><a id="optimize"></a></p>
+<h6 id="force_fieldnew_mol-mol_ts-frozen_atoms-auto_fallbacktrue">force_field(new_mol, mol_ts, frozen_atoms, auto_fallback=True)<a class="headerlink" href="#force_fieldnew_mol-mol_ts-frozen_atoms-auto_fallbacktrue" title="Permanent link">&para;</a></h6>
+<p>Refines conformers with constraints on <code>frozen_atoms</code>. If the <code>MMFFOptimizer</code> fails, it automatically falls back to <code>UFFOptimizer</code>.</p>
+<p><a id="prune"></a></p>
+<h6 id="prunemol">prune(mol)<a class="headerlink" href="#prunemol" title="Permanent link">&para;</a></h6>
+<p>Runs <code>energy_pruner</code> then <code>rmsd_pruner</code> to reduce the number of conformers.</p>
+<p><a id="write_xyz"></a></p>
+<h6 id="write_xyzfile_name-use_energyfalse-comment0-1">write_xyz(file_name, use_energy=False, comment="0 1")<a class="headerlink" href="#write_xyzfile_name-use_energyfalse-comment0-1" title="Permanent link">&para;</a></h6>
+<p>Writes the ensemble as a combined .xyz file. If <code>use_energy=True</code>, the per-conformer energy is written in Hartree (converted from the internal kcal/mol <code>energy</code> property).
+The <code>comment</code> is added to the second line of the .xyz file. As default, the charge and spin multiplicity of 1 is used.</p>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="../" class="btn btn-neutral float-left" title="Overview"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+        <a href="../mol_getter/" class="btn btn-neutral float-right" title="mol_getter">Next <span class="icon icon-circle-arrow-right"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+      <p>Copyright © 2025 ETH Zürich</p>
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+    
+      <span><a href="../" style="color: #fcfcfc">&laquo; Previous</a></span>
+    
+    
+      <span><a href="../mol_getter/" style="color: #fcfcfc">Next &raquo;</a></span>
+    
+  </span>
+</div>
+    <script src="../../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "../..";</script>
+    <script src="../../js/theme_extra.js"></script>
+    <script src="../../js/theme.js"></script>
+      <script src="../../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>

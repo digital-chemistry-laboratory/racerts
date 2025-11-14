@@ -1,0 +1,17 @@
+/* Make superscripts in the site title look tidy */
+.md-header .md-header__title sup {
+  font-size: 0.6em;
+  line-height: 0;
+}
+.rst-footer {
+  text-align: center;
+  color: #666;
+  font-size: 0.9em;
+  margin-top: 2em;
+}
+
+.rst-footer:after {
+  content: "© 2025 ETH Zürich";
+  display: block;
+  margin-top: 0.5em;
+}

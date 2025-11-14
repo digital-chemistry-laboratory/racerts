@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><link rel="canonical" href="https://digital-chemistry-laboratory.github.io/racerTS/modules/pruner/" />
+      <link rel="shortcut icon" href="../../img/favicon.ico" />
+    <title>pruner - racerTS documentation</title>
+    <link rel="stylesheet" href="../../css/theme.css" />
+    <link rel="stylesheet" href="../../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+        <link href="../../styles/overrides.css" rel="stylesheet" />
+        <link href="../../styles/extra.css" rel="stylesheet" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "pruner";
+        var mkdocs_page_input_path = "modules/pruner.md";
+        var mkdocs_page_url = "/racerTS/modules/pruner/";
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href="../..">
+          <img src="../../img/logo.png" class="logo" alt="Logo"/>
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../../getting-started/">Getting started</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../../cli/">CLI</a>
+                </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Modules</span></p>
+              <ul class="current">
+                  <li class="toctree-l1"><a class="reference internal" href="../">Overview</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../conformer_generator/">conformer_generator</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../mol_getter/">mol_getter</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../embedder/">embedder</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../ff_optimizer/">optimizer</a>
+                  </li>
+                  <li class="toctree-l1 current"><a class="reference internal current" href="#">pruner</a>
+    <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#energypruner">EnergyPruner</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#rmsdpruner">RMSDPruner</a>
+    </li>
+    </ul>
+                  </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../..">racerTS documentation</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../.." class="icon icon-home" aria-label="Docs"></a></li>
+          <li class="breadcrumb-item">Modules</li>
+      <li class="breadcrumb-item active">pruner</li>
+    <li class="wy-breadcrumbs-aside">
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="pruner">pruner<a class="headerlink" href="#pruner" title="Permanent link">&para;</a></h1>
+<p>Reduce conformer ensembles based on relative conformer energy and structural similarity.</p>
+<h3 id="energypruner">EnergyPruner<a class="headerlink" href="#energypruner" title="Permanent link">&para;</a></h3>
+<p>Removes conformers with high energy (<code>energy - minimal_energy &gt; threshold</code>):
+Options:</p>
+<ul>
+<li><code>threshold: float = 20.0</code> : window above minimum energy in kcal/mol</li>
+</ul>
+<h3 id="rmsdpruner">RMSDPruner<a class="headerlink" href="#rmsdpruner" title="Permanent link">&para;</a></h3>
+<p>Removes conformers that are structurally identical using <code>rdMolAlign.GetBestRMS</code>, accounting for symmetry by using all substructure matches.
+Energy and rotational prefilters decrease the computational cost by efficiently identifying dissimilar conformers as deviations of energy and rotational constants.</p>
+<p>Options:</p>
+<ul>
+<li><code>threshold: float = 0.125</code> : RMSD in Å cutoff for considering conformers similar</li>
+<li><code>include_hs: bool = False</code> : include hydrogens in RMSD calculations</li>
+<li><code>filter_energies: bool = True</code> : use prefilter by energy difference</li>
+<li><code>energy_threshold: float = 0.1</code> : minimum energy in kcal/mol deviation to identify different conformers</li>
+<li><code>filter_rotations: bool = True</code> : use prefilter by rotational constants</li>
+<li><code>rot_fraction_threshold: float = 0.03</code> : minimum rotational constant deviation to identify different conformers</li>
+<li><code>maxMatches: int = 10000</code> : maximum number of substructure matches for symmetry handling in <code>rdMolAlign.GetBestRMS</code></li>
+</ul>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="../ff_optimizer/" class="btn btn-neutral float-left" title="optimizer"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+      <p>Copyright © 2025 ETH Zürich</p>
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+    
+      <span><a href="../ff_optimizer/" style="color: #fcfcfc">&laquo; Previous</a></span>
+    
+    
+  </span>
+</div>
+    <script src="../../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "../..";</script>
+    <script src="../../js/theme_extra.js"></script>
+    <script src="../../js/theme.js"></script>
+      <script src="../../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>

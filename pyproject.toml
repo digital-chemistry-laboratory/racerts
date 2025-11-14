@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "racerts"
-version = "0.1.0"
+version = "0.1.2"
 authors = [
     { name = "Stefan P. Schmid", email = "stefan.schmid@chem.ethz.ch" },
-    { name = "Henrik Seng", email = "stefan.schmid@chem.ethz.ch" },
-    { name = "Thibault Kläy", email = "stefan.schmid@chem.ethz.ch"},
+    { name = "Henrik Seng" ,email = "stefan.schmid@chem.ethz.ch" },
+    { name = "Thibault Kläy", email = "stefan.schmid@chem.ethz.ch" },
     { name = "Kjell Jorner", email = "kjell.jorner@chem.ethz.ch" },
 ]
 description = "Rapid and Accurate Conformer Ensemble with RDKit for Transition States"

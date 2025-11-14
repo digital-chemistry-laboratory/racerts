@@ -124,9 +124,9 @@
 <li>Optionally, a SMILES for either product or starting material can be provided to define the topology around the TS</li>
 </ul>
 <h2 id="quickstart-python">Quickstart (Python)<a class="headerlink" href="#quickstart-python" title="Permanent link">&para;</a></h2>
-<pre><code class="language-python">from racerts import conformer_generator
+<pre><code class="language-python">from racerts import ConformerGenerator
 
-cg = conformer_generator()
+cg = ConformerGenerator()
 # example.xyz is a single-geometry TS structure; reacting atoms are 0-based indices
 mol = cg.generate_conformers(file_name=&quot;example.xyz&quot;, charge=0, reacting_atoms=[2,3,4])
 cg.write_xyz(&quot;ensemble.xyz&quot;)

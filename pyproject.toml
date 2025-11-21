@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "racerts"
-version = "0.1.2"
+version = "0.1.3"
 authors = [
     { name = "Stefan P. Schmid", email = "stefan.schmid@chem.ethz.ch" },
     { name = "Henrik Seng" ,email = "stefan.schmid@chem.ethz.ch" },

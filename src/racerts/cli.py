@@ -1,5 +1,6 @@
-import os
 import argparse
+import os
+
 from racerts import ConformerGenerator, embedders, mol_getters, optimizers
 from racerts.pruner import EnergyPruner, RMSDPruner
 
@@ -7,7 +8,7 @@ from racerts.pruner import EnergyPruner, RMSDPruner
 def main():
     parser = argparse.ArgumentParser(
         prog="racerts",
-        description="Rapid and accurate conformer ensemble generation for transition states.",
+        description="Rapid conformer ensemble generation for transition states.",
         epilog="Remember to cite the racerts paper :)",
     )
 

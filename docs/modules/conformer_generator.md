@@ -27,8 +27,20 @@ You can swap components via properties, for example:
 cg.mol_getter = MolGetterBonds(assignBonds=True, allowChargedFragments=True)
 cg.embedder = BoundsMatrixEmbedder(...)
 cg.optimizer = UFFOptimizer(...)
+# optional dependency:
+# pip install racerts[ase]
+cg.optimizer = ASEOptimizer(...)
 cg.energy_pruner = EnergyPruner(threshold=20.0, ...)
 cg.rmsd_pruner = RMSDPruner(threshold=0.125, ...)
+```
+
+You can manually swap in ASE optimization as well:
+
+```python
+from ase.calculators.lj import LennardJones
+from racerts.optimizer import ASEOptimizer
+
+cg.optimizer = ASEOptimizer(calculator=LennardJones())
 ```
 ### Functions
 

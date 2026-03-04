@@ -35,6 +35,9 @@ where = ["src"]
 include = ["racerts*"]
 
 [project.optional-dependencies]
+ase = [
+    "ase>=3.22.0",
+]
 dev = [
     "black>=21.12b0",
     "flake8>=6.1.0",
@@ -42,3 +45,9 @@ dev = [
 ]
 [project.scripts]
 racerts = "racerts.cli:main"
+
+[tool.pytest.ini_options]
+addopts = "-m \"not ase\""
+markers = [
+    "ase: tests requiring optional ASE dependency",
+]

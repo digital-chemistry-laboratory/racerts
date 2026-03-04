@@ -85,7 +85,7 @@ class UFFOptimizer(BaseOptimizer):
 
         coordinates_ref = reference.GetConformer(self.conf_id_ref).GetPositions()
 
-        def _optimise(conf_id: int) -> int:
+        def _optimize(conf_id: int) -> int:
             """
             Returns the number of failed minimisation attempts for this conformer.
             """
@@ -127,9 +127,9 @@ class UFFOptimizer(BaseOptimizer):
         conformer_ids = [c.GetId() for c in mol.GetConformers()]
         if self.num_threads > 1:
             with ThreadPoolExecutor(max_workers=self.num_threads) as pool:
-                count_ff_failure = sum(pool.map(_optimise, conformer_ids))
+                count_ff_failure = sum(pool.map(_optimize, conformer_ids))
         else:
-            count_ff_failure = sum(_optimise(cid) for cid in conformer_ids)
+            count_ff_failure = sum(_optimize(cid) for cid in conformer_ids)
 
         if self.verbose:
             print(f"FF failures: {count_ff_failure}")
@@ -163,7 +163,7 @@ class MMFFOptimizer(BaseOptimizer):
 
         ff_props = MMFFGetMoleculeProperties(mol, mmffVerbosity=mmffVerbosity)
 
-        def _optimise(conf_id: int) -> int:
+        def _optimize(conf_id: int) -> int:
             """
             Returns the number of failed minimisation attempts for this conformer.
             """
@@ -208,9 +208,9 @@ class MMFFOptimizer(BaseOptimizer):
 
         if self.num_threads > 1:
             with ThreadPoolExecutor(max_workers=self.num_threads) as pool:
-                ff_failures = sum(pool.map(_optimise, conformer_ids))
+                ff_failures = sum(pool.map(_optimize, conformer_ids))
         else:
-            ff_failures = sum(_optimise(cid) for cid in conformer_ids)
+            ff_failures = sum(_optimize(cid) for cid in conformer_ids)
 
         if self.verbose:
             print(f"FF failures: {ff_failures}")

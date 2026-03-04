@@ -1,0 +1,53 @@
+name: Tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -el {0}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up conda (RDKit)
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          activate-environment: racerts-ci
+          auto-activate-base: false
+          python-version: "3.11"
+          channels: conda-forge
+          channel-priority: strict
+
+      - name: Install RDKit with conda
+        run: conda install -y rdkit
+
+      - name: Install package and pytest
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e . pytest
+
+      - name: Run default pytest suite
+        run: pytest
+
+      - name: Install ASE
+        run: pip install ase
+
+      - name: Run ASE-marked tests
+        run: |
+          set +e
+          pytest -m ase
+          status=$?
+          set -e
+          if [ "$status" -eq 5 ]; then
+            echo "No ASE-marked tests were collected."
+            exit 0
+          fi
+          exit "$status"

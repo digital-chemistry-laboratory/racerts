@@ -175,7 +175,7 @@ class ASEOptimizer(BaseOptimizer):
         if self.conf_id_ref == -1:
             self.conf_id_ref = reference.GetConformer().GetId()
 
-        def _optimise(conf_id: int) -> int:
+        def _optimize(conf_id: int) -> int:
             self.align_mols(
                 mol=mol,
                 reference=reference,
@@ -206,9 +206,9 @@ class ASEOptimizer(BaseOptimizer):
 
         if self.num_threads > 1:
             with ThreadPoolExecutor(max_workers=self.num_threads) as pool:
-                ase_failures = sum(pool.map(_optimise, conformer_ids))
+                ase_failures = sum(pool.map(_optimize, conformer_ids))
         else:
-            ase_failures = sum(_optimise(conf_id) for conf_id in conformer_ids)
+            ase_failures = sum(_optimize(conf_id) for conf_id in conformer_ids)
 
         if self.verbose:
             print(f"ASE failures: {ase_failures}")

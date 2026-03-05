@@ -1,11 +1,8 @@
 name: Upload release to PyPI
 
 on:
-  push:
-    branches: ["main"]
-    paths:
-      - "pyproject.toml"
-
+  release:
+    types: [published]
 jobs:
   pypi-publish:
     name: Upload release to PyPI

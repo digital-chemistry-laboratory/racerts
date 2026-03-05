@@ -42,12 +42,4 @@ jobs:
 
       - name: Run ASE-marked tests
         run: |
-          set +e
           pytest -m ase
-          status=$?
-          set -e
-          if [ "$status" -eq 5 ]; then
-            echo "No ASE-marked tests were collected."
-            exit 0
-          fi
-          exit "$status"

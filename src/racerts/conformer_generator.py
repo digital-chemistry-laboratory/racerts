@@ -162,7 +162,7 @@ class ConformerGenerator(object):
                     f"Charge {charge} does not match the formal charges in the file {file_name}."
                 )
 
-        if file_name.endswith(".xyz"):
+        elif file_name.endswith(".xyz"):
             try:
                 mol_ts = self._mol_getter.get_mol(file_name=file_name, **get_mol_kwargs)
                 return mol_ts
@@ -186,6 +186,10 @@ class ConformerGenerator(object):
                 mol_ts = MolGetterConnectivity().get_mol(
                     file_name=file_name, **get_mol_kwargs
                 )
+        else:
+            raise ValueError(
+                "Only file extensions .sdf and .xyz are supported"
+            )
         if mol_ts is None:
             raise ValueError(
                 f"Failed to create molecule from {file_name}. Check the file format and content."

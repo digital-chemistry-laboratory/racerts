@@ -33,15 +33,15 @@ $ racerts example.xyz --charge 0 --reacting_atoms 2 3 4
 If you use racerTS in one of your works, please make sure to cite it:
 
 ```
-@misc{schmid_rapid_2025,
-	title = {Rapid generation of transition-state conformer ensembles via constrained distance geometry},
-	url = {https://chemrxiv.org/engage/chemrxiv/article-details/69173ebea10c9f5ca165ef65},
-	doi = {10.26434/chemrxiv-2025-d50pd},
-	language = {en},
-	publisher = {ChemRxiv},
-  month = nov,
+@article{doi:10.1021/acs.jcim.5c02794,
 	author = {Schmid, Stefan P. and Seng, Henrik and Kläy, Thibault and Jorner, Kjell},
-	year = {2025},
+	title = {Rapid Generation of Transition-State Conformer Ensembles via Constrained Distance Geometry},
+	journal = {Journal of Chemical Information and Modeling},
+	volume = {66},
+	number = {5},
+	pages = {2777-2790},
+	year = {2026},
+	doi = {10.1021/acs.jcim.5c02794},
 }
 ```
 

@@ -17,7 +17,7 @@ def main():
     parser.add_argument(
         "filename",
         type=str,
-        help="xyz or sdf/mol filename containing the a single transition state conformer.",
+        help="xyz or sdf/mol filename containing a single transition state conformer.",
     )
     parser.add_argument(
         "-c",

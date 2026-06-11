@@ -1,26 +1,25 @@
-from typing import Type, List
 from copy import deepcopy
+from typing import List, Type
 
 from rdkit import Chem
 from rdkit.Chem import Descriptors
 
+from racerts.utils import atom_idx_input_validation, get_frozen_atoms
+
+from .embedder import BaseEmbedder, CmapEmbedder
 from .mol_getter import (
     BaseMolGetter,
     MolGetterBonds,
     MolGetterConnectivity,
     MolGetterSMILES,
 )
-from .embedder import CmapEmbedder, BaseEmbedder
-from .optimizer import MMFFOptimizer, UFFOptimizer, BaseOptimizer
+from .optimizer import BaseOptimizer, MMFFOptimizer, UFFOptimizer
 from .pruner import BasePruner, EnergyPruner, RMSDPruner
-
-from racerts.utils import atom_idx_input_validation, get_frozen_atoms
 
 KCAL_TO_HARTREE = 627.509
 
 
 class ConformerGenerator(object):
-
     def __init__(
         self,
         verbose: bool = False,
@@ -134,7 +133,7 @@ class ConformerGenerator(object):
         depending on the input of SMILES:
 
         Args:
-            file_name (str): The path to the XYZ file.
+            file_name (str): The path to the XYZ or SDF/MOL file.
             charge (int): The molecular charge.
             reacting_atoms (list): The atoms that are part of the reaction.
             input_smiles (list[str] or str): The input SMILES of the TS topology.
@@ -150,30 +149,51 @@ class ConformerGenerator(object):
         if input_smiles is not None and len(input_smiles) > 0:
             get_mol_kwargs["input_smiles"] = input_smiles
 
-        try:
-            mol_ts = self._mol_getter.get_mol(file_name=file_name, **get_mol_kwargs)
-            return mol_ts
-        except Exception as e:
-            if auto_fallback is False:
-                print(e)
-                raise e
+        mol_ts = None
+        if file_name.endswith(".sdf") or file_name.endswith(".mol"):
+            mol_ts = Chem.MolFromMolFile(file_name)
+            if charge != sum(
+                [
+                    mol_ts.GetAtomWithIdx(i).GetFormalCharge()
+                    for i in range(mol_ts.GetNumAtoms())
+                ]
+            ):
+                raise ValueError(
+                    f"Charge {charge} does not match the formal charges in the file {file_name}."
+                )
+
+        elif file_name.endswith(".xyz"):
             try:
-                if not isinstance(self._mol_getter, MolGetterBonds):
-                    print("Using mol based on DetermineBonds.")
-                    mol_ts = MolGetterBonds().get_mol(
-                        file_name=file_name, **get_mol_kwargs
-                    )
-                    return mol_ts
+                mol_ts = self._mol_getter.get_mol(file_name=file_name, **get_mol_kwargs)
+                return mol_ts
             except Exception as e:
-                print(e)
+                if auto_fallback is False:
+                    print(e)
+                    raise e
+                try:
+                    if not isinstance(self._mol_getter, MolGetterBonds):
+                        print("Using mol based on DetermineBonds.")
+                        mol_ts = MolGetterBonds().get_mol(
+                            file_name=file_name, **get_mol_kwargs
+                        )
+                        return mol_ts
+                except Exception as e:
+                    print(e)
 
-            print(
-                "Using mol based on DetermineConnectivity. No bond information is inferred."
+                print(
+                    "Using mol based on DetermineConnectivity. No bond information is inferred."
+                )
+                mol_ts = MolGetterConnectivity().get_mol(
+                    file_name=file_name, **get_mol_kwargs
+                )
+        else:
+            raise ValueError(
+                "Only file extensions .sdf and .xyz are supported"
             )
-            mol_ts = MolGetterConnectivity().get_mol(
-                file_name=file_name, **get_mol_kwargs
+        if mol_ts is None:
+            raise ValueError(
+                f"Failed to create molecule from {file_name}. Check the file format and content."
             )
-
         return mol_ts
 
     def embed_TS(
@@ -240,7 +260,6 @@ class ConformerGenerator(object):
     def write_xyz(self, file_name: str, use_energy=False, comment="0 1"):
         with open(file_name, "w") as f:
             for conf in self.mol.GetConformers():
-
                 mol_block = Chem.rdmolfiles.MolToXYZBlock(
                     self.mol, confId=conf.GetId()
                 ).strip()
@@ -267,7 +286,6 @@ class ConformerGenerator(object):
         old_num_confs = pruned_mol.GetNumConformers()
 
         if self._energy_pruner is not None:
-
             self._energy_pruner.prune(mol=pruned_mol)
 
         print(
@@ -275,7 +293,6 @@ class ConformerGenerator(object):
         )
 
         if self._rmsd_pruner is not None:
-
             self._rmsd_pruner.prune(mol=pruned_mol)
 
         if self._verbose:

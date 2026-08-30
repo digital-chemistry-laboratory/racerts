@@ -6,3 +6,4 @@ m = Chem.AddHs(m)
 AllChem.EmbedMolecule(m)
 
 Chem.MolToXYZFile(m, "ex.xyz")
+Chem.MolToMolFile(m, "ex.mol")

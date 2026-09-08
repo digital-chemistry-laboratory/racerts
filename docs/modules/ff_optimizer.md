@@ -65,6 +65,6 @@ from racerts.optimizer import ASEOptimizer
 
 optimizer = ASEOptimizer(
     calculator=LennardJones,
-    num_threads=4,
+    num_workers=4,
 )
 ```

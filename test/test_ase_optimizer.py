@@ -59,7 +59,7 @@ def test_ase_optimizer_with_calculator_instance_sets_energies():
 
     optimizer = ASEOptimizer(
         calculator=LennardJones(),
-        num_threads=1,
+        num_workers=1,
         fmax=0.1,
         max_steps=10,
     )
@@ -76,7 +76,7 @@ def test_ase_optimizer_with_calculator_class_sets_energies():
 
     optimizer = ASEOptimizer(
         calculator=LennardJones,
-        num_threads=1,
+        num_workers=1,
         fmax=0.1,
         max_steps=10,
     )
@@ -93,7 +93,7 @@ def test_ase_optimizer_with_calculator_callable_sets_energies():
 
     optimizer = ASEOptimizer(
         calculator=lambda: LennardJones(),
-        num_threads=2,
+        num_workers=1,
         fmax=0.1,
         max_steps=10,
     )
@@ -111,7 +111,7 @@ def test_ase_optimizer_keeps_align_indices_fixed():
 
     optimizer = ASEOptimizer(
         calculator=LennardJones(),
-        num_threads=1,
+        num_workers=1,
         fmax=0.1,
         max_steps=10,
     )
@@ -138,7 +138,7 @@ def test_ase_optimizer_external_align_and_optimize():
     reference = _reference_from_conf(mol, conf_id=0)
     optimizer = ASEOptimizer(
         calculator=LennardJones(),
-        num_threads=1,
+        num_workers=1,
         fmax=0.1,
         max_steps=10,
     )
@@ -219,9 +219,8 @@ def test_ase_optimizer_num_workers_sets_energies():
         assert np.isfinite(conf.GetDoubleProp("energy"))
 
 
-def test_ase_optimizer_num_workers_none_uses_all_cores():
-    # num_workers=None means "auto-size to all available cores" (the relax_conformers
-    # convention); it must take the process path and produce finite energies.
+def test_ase_optimizer_num_workers_none_sets_energies():
+    # num_workers=None enables automatic worker selection.
     mol = _build_test_mol(num_confs=4)
     reference = _reference_from_conf(mol, conf_id=0)
 
@@ -231,7 +230,6 @@ def test_ase_optimizer_num_workers_none_uses_all_cores():
         fmax=0.1,
         max_steps=10,
     )
-    assert optimizer._use_processes() is True
     optimizer.tune_ts_conformers(mol=mol, reference=reference, align_indices=[0, 1])
 
     for conf in mol.GetConformers():

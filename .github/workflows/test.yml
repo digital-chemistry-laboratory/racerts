@@ -29,16 +29,13 @@ jobs:
       - name: Install RDKit with conda
         run: conda install -y rdkit
 
-      - name: Install package and pytest
+      - name: Install package, ASE dependencies, and pytest
         run: |
           python -m pip install --upgrade pip
-          pip install -e . pytest
+          pip install -e ".[ase]" pytest
 
       - name: Run default pytest suite
         run: pytest
-
-      - name: Install ASE
-        run: pip install ase
 
       - name: Run ASE-marked tests
         run: |

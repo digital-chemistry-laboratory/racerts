@@ -217,7 +217,11 @@ class RMSDPruner(BasePruner):
                 rot = self.calc_rotations(mol, id=int(j))
                 check = False
                 for i in range(3):
-                    f_rot = abs(ref_rotations[i] - rot[i]) / ref_rotations[i]
+                    difference = abs(ref_rotations[i] - rot[i])
+                    if ref_rotations[i] == 0.0:
+                        f_rot = 0.0 if rot[i] == 0.0 else np.inf
+                    else:
+                        f_rot = difference / ref_rotations[i]
                     if f_rot > rot_fraction_threshold:
                         check = True
                         break

@@ -37,6 +37,7 @@ include = ["racerts*"]
 [project.optional-dependencies]
 ase = [
     "ase>=3.22.0",
+    "threadpoolctl>=3.0.0",
 ]
 dev = [
     "black>=21.12b0",

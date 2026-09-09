@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from functools import wraps
 from importlib import import_module
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Type
+import warnings
 
 from rdkit import Chem
 from rdkit.Geometry import Point3D
@@ -140,6 +141,7 @@ class ASEOptimizer(BaseOptimizer):
         verbose: bool = False,
         conf_id_ref: int = -1,
         force_constant: float = 1e6,
+        num_threads: Optional[int] = 1,
         num_workers: Optional[int] = 1,
     ):
         if calculator is None:
@@ -160,6 +162,12 @@ class ASEOptimizer(BaseOptimizer):
         self.conf_id_ref = conf_id_ref
         self.force_constant = force_constant
         self.num_workers = num_workers
+
+        if num_threads != 1:
+            warnings.warn("Threads-based parallelism within ASEOptimizer is no longer supported and will be deprecated in future versions. Please set the number of parallel processes with num_workers."
+            "For now, the num_workers will be inferred from num_threads, if num_workers is not set.")
+            if self.num_workers == 1:
+                self.num_workers = num_threads
 
         if "logfile" not in self.optimizer_kwargs and not self.verbose:
             self.optimizer_kwargs["logfile"] = None

@@ -164,8 +164,10 @@ class ASEOptimizer(BaseOptimizer):
         self.num_workers = num_workers
 
         if num_threads != 1:
-            warnings.warn("Threads-based parallelism within ASEOptimizer is no longer supported and will be deprecated in future versions. Please set the number of parallel processes with num_workers."
+            warnings.warn("Threads-based parallelism within ASEOptimizer is no longer supported and will be deprecated in future versions. " \
+            "Please set the number of parallel processes with num_workers."
             "For now, the num_workers will be inferred from num_threads, if num_workers is not set.")
+
             if self.num_workers == 1:
                 self.num_workers = num_threads
 

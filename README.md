@@ -1,8 +1,19 @@
-<img src="https://raw.githubusercontent.com/digital-chemistry-laboratory/racerts/test_readme/docs/img/logo.png" alt="Logo" width="1000">
+<p align="center">
+  <img src="https://raw.githubusercontent.com/digital-chemistry-laboratory/racerts/main/docs/img/logo.png" alt="racerTS logo" width="550">
+</p>
 
-**Ra**pid **C**onformer **E**nsembles with **R**DKit for **T**ransition **S**tates
+<p align="center"><b>Ra</b>pid <b>C</b>onformer <b>E</b>nsembles with <b>R</b>DKit for <b>T</b>ransition <b>S</b>tates</p>
 
-<img src="https://raw.githubusercontent.com/digital-chemistry-laboratory/racerts/test_readme/docs/img/TOC.png" alt="TOC" width="400">
+<p align="center">
+  <a href="https://pypi.org/project/racerts/"><img src="https://img.shields.io/pypi/v/racerts.svg" alt="PyPI"></a>
+  <a href="https://anaconda.org/conda-forge/racerts"><img src="https://img.shields.io/conda/vn/conda-forge/racerts.svg" alt="conda-forge"></a>
+  <a href="https://github.com/digital-chemistry-laboratory/racerts/actions/workflows/test.yml"><img src="https://github.com/digital-chemistry-laboratory/racerts/actions/workflows/test.yml/badge.svg" alt="Tests"></a>
+  <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license">
+</p>
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/digital-chemistry-laboratory/racerts/main/docs/img/TOC.png" alt="Overview: constrained conformer generation from a TS structure" width="480">
+</p>
 
 # Installation
 

@@ -1,4 +1,4 @@
-<img src="https://raw.githubusercontent.com/digital-chemistry-laboratory/racerts/main/docs/img/logo.png" alt="Logo" width="1000">
+<img src="https://raw.githubusercontent.com/digital-chemistry-laboratory/racerts/test_readme/docs/img/logo.png" alt="Logo" width="1000">
 
 **Ra**pid **C**onformer **E**nsembles with **R**DKit for **T**ransition **S**tates
 

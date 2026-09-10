@@ -1,17 +1,18 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/digital-chemistry-laboratory/racerts/test_readme/docs/img/logo.png" alt="racerTS logo" width="550">
+  <img src="https://raw.githubusercontent.com/digital-chemistry-laboratory/racerts/main/docs/img/logo.png" alt="racerTS logo" width="450">
 </p>
 
 <p align="center"><b>Ra</b>pid <b>C</b>onformer <b>E</b>nsembles with <b>R</b>DKit for <b>T</b>ransition <b>S</b>tates</p>
 
 <p align="center">
-  <a href="https://doi.org/10.1021/acs.jcim.5c02794"><img src="https://img.shields.io/badge/DOI-10.1021%2Facs.jcim.5c02794-blue" alt="Paper DOI"></a>
+  <a href="https://doi.org/10.1021/acs.jcim.5c02794"><img src="https://img.shields.io/badge/paper-JCIM%202026-blue" alt="Paper"></a>
   <a href="https://pypi.org/project/racerts/"><img src="https://img.shields.io/pypi/v/racerts.svg" alt="PyPI"></a>
   <a href="https://anaconda.org/conda-forge/racerts"><img src="https://img.shields.io/conda/vn/conda-forge/racerts.svg" alt="conda-forge"></a>
-  <a href="https://github.com/digital-chemistry-laboratory/racerts/actions/workflows/test.yml"><img src="https://github.com/digital-chemistry-laboratory/racerts/actions/workflows/test.yml/badge.svg" alt="Tests"></a>
+  <a href="https://github.com/digital-chemistry-laboratory/racerts/actions/workflows/test.yml"><img src="https://img.shields.io/github/actions/workflow/status/digital-chemistry-laboratory/racerts/test.yml?label=tests" alt="Tests"></a>
   <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license">
 </p>
 
+<p align="center">Transition-state conformer ensembles via constrained distance geometry</p>
 
 # Installation
 

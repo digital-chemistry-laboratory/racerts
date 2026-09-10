@@ -5,6 +5,7 @@
 <p align="center"><b>Ra</b>pid <b>C</b>onformer <b>E</b>nsembles with <b>R</b>DKit for <b>T</b>ransition <b>S</b>tates</p>
 
 <p align="center">
+  <a href="https://doi.org/10.1021/acs.jcim.5c02794"><img src="https://img.shields.io/badge/DOI-10.1021%2Facs.jcim.5c02794-blue" alt="Paper DOI"></a>
   <a href="https://pypi.org/project/racerts/"><img src="https://img.shields.io/pypi/v/racerts.svg" alt="PyPI"></a>
   <a href="https://anaconda.org/conda-forge/racerts"><img src="https://img.shields.io/conda/vn/conda-forge/racerts.svg" alt="conda-forge"></a>
   <a href="https://github.com/digital-chemistry-laboratory/racerts/actions/workflows/test.yml"><img src="https://github.com/digital-chemistry-laboratory/racerts/actions/workflows/test.yml/badge.svg" alt="Tests"></a>
@@ -41,7 +42,7 @@ $ racerts example.xyz --charge 0 --reacting_atoms 2 3 4
 ```
 
 # Cite this work
-If you use racerTS in one of your works, please make sure to cite it:
+If you use racerTS, please cite [our paper in *J. Chem. Inf. Model.*](https://doi.org/10.1021/acs.jcim.5c02794):
 
 ```
 @article{schmid_rapid_2026,

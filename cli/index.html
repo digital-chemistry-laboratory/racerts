@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><link rel="canonical" href="https://digital-chemistry-laboratory.github.io/racerTS/cli/" />
+      <link rel="shortcut icon" href="../img/favicon.ico" />
+    <title>CLI - racerTS documentation</title>
+    <link rel="stylesheet" href="../css/theme.css" />
+    <link rel="stylesheet" href="../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+        <link href="../styles/overrides.css" rel="stylesheet" />
+        <link href="../styles/extra.css" rel="stylesheet" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "CLI";
+        var mkdocs_page_input_path = "cli.md";
+        var mkdocs_page_url = "/racerTS/cli/";
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href="..">
+          <img src="../img/logo.png" class="logo" alt="Logo"/>
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../getting-started/">Getting started</a>
+                </li>
+              </ul>
+              <ul class="current">
+                <li class="toctree-l1 current"><a class="reference internal current" href="#">CLI</a>
+    <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#general-inputs">General inputs</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#ensemble-size">Ensemble size</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#conformer-generation-configuration">Conformer Generation Configuration</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#output">Output</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#performance-and-reproducibility">Performance and reproducibility</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#molgetter-options">molgetter options</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#embedder-options">embedder options</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#optimizer-options">optimizer options</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#rmsdpruner-options">RMSDPruner options</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#energypruner-options">EnergyPruner options</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#common-recipes">Common recipes</a>
+    </li>
+    </ul>
+                </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Modules</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../modules/">Overview</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../modules/conformer_generator/">conformer_generator</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../modules/mol_getter/">mol_getter</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../modules/embedder/">embedder</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../modules/ff_optimizer/">optimizer</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../modules/pruner/">pruner</a>
+                  </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="..">racerTS documentation</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href=".." class="icon icon-home" aria-label="Docs"></a></li>
+      <li class="breadcrumb-item active">CLI</li>
+    <li class="wy-breadcrumbs-aside">
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="command-line-interface">Command-line interface<a class="headerlink" href="#command-line-interface" title="Permanent link">&para;</a></h1>
+<p>The <code>racerts</code> CLI mirrors the core functionality of the Python API.
+The command is always:</p>
+<pre><code class="language-bash">$ racerts filename.xyz [options]
+</code></pre>
+<p>where the <code>filename.xyz</code> is the path to an .xyz file containing a single TS conformer.</p>
+<h3 id="general-inputs">General inputs<a class="headerlink" href="#general-inputs" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Options</th>
+<th>Explanation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>-c</code><br><code>--charge</code></td>
+<td>&lt;INT&gt; [0]</td>
+<td>Overall molecular charge</td>
+</tr>
+<tr>
+<td><code>-smiles</code><br><code>--input_smiles</code></td>
+<td>&lt;STR...&gt;</td>
+<td>One (or multiple) SMILES for either product<br>or starting material to define topology</td>
+</tr>
+<tr>
+<td><code>-atoms</code><br><code>--reacting_atoms</code></td>
+<td>&lt;INT...&gt;</td>
+<td>List of (0-based) indices of reacting atoms</td>
+</tr>
+<tr>
+<td><code>-frozen</code><br><code>--frozen_atoms</code></td>
+<td>&lt;INT...&gt;</td>
+<td>Optional: overwrite of atoms to freeze;<br>if omitted, neighbors of reacting atoms are inferred</td>
+</tr>
+</tbody>
+</table>
+<h3 id="ensemble-size">Ensemble size<a class="headerlink" href="#ensemble-size" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Options</th>
+<th>Explanation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>-cf</code><br><code>--conf_factor</code></td>
+<td>&lt;INT&gt; [80]</td>
+<td>Number of initially generated conformers: <br>NumRotatableBonds × <code>conf_factor</code> + 30</td>
+</tr>
+<tr>
+<td><code>-n</code><br><code>--number_of_conformers</code></td>
+<td>&lt;INT&gt; [-1]</td>
+<td>Specify number of initially generated conformers <br>(and overwrite <code>conf_factor</code>)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="conformer-generation-configuration">Conformer Generation Configuration<a class="headerlink" href="#conformer-generation-configuration" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Options</th>
+<th>Explanation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>-m</code><br><code>--mol</code></td>
+<td>&lt;smiles|bonds|connect&gt;</td>
+<td>Method to infer molecular graph from .xyz:<br><code>smiles</code> use <a href="../modules/conformer_generator/#get_mol"><code>MolGetterSMILES</code></a>;<br><code>bonds</code> use <a href="../modules/conformer_generator/#get_mol"><code>MolGetterBonds</code></a>;<br><code>connect</code> use <a href="../modules/conformer_generator/#get_mol"><code>MolGetterConnectivity</code></a></td>
+</tr>
+<tr>
+<td><code>-e</code><br><code>--embed</code></td>
+<td>&lt;dm|cmap&gt;</td>
+<td>Embedding method:<br><code>dm</code> = bounds-matrix; uses <a href="../modules/conformer_generator/#embed_TS"><code>BoundsMatrixEmbedder</code></a>;<br><code>cmap</code> = coordinate map; uses <a href="../modules/conformer_generator/#embed_TS"><code>CmapEmbedder</code></a></td>
+</tr>
+<tr>
+<td><code>-ff</code><br><code>--ff</code></td>
+<td>&lt;mmff|uff&gt; [mmff]</td>
+<td>Force-field refinement: ;<br><code>mmff</code> uses <a href="../modules/ff_optimizer/#mmff_optimizer"><code>MMFFOptimizer</code></a>;<br><code>uff</code> uses <a href="../modules/ff_optimizer/#uff_optimizer"><code>UFFOptimizer</code></a></td>
+</tr>
+</tbody>
+</table>
+<h3 id="output">Output<a class="headerlink" href="#output" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Options</th>
+<th>Explanation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>-o</code><br><code>--output</code></td>
+<td>&lt;STR&gt; [conformer_ensemble.xyz]</td>
+<td>Output .xyz filename</td>
+</tr>
+<tr>
+<td><code>--out_energies</code></td>
+<td>-</td>
+<td>Write energies in E<sub>h</sub> in the comment line;<br>conformer property remains in kcal/mol</td>
+</tr>
+<tr>
+<td><code>-v</code><br><code>--verbose</code></td>
+<td>-</td>
+<td>Verbose output</td>
+</tr>
+</tbody>
+</table>
+<h3 id="performance-and-reproducibility">Performance and reproducibility<a class="headerlink" href="#performance-and-reproducibility" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Options</th>
+<th>Explanation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--num_threads</code></td>
+<td>&lt;INT&gt; [1]</td>
+<td>Threads for embedding/optimization</td>
+</tr>
+<tr>
+<td><code>--seed</code></td>
+<td>&lt;INT&gt; [12]</td>
+<td>Random seed</td>
+</tr>
+<tr>
+<td><code>--no_fallback</code></td>
+<td>-</td>
+<td>Disable automatic fallback (see below)</td>
+</tr>
+</tbody>
+</table>
+<div class="admonition note">
+<p class="admonition-title">Fallback</p>
+<p>In the default setup, an automatic fallback substitutes modules upon failure:</p>
+<p><strong>MolGetter:</strong><br>
+1. <a href="../modules/conformer_generator/#get_mol"><code>MolGetterSMILES</code></a><br>
+2. <a href="../modules/conformer_generator/#get_mol"><code>MolGetterBonds</code></a><br>
+3. <a href="../modules/conformer_generator/#get_mol"><code>MolGetterConnectivity</code></a><br></p>
+<p><strong>Optimizer</strong><br>
+1. <a href="../modules/ff_optimizer/#mmff_optimizer"><code>MMFFOptimizer</code></a><br>
+2. <a href="../modules/ff_optimizer/#uff_optimizer"><code>UFFOptimizer</code></a><br></p>
+<p>The next module in the chain is used only if the previous one fails.</p>
+</div>
+<h3 id="molgetter-options">molgetter options<a class="headerlink" href="#molgetter-options" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Explanation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--no_assignbonds</code></td>
+<td>For <code>bonds</code> getter: don’t assign bonds [default: True]</td>
+</tr>
+<tr>
+<td><code>--disallow-charged</code></td>
+<td>For <code>bonds</code> getter: disallow charged fragments [default: True]</td>
+</tr>
+</tbody>
+</table>
+<h3 id="embedder-options">embedder options<a class="headerlink" href="#embedder-options" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Explanation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--no-random_coords</code></td>
+<td>Disable random coordinates</td>
+</tr>
+</tbody>
+</table>
+<h3 id="optimizer-options">optimizer options<a class="headerlink" href="#optimizer-options" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Explanation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--force_constant</code></td>
+<td>&lt;FLOAT&gt; [1e6]</td>
+</tr>
+</tbody>
+</table>
+<h3 id="rmsdpruner-options">RMSDPruner options<a class="headerlink" href="#rmsdpruner-options" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Options</th>
+<th>Explanation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>-rmsd</code><br><code>--rmsd_thres</code></td>
+<td>&lt;FLOAT&gt; [0.125]</td>
+<td>RMSD threshold in Å</td>
+</tr>
+<tr>
+<td><code>-rmsd_hs</code><br><code>--rmsd_include_hs</code></td>
+<td>-</td>
+<td>Include hydrogens when computing RMSDs <br>[default: False]</td>
+</tr>
+<tr>
+<td><code>--no_filter_energies</code></td>
+<td>-</td>
+<td>Disable energy-based dissimilarity prefilter <br>[default: True]</td>
+</tr>
+<tr>
+<td><code>--no_filter_rotations</code></td>
+<td>-</td>
+<td>Disable rotational-profile prefilter <br>[default: True]</td>
+</tr>
+<tr>
+<td><code>--rmsd_energy</code></td>
+<td>&lt;FLOAT&gt; [0.1]</td>
+<td>Energy difference threshold (kcal/mol) for the prefilter</td>
+</tr>
+<tr>
+<td><code>--rmsd_rot_fraction</code></td>
+<td>&lt;FLOAT&gt; [0.03]</td>
+<td>Rotational-difference fraction threshold</td>
+</tr>
+<tr>
+<td><code>-rmsd_match</code><br><code>--rmsd_max_matches</code></td>
+<td>&lt;INT&gt; [10000]</td>
+<td>Max substructure matches for RMSD calculation</td>
+</tr>
+</tbody>
+</table>
+<h3 id="energypruner-options">EnergyPruner options<a class="headerlink" href="#energypruner-options" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Options</th>
+<th>Explanation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>-energy</code><br><code>--energy_thres</code></td>
+<td>&lt;FLOAT&gt; [20.0]</td>
+<td>Energy window for pruning (kcal/mol)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="common-recipes">Common recipes<a class="headerlink" href="#common-recipes" title="Permanent link">&para;</a></h3>
+<p>Basic run</p>
+<pre><code class="language-bash">$ racerts example.xyz --charge 0 --reacting_atoms 2 3 4
+</code></pre>
+<p>Use SMILES-defined topology and coordinate-map embedding</p>
+<pre><code class="language-bash">$ racerts example.xyz --charge 0 \
+  --reacting_atoms 2 3 4 \
+  --input_smiles &quot;C1=CC=CC=C1&quot; &quot;O&quot; \
+  --mol smiles --embed cmap --ff mmff --out_energies
+</code></pre>
+<p>Increase diversity by allowing more initial conformers</p>
+<pre><code class="language-bash">$ racerts example.xyz --charge 0 --reacting_atoms 2 3 4 --conf_factor 120
+</code></pre>
+<p>Faster refinement on many conformers with threads (if using multithreaded optimizers)</p>
+<pre><code class="language-bash">$ racerts example.xyz --charge 0 --reacting_atoms 2 3 4 --num_threads 4
+</code></pre>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="../getting-started/" class="btn btn-neutral float-left" title="Getting started"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+        <a href="../modules/" class="btn btn-neutral float-right" title="Overview">Next <span class="icon icon-circle-arrow-right"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+      <p>Copyright © 2025 ETH Zürich</p>
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+    
+      <span><a href="../getting-started/" style="color: #fcfcfc">&laquo; Previous</a></span>
+    
+    
+      <span><a href="../modules/" style="color: #fcfcfc">Next &raquo;</a></span>
+    
+  </span>
+</div>
+    <script src="../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "..";</script>
+    <script src="../js/theme_extra.js"></script>
+    <script src="../js/theme.js"></script>
+      <script src="../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>

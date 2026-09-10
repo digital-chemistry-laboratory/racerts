@@ -1,0 +1,52 @@
+/* Light blue header styling for MkDocs themes */
+
+/* Read the Docs theme header */
+.wy-nav-top {
+	background-color: #B0BEC5; /* light blue */
+}
+.wy-nav-top a,
+.wy-nav-top i {
+	color: #e6f2ff; /* dark blue text for contrast */
+}
+
+/* Optional: match the left search panel header to the top bar */
+.wy-side-nav-search {
+	background-color: #B0BEC5; /* keep consistent with header */
+}
+.wy-side-nav-search input[type="text"] {
+	border-color: #B0BEC5;
+}
+
+/* CLI tables: improve readability and column sizing */
+/* CLI page table styling: target tables after the H1 with id=command-line-interface */
+#command-line-interface ~ table {
+	table-layout: auto;
+	width: 100%;
+}
+#command-line-interface ~ table th,
+#command-line-interface ~ table td {
+	vertical-align: top;
+}
+#command-line-interface ~ table th:first-child,
+#command-line-interface ~ table td:first-child {
+	white-space: nowrap; /* keep each keyword intact; we insert <br> between aliases */
+}
+#command-line-interface ~ table td:first-child code {
+	white-space: nowrap; /* avoid wrapping inside a single flag */
+}
+/* Slightly narrow the Options column to keep Explanations roomy */
+#command-line-interface ~ table th:nth-child(2),
+#command-line-interface ~ table td:nth-child(2) {
+	width: 20%;
+}
+
+/* Compact admonitions and smooth spacing near tables */
+.admonition {
+	margin: 0.8em 0; /* reduce default vertical gap */
+}
+.admonition > .admonition-title {
+	margin-bottom: 0.35em; /* tighter title-body spacing */
+}
+/* When an admonition follows a table or precedes one, keep gaps modest */
+table + .admonition { margin-top: 0.6em; }
+.admonition + table { margin-top: 0.6em; }

@@ -2,7 +2,7 @@
 
 **Ra**pid **C**onformer **E**nsembles with **R**DKit for **T**ransition **S**tates
 
-<img src="https://raw.githubusercontent.com/digital-chemistry-laboratory/racerts/main/docs/img/TOC.png" alt="TOC" width="400">
+<img src="https://raw.githubusercontent.com/digital-chemistry-laboratory/racerts/test_readme/docs/img/TOC.png" alt="TOC" width="400">
 
 # Installation
 

@@ -12,9 +12,6 @@
   <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license">
 </p>
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/digital-chemistry-laboratory/racerts/main/docs/img/TOC.png" alt="Overview: constrained conformer generation from a TS structure" width="480">
-</p>
 
 # Installation
 

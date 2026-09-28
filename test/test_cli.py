@@ -34,8 +34,9 @@ class FakeConfGen:
             verbose=verbose, randomSeed=randomSeed, num_threads=num_threads
         )
         self.mol_getter = None
-        self.embedder = None
-        self.optimizer = None
+        # Like the real generator, start with default components.
+        self.embedder = FakeEmbedder()
+        self.optimizer = FakeOptimizer()
         self._energy_pruner = None
         self._rmsd_pruner = None
         self.generated_args = None
@@ -70,6 +71,7 @@ class FakeConfGen:
         number_of_conformers=-1,
         conf_factor=80,
         auto_fallback=True,
+        multiplicity=None,
     ):
         self.generated_args = dict(
             filename=filename,
@@ -80,6 +82,7 @@ class FakeConfGen:
             number_of_conformers=number_of_conformers,
             conf_factor=conf_factor,
             auto_fallback=auto_fallback,
+            multiplicity=multiplicity,
         )
 
     def write_xyz(self, path, use_energy=False, comment="0 1"):
@@ -266,6 +269,43 @@ def test_cli_select_components_and_flags(monkeypatch, tmp_path):
     assert gen["reacting_atoms"] == [0, 1]
     assert gen["auto_fallback"] is False
     assert cg.written["use_energy"] is True
+
+
+def test_cli_flags_reach_default_components(monkeypatch, tmp_path):
+    cli = _prepare_cli(monkeypatch)
+
+    infile = tmp_path / "input.xyz"
+    infile.write_text("2\ncomment\nH 0 0 0\nH 0 0 0\n")
+
+    created = {}
+
+    def ctor(verbose=False, randomSeed=12, num_threads=1):
+        inst = FakeConfGen(
+            verbose=verbose, randomSeed=randomSeed, num_threads=num_threads
+        )
+        created["cg"] = inst
+        return inst
+
+    monkeypatch.setattr(cli, "ConformerGenerator", ctor, raising=True)
+
+    # No --embed / --ff: the flags must still reach the default embedder and optimizer.
+    argv = [
+        "racerts",
+        str(infile),
+        "--no_random_coords",
+        "--force_constant",
+        "1e4",
+        "--multiplicity",
+        "3",
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    cli.main()
+
+    cg = created["cg"]
+    assert cg.embedder.useRandomCoords is False
+    assert cg.optimizer.force_constant == pytest.approx(1e4)
+    assert cg.generated_args["multiplicity"] == 3
 
 
 def test_cli_missing_file_raises(monkeypatch, tmp_path):

@@ -1,5 +1,6 @@
+import logging
 from copy import deepcopy
-from typing import List, Type
+from typing import List, Optional
 
 from rdkit import Chem
 from rdkit.Chem import Descriptors
@@ -14,9 +15,17 @@ from .mol_getter import (
     MolGetterSMILES,
 )
 from .optimizer import BaseOptimizer, MMFFOptimizer, UFFOptimizer
+from .optimizer.ase import (
+    EV_TO_KCAL_MOL,
+    count_electrons,
+    infer_charge_and_multiplicity,
+)
 from .pruner import BasePruner, EnergyPruner, RMSDPruner
 
+logger = logging.getLogger(__name__)
+
 KCAL_TO_HARTREE = 627.509
+DEFAULT_CONF_FACTOR = 80
 
 
 class ConformerGenerator(object):
@@ -76,14 +85,6 @@ class ConformerGenerator(object):
     @optimizer.setter
     def optimizer(self, optimizer: BaseOptimizer) -> None:
         self._optimizer = optimizer
-
-    @property
-    def bounds_generator(self) -> Type[BaseEmbedder]:
-        return self._bounds_generator
-
-    @bounds_generator.setter
-    def bounds_generator(self, bounds_generator: Type[BaseEmbedder]) -> None:
-        self._bounds_generator = bounds_generator
 
     @property
     def mol_getter(self) -> BaseMolGetter:
@@ -151,8 +152,8 @@ class ConformerGenerator(object):
 
         mol_ts = None
         if file_name.endswith(".sdf") or file_name.endswith(".mol"):
-            mol_ts = Chem.MolFromMolFile(file_name)
-            if charge != sum(
+            mol_ts = Chem.MolFromMolFile(file_name, removeHs=False)
+            if mol_ts is not None and charge != sum(
                 [
                     mol_ts.GetAtomWithIdx(i).GetFormalCharge()
                     for i in range(mol_ts.GetNumAtoms())
@@ -170,6 +171,11 @@ class ConformerGenerator(object):
                 if auto_fallback is False:
                     print(e)
                     raise e
+                # Without SMILES, the default SMILES getter always fails; that is expected.
+                if "input_smiles" in get_mol_kwargs or not isinstance(
+                    self._mol_getter, MolGetterSMILES
+                ):
+                    logger.warning("%s failed: %s", type(self._mol_getter).__name__, e)
                 try:
                     if not isinstance(self._mol_getter, MolGetterBonds):
                         print("Using mol based on DetermineBonds.")
@@ -203,7 +209,7 @@ class ConformerGenerator(object):
         reacting_atoms: List[str],
         frozen_atoms: List,
         number_of_conformers: int = -1,
-        conf_factor: int = 80,
+        conf_factor: int = DEFAULT_CONF_FACTOR,
     ):
 
         if number_of_conformers == -1:
@@ -233,14 +239,20 @@ class ConformerGenerator(object):
         auto_fallback: bool = True,
     ):
 
+        energy_method = type(self._optimizer).__name__
         try:
             self._optimizer.tune_ts_conformers(
                 mol=new_mol, reference=mol_ts, align_indices=frozen_atoms
             )
         except Exception as e:
-            print("Optimization failed: ", e)
-            if not isinstance(self._optimizer, UFFOptimizer) and auto_fallback is True:
-                print("UFF is used for the refinement")
+            # Only MMFF falls back (to UFF); other errors are passed on to the caller.
+            if isinstance(self._optimizer, MMFFOptimizer) and auto_fallback is True:
+                logger.warning(
+                    "%s failed (%s); falling back to UFF. UFF energies are less "
+                    "reliable for ranking conformers.",
+                    energy_method,
+                    e,
+                )
                 verbose = getattr(self._optimizer, "verbose", False)
                 conf_id_ref = getattr(self._optimizer, "conf_id_ref", -1)
                 force_constant = getattr(self._optimizer, "force_constant", 1e6)
@@ -254,10 +266,40 @@ class ConformerGenerator(object):
                 optimizer.tune_ts_conformers(
                     mol=new_mol, reference=mol_ts, align_indices=frozen_atoms
                 )
+                energy_method = type(optimizer).__name__
+            else:
+                raise
 
+        new_mol.SetProp("energy_method", energy_method)
         return new_mol
 
-    def write_xyz(self, file_name: str, use_energy=False, comment="0 1"):
+    def write_xyz(
+        self, file_name: str, use_energy=False, comment: Optional[str] = None
+    ):
+        """
+        Write all conformers to a multi-structure xyz file.
+
+        By default, the comment lines are in extended XYZ format (e.g. for ase.io.read)
+        with the energy in eV, the charge, the spin multiplicity (as "spin" and
+        "multiplicity") and the method that produced the energies.
+
+        Args:
+            file_name (str): Output path.
+            use_energy (bool): Instead, write only the energy in Hartree, as in CREST
+                ensembles (nan for conformers without an energy).
+            comment (str): Instead, write this comment line.
+        """
+        info = infer_charge_and_multiplicity(self.mol)
+        extxyz = [
+            f"charge={info['charge']}",
+            f"spin={info['multiplicity']}",
+            f"multiplicity={info['multiplicity']}",
+        ]
+        if self.mol.HasProp("energy_method"):
+            extxyz.append(f"energy_method={self.mol.GetProp('energy_method')}")
+        extxyz.append('pbc="F F F"')
+
+        missing_energy = []
         with open(file_name, "w") as f:
             for conf in self.mol.GetConformers():
                 mol_block = Chem.rdmolfiles.MolToXYZBlock(
@@ -265,19 +307,29 @@ class ConformerGenerator(object):
                 ).strip()
                 lines = mol_block.split("\n")
 
+                energy = None
+                if conf.HasProp("energy"):
+                    energy = conf.GetDoubleProp("energy")
+                elif use_energy or comment is None:
+                    missing_energy.append(conf.GetId())
+
                 if use_energy:
-                    if conf.HasProp("energy"):
-                        energy_val = conf.GetDoubleProp("energy") / KCAL_TO_HARTREE
-                    else:
-                        energy_val = 0.0
+                    energy_val = (
+                        float("nan") if energy is None else energy / KCAL_TO_HARTREE
+                    )
                     lines[1] = f"{energy_val:.6f}"
+                elif comment is not None:
+                    lines[1] = comment
                 else:
-                    new_comment = comment
-                    if hasattr(self, "charge") and self.charge is not None:
-                        new_comment = comment.replace("0", str(self.charge))
-                    lines[1] = new_comment
+                    fields = ["Properties=species:S:1:pos:R:3"]
+                    if energy is not None:
+                        fields.append(f"energy={energy / EV_TO_KCAL_MOL:.8f}")
+                    lines[1] = " ".join(fields + extxyz)
 
                 f.write("\n".join(lines) + "\n")
+
+        if missing_energy:
+            logger.warning("Conformers %s have no energy.", missing_energy)
 
     def prune(self, mol):
 
@@ -310,8 +362,9 @@ class ConformerGenerator(object):
         frozen_atoms: List = [],
         input_smiles=None,
         number_of_conformers: int = -1,
-        conf_factor=30,
+        conf_factor: int = DEFAULT_CONF_FACTOR,
         auto_fallback=True,
+        multiplicity: Optional[int] = None,
     ) -> Chem.Mol:
 
         mol_ts = self.get_mol(
@@ -321,6 +374,28 @@ class ConformerGenerator(object):
             if self._verbose is True:
                 print("No valid mol object could be generated.")
             raise ValueError("No valid mol object could be generated.")
+
+        # Keep charge and multiplicity on the molecule for later steps (ASE, write_xyz),
+        # also for graphs without formal charges (MolGetterConnectivity).
+        state = infer_charge_and_multiplicity(mol_ts, charge, multiplicity)
+        electrons = count_electrons(mol_ts, state["charge"])
+        if (electrons + state["multiplicity"]) % 2 == 0:
+            logger.warning(
+                "Multiplicity %d does not fit the %d electrons of the TS at charge %d.",
+                state["multiplicity"],
+                electrons,
+                state["charge"],
+            )
+        elif multiplicity is None and state["multiplicity"] == 2:
+            logger.warning(
+                "The TS has an odd number of electrons (%d at charge %d), so the "
+                "multiplicity is 2. Check the charge, or pass multiplicity=2 for a "
+                "radical.",
+                electrons,
+                state["charge"],
+            )
+        mol_ts.SetIntProp("charge", state["charge"])
+        mol_ts.SetIntProp("multiplicity", state["multiplicity"])
 
         new_mol = deepcopy(mol_ts)
         new_mol.RemoveAllConformers()
@@ -338,6 +413,11 @@ class ConformerGenerator(object):
             number_of_conformers=number_of_conformers,
             conf_factor=conf_factor,
         )
+        if new_mol is None:
+            raise RuntimeError(
+                "Embedding produced no conformers. Check the reacting atoms and the TS "
+                "geometry, or try another embedder."
+            )
 
         new_mol = self.optimize(
             new_mol=new_mol,

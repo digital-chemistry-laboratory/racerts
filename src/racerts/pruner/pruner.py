@@ -1,3 +1,4 @@
+import logging
 from abc import abstractmethod
 
 from rdkit import Chem
@@ -6,6 +7,23 @@ from rdkit.Chem import rdMolDescriptors
 from rdkit.Chem import rdMolAlign
 
 import numpy as np
+
+from racerts.optimizer.ase import EV_TO_KCAL_MOL
+
+logger = logging.getLogger(__name__)
+
+
+def _drop_conformers_without_energy(mol: Chem.Mol) -> None:
+    """Remove conformers without an 'energy' property, e.g. from failed calculations."""
+    missing = [
+        conf.GetId() for conf in mol.GetConformers() if not conf.HasProp("energy")
+    ]
+    if missing:
+        logger.warning(
+            "Dropping %d conformer(s) without an energy: %s", len(missing), missing
+        )
+    for conf_id in missing:
+        mol.RemoveConformer(conf_id)
 
 
 class BasePruner:
@@ -28,7 +46,8 @@ class EnergyPruner(BasePruner):
     def set_QM_energies(self, mol, verbose=False):
         """
         Sets quantum mechanical (QM) energies for all conformers of a molecule using RDKit's
-        EHT tools. QM energies are set as a property on each conformer.
+        EHT tools. QM energies are set as a property on each conformer (in kcal/mol);
+        conformers for which the calculation fails are left without an energy.
 
         Args:
             mol (RDKit Mol): The molecule whose conformers will have QM energies set.
@@ -41,9 +60,11 @@ class EnergyPruner(BasePruner):
             passed, res = rdEHTTools.RunMol(mol, confId=id)
 
             if passed is True:
-                e = res.totalEnergy
-                mol.GetConformer().SetDoubleProp("energy", e)
+                e = res.totalEnergy * EV_TO_KCAL_MOL
+                mol.GetConformer(id).SetDoubleProp("energy", e)
             else:
+                # Don't rank a stale energy from an earlier step against EHT energies.
+                mol.GetConformer(id).ClearProp("energy")
                 if verbose is True:
                     print("failure of rdEHTTools")
 
@@ -58,23 +79,27 @@ class EnergyPruner(BasePruner):
 
         Returns:
             float: The minimal energy found among all conformers.
-        """
-        if "minimal_energy" not in mol.GetPropNames():
 
-            min_energy = np.min(
-                [np.inf]
-                + [
-                    conf.GetDoubleProp("energy")
-                    for conf in mol.GetConformers()
-                    if conf.HasProp("energy")
-                ]
+        Raises:
+            ValueError: If no conformer has an energy.
+        """
+        energies = [
+            conf.GetDoubleProp("energy")
+            for conf in mol.GetConformers()
+            if conf.HasProp("energy")
+        ]
+        if not energies:
+            raise ValueError(
+                "No conformer carries an 'energy' property. Run an optimizer first."
             )
-            mol.SetDoubleProp("minimal_energy", min_energy)
+        # Never cache: energies change after every (re-)optimization.
+        min_energy = float(np.min(energies))
+        mol.SetDoubleProp("minimal_energy", min_energy)
 
         if verbose is True:
             print(f"Minimal energy conformer: {min_energy} kcal/mol")
 
-        return mol.GetDoubleProp("minimal_energy")
+        return min_energy
 
     def prune(self, mol: Chem.Mol):
 
@@ -82,6 +107,7 @@ class EnergyPruner(BasePruner):
             self.set_QM_energies(mol, self.verbose)
 
         min_energy = self.get_minimal_energy(mol, self.verbose)
+        _drop_conformers_without_energy(mol)
         conformers_to_remove = []
 
         for conf in mol.GetConformers():
@@ -129,6 +155,9 @@ class RMSDPruner(BasePruner):
         return sorted_list
 
     def prune(self, mol):
+
+        if any(conf.HasProp("energy") for conf in mol.GetConformers()):
+            _drop_conformers_without_energy(mol)
 
         conf_idx = [conf.GetId() for conf in self.get_sorted_conf_energy(mol)]
 
@@ -231,7 +260,10 @@ class RMSDPruner(BasePruner):
 
             # check rmsd similarity
             ref_align_mol = Chem.Mol(ref_mol)
-            ref_align_mol.AddConformer(Chem.Conformer(conf))
+            # A new id: keeping id j would clash with the reference copy when j == 0.
+            candidate_id = ref_align_mol.AddConformer(
+                Chem.Conformer(conf), assignId=True
+            )
 
             if self.include_hs is False:
                 try:
@@ -240,7 +272,7 @@ class RMSDPruner(BasePruner):
                     ref_align_mol = Chem.RemoveHs(ref_align_mol, sanitize=False)
 
             rmsd = self.calc_rmsd(
-                ref_align_mol, ref_align_mol, -1, int(j), maxMatches=maxMatches
+                ref_align_mol, ref_align_mol, -1, candidate_id, maxMatches=maxMatches
             )
             checked.append(rmsd > self.threshold)
 

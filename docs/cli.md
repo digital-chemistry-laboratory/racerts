@@ -12,6 +12,7 @@ where the `filename.xyz` is the path to an .xyz file containing a single TS conf
 | Command | Options | Explanation |
 | --- | --- | --- |
 | `-c`<br>`--charge` | &lt;INT&gt; [0] | Overall molecular charge |
+| `-mult`<br>`--multiplicity` | &lt;INT&gt; | Spin multiplicity; inferred from the molecular graph if omitted |
 | `-smiles`<br>`--input_smiles` | &lt;STR...&gt; | One (or multiple) SMILES for either product<br>or starting material to define topology |
 | `-atoms`<br>`--reacting_atoms` | &lt;INT...&gt; | List of (0-based) indices of reacting atoms |
 | `-frozen`<br>`--frozen_atoms` | &lt;INT...&gt; | Optional: overwrite of atoms to freeze;<br>if omitted, neighbors of reacting atoms are inferred |
@@ -29,7 +30,7 @@ where the `filename.xyz` is the path to an .xyz file containing a single TS conf
 | Command | Options | Explanation |
 | --- | --- | --- |
 | `-m`<br>`--mol` | &lt;smiles\|bonds\|connect&gt; | Method to infer molecular graph from .xyz:<br>`smiles` use [`MolGetterSMILES`](./modules/conformer_generator.md#get_mol);<br>`bonds` use [`MolGetterBonds`](./modules/conformer_generator.md#get_mol);<br>`connect` use [`MolGetterConnectivity`](./modules/conformer_generator.md#get_mol) |
-| `-e`<br>`--embed` | &lt;dm\|cmap&gt; | Embedding method:<br>`dm` = bounds-matrix; uses [`BoundsMatrixEmbedder`](./modules/conformer_generator.md#embed_TS);<br>`cmap` = coordinate map; uses [`CmapEmbedder`](./modules/conformer_generator.md#embed_TS) |
+| `-e`<br>`--embed` | &lt;dm\|cmap&gt; [cmap] | Embedding method:<br>`dm` = bounds-matrix; uses [`BoundsMatrixEmbedder`](./modules/conformer_generator.md#embed_TS);<br>`cmap` = coordinate map; uses [`CmapEmbedder`](./modules/conformer_generator.md#embed_TS) |
 | `-ff`<br>`--ff` | &lt;mmff\|uff&gt; [mmff] | Force-field refinement: ;<br>`mmff` uses [`MMFFOptimizer`](./modules/ff_optimizer.md#mmff_optimizer);<br>`uff` uses [`UFFOptimizer`](./modules/ff_optimizer.md#uff_optimizer) |
 
 
@@ -37,8 +38,8 @@ where the `filename.xyz` is the path to an .xyz file containing a single TS conf
 
 | Command | Options | Explanation |
 | --- | --- | --- |
-| `-o`<br>`--output` | &lt;STR&gt; [conformer_ensemble.xyz] | Output .xyz filename |
-| `--out_energies` | - | Write energies in E<sub>h</sub> in the comment line;<br>conformer property remains in kcal/mol |
+| `-o`<br>`--output` | &lt;STR&gt; [conformer_ensemble.xyz] | Output .xyz filename; the comment lines are in extended XYZ format<br>(energy in eV, charge, spin; readable with `ase.io.read`) |
+| `--out_energies` | - | Instead, write only the energy in E<sub>h</sub> on each comment line (as in CREST ensembles);<br>conformer property remains in kcal/mol |
 | `-v`<br>`--verbose` | - | Verbose output |
 
 ### Performance and reproducibility
@@ -68,13 +69,13 @@ where the `filename.xyz` is the path to an .xyz file containing a single TS conf
 | Command  | Explanation |
 | ---  | --- |
 | `--no_assignbonds` | For `bonds` getter: don’t assign bonds [default: True] |
-| `--disallow-charged` | For `bonds` getter: disallow charged fragments [default: True] |
+| `--disallow_charged_fragments` | For `bonds` getter: disallow charged fragments [default: True] |
 
 ### embedder options
 
 | Command | Explanation |
 | --- | --- |
-| `--no-random_coords` | Disable random coordinates |
+| `--no_random_coords` | Disable random coordinates |
 
 ### optimizer options
 

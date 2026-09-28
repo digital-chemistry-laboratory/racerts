@@ -1,10 +1,12 @@
 import importlib
+import logging
 
 import numpy as np
 import pytest
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
+from racerts import ConformerGenerator
 from racerts.optimizer import ASEOptimizer, optimizers
 from racerts.optimizer.ase import (
     infer_charge_and_multiplicity,
@@ -104,10 +106,33 @@ def test_ase_optimizer_with_calculator_callable_sets_energies():
         assert np.isfinite(conf.GetDoubleProp("energy"))
 
 
+def _aligned(mol: Chem.Mol, reference: Chem.Mol, align_indices) -> Chem.Mol:
+    """
+    The conformers after the alignment of tune_ts_conformers alone. The aligned atoms
+    cannot all match the reference, since each embedded conformer has its own C-C
+    distance (up to 0.03 A apart, depending on the RDKit version).
+    """
+    aligned = Chem.Mol(mol)
+    ASEOptimizer(calculator=LennardJones()).align_mols(
+        aligned, reference, align_indices
+    )
+    return aligned
+
+
+def _assert_aligned_atoms_did_not_move(mol, aligned, align_indices):
+    for conf, start in zip(mol.GetConformers(), aligned.GetConformers()):
+        assert np.allclose(
+            conf.GetPositions()[align_indices],
+            start.GetPositions()[align_indices],
+            atol=1e-6,
+        )
+
+
 def test_ase_optimizer_keeps_align_indices_fixed():
     mol = _build_test_mol(num_confs=2)
     reference = _reference_from_conf(mol, conf_id=0)
     align_indices = [0, 1]
+    aligned = _aligned(mol, reference, align_indices)
 
     optimizer = ASEOptimizer(
         calculator=LennardJones(),
@@ -121,14 +146,7 @@ def test_ase_optimizer_keeps_align_indices_fixed():
         align_indices=align_indices,
     )
 
-    reference_positions = reference.GetConformer().GetPositions()
-    for conf in mol.GetConformers():
-        positions = conf.GetPositions()
-        assert np.allclose(
-            positions[align_indices],
-            reference_positions[align_indices],
-            atol=1e-2,
-        )
+    _assert_aligned_atoms_did_not_move(mol, aligned, align_indices)
 
 
 def test_ase_optimizer_external_align_and_optimize():
@@ -177,7 +195,7 @@ def test_neutral_singlet_charge_and_multiplicity_on_atoms():
 
 
 def test_charged_radical_charge_and_multiplicity_on_atoms():
-    # Methylammonium radical cation: +1 formal charge, one radical electron -> doublet.
+    # Methylammonium radical cation: +1 formal charge, 17 electrons -> doublet.
     mol = Chem.AddHs(Chem.MolFromSmiles("[CH2][NH3+]"))
     AllChem.EmbedMolecule(mol, randomSeed=12)
 
@@ -188,6 +206,18 @@ def test_charged_radical_charge_and_multiplicity_on_atoms():
     assert atoms.info["charge"] == 1
     assert atoms.info["spin"] == 2
     assert atoms.info["multiplicity"] == 2
+    # Calculators such as tblite read the totals from initial charges and magmoms.
+    assert atoms.get_initial_charges().sum() == pytest.approx(1)
+    assert atoms.get_initial_magnetic_moments().sum() == pytest.approx(1)
+
+
+def test_given_charge_is_used_without_warnings(caplog):
+    mol = _build_test_mol(num_confs=3)  # neutral closed-shell ethanol
+
+    with caplog.at_level(logging.WARNING):
+        ASEOptimizer(calculator=LennardJones(), charge=-1, max_steps=1).optimize(mol)
+
+    assert not caplog.records  # checked once, in generate_conformers
 
 
 def test_charge_and_multiplicity_overrides():
@@ -198,6 +228,79 @@ def test_charge_and_multiplicity_overrides():
     assert atoms.info["charge"] == -1
     assert atoms.info["spin"] == 3
     assert atoms.info["multiplicity"] == 3
+    assert atoms.get_initial_charges().sum() == pytest.approx(-1)
+    assert atoms.get_initial_magnetic_moments().sum() == pytest.approx(2)
+
+
+def test_ase_optimizer_charge_and_multiplicity_overrides():
+    seen = []
+
+    class RecordingCalculator(LennardJones):
+        def calculate(self, atoms=None, *args, **kwargs):
+            seen.append((atoms.info["charge"], atoms.info["multiplicity"]))
+            super().calculate(atoms, *args, **kwargs)
+
+    optimizer = ASEOptimizer(
+        calculator=RecordingCalculator(), charge=-1, multiplicity=3, max_steps=1
+    )
+    optimizer.optimize(_build_test_mol(num_confs=1))
+
+    assert seen and set(seen) == {(-1, 3)}
+
+
+def _failing_calculator():
+    class FailingCalculator(LennardJones):
+        def calculate(self, *args, **kwargs):
+            raise RuntimeError("SCF not converged")
+
+    return FailingCalculator()
+
+
+def test_ase_optimizer_failed_conformer_keeps_no_energy(caplog):
+    mol = _build_test_mol(num_confs=3)
+    for conf in mol.GetConformers():
+        conf.SetDoubleProp("energy", 0.0)  # stale energy from an earlier step
+    calculators = iter([LennardJones(), _failing_calculator(), LennardJones()])
+    optimizer = ASEOptimizer(
+        calculator=lambda: next(calculators), num_workers=1, fmax=0.1, max_steps=5
+    )
+
+    with caplog.at_level(logging.WARNING):
+        optimizer.optimize(mol)
+
+    assert [conf.HasProp("energy") for conf in mol.GetConformers()] == [
+        True,
+        False,
+        True,
+    ]
+    assert "SCF not converged" in caplog.text
+
+
+def test_ase_optimizer_raises_if_all_conformers_fail():
+    optimizer = ASEOptimizer(calculator=_failing_calculator, num_workers=1)
+
+    with pytest.raises(RuntimeError, match="SCF not converged"):
+        optimizer.optimize(_build_test_mol(num_confs=2))
+
+
+def test_written_ensemble_is_read_by_ase(tmp_path):
+    read = importlib.import_module("ase.io").read
+    mol = _build_test_mol(num_confs=2)
+    mol.GetConformer(0).SetDoubleProp("energy", 23.06054783061903)  # 1 eV
+    mol.SetIntProp("charge", -1)
+    mol.SetIntProp("multiplicity", 2)
+    cg = ConformerGenerator()
+    cg.mol = mol
+
+    cg.write_xyz(str(tmp_path / "out.xyz"))
+    frames = read(str(tmp_path / "out.xyz"), index=":")
+
+    assert len(frames) == 2
+    assert all(f.info["charge"] == -1 and f.info["spin"] == 2 for f in frames)
+    assert frames[0].get_potential_energy() == pytest.approx(1.0)
+    assert np.allclose(
+        frames[1].get_positions(), mol.GetConformer(1).GetPositions(), atol=1e-5
+    )
 
 
 def test_ase_optimizer_num_workers_sets_energies():
@@ -241,6 +344,7 @@ def test_ase_optimizer_num_workers_keeps_align_indices_fixed():
     mol = _build_test_mol(num_confs=4)
     reference = _reference_from_conf(mol, conf_id=0)
     align_indices = [0, 1]
+    aligned = _aligned(mol, reference, align_indices)
 
     optimizer = ASEOptimizer(
         calculator=LennardJones,
@@ -252,14 +356,8 @@ def test_ase_optimizer_num_workers_keeps_align_indices_fixed():
         mol=mol, reference=reference, align_indices=align_indices
     )
 
-    reference_positions = reference.GetConformer().GetPositions()
-    for conf in mol.GetConformers():
-        positions = conf.GetPositions()
-        assert np.allclose(
-            positions[align_indices],
-            reference_positions[align_indices],
-            atol=1e-2,
-        )
+    # The constraint also holds in the worker processes.
+    _assert_aligned_atoms_did_not_move(mol, aligned, align_indices)
 
 
 def test_ase_optimizer_num_workers_matches_serial():

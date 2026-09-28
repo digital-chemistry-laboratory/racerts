@@ -1,11 +1,17 @@
+import itertools
+import logging
 from abc import abstractmethod
-from typing import List, Union
+from collections import Counter
+from typing import Dict, Iterator, List, Union
 
+import numpy as np
 from rdkit import Chem
 from rdkit.Chem.AllChem import SanitizeMol  # type: ignore
 from rdkit.Chem import rdDetermineBonds
 from rdkit.Chem import rdFMCS
 from racerts.utils import suppress_std
+
+logger = logging.getLogger(__name__)
 
 
 class BaseMolGetter:
@@ -110,22 +116,28 @@ class MolGetterSMILES(BaseMolGetter):
     def combine_mols(self, smiles_list) -> Chem.Mol:
         if not isinstance(smiles_list, list):
             raise ValueError("Input SMILES must be provided as a list.")
+        if not smiles_list:
+            raise ValueError("No input SMILES provided.")
 
-        combined_mol = Chem.AddHs(Chem.MolFromSmiles(smiles_list[0]))
-
-        if len(smiles_list) > 1:
-            for smiles in smiles_list[1:]:
-                mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
-                combined_mol = Chem.CombineMols(combined_mol, mol)
+        combined_mol = None
+        for smiles in smiles_list:
+            mol = Chem.MolFromSmiles(smiles)
+            if mol is None:
+                raise ValueError(f"Invalid SMILES: {smiles}")
+            mol = Chem.AddHs(mol)
+            combined_mol = (
+                mol if combined_mol is None else Chem.CombineMols(combined_mol, mol)
+            )
 
         return combined_mol
 
     def match_AtomMapNum(self, ref_mol: Chem.Mol, mol: Chem.Mol) -> List[Chem.Mol]:
         """
         Match the atom map numbers for the reference molecule and the molecule of interest.
-        The atom map is arbitrarly chosen for the reference molecule if not available, and the
-        one for the molecule of interest is matched by iteratively searching for
-        the MCS.
+        The reference atoms are numbered by their index (atom maps given in the SMILES are
+        replaced), and the numbers are transferred to the molecule of interest by
+        iteratively searching for the MCS. SMILES with atom maps are matched by
+        match_by_atom_maps (every heavy atom mapped) or match_by_substructure instead.
 
         Developer info: MCS works fine until two or more possible MCS
         are possible for the structure (Try GetSubstructureMatches to get this info)...
@@ -138,9 +150,10 @@ class MolGetterSMILES(BaseMolGetter):
         Returns:
             List[Chem.Mol]: The atom-maped molecule objects that are returned.
         """
-        if ref_mol.GetAtomWithIdx(0).GetAtomMapNum() == 0:
-            for atom in ref_mol.GetAtoms():
-                atom.SetAtomMapNum(atom.GetIdx() + 1)
+        # Always renumber: maps from the SMILES do not decide the matching (the MCS does),
+        # and hydrogens added by AddHs have none, which led to duplicate numbers.
+        for atom in ref_mol.GetAtoms():
+            atom.SetAtomMapNum(atom.GetIdx() + 1)
         for atom in mol.GetAtoms():
             atom.SetAtomMapNum(-atom.GetIdx() - 1)
 
@@ -174,6 +187,157 @@ class MolGetterSMILES(BaseMolGetter):
 
         return [ref_mol, mol]
 
+    def match_by_atom_maps(
+        self, ref_mol: Chem.Mol, mol: Chem.Mol, reacting_atoms: List[int]
+    ) -> List[Chem.Mol]:
+        """
+        Match the atoms by the atom map numbers of the SMILES: number n is atom n of
+        the xyz file (1-based). Hydrogens without a number are matched to the nearest
+        free hydrogens of their heavy atom. Afterwards, atoms of both molecules carry
+        their xyz index + 1 as map number, as for match_AtomMapNum.
+
+        Raises:
+            ValueError: If the numbers do not fit the xyz file: out of range, repeated,
+                another element, or a bond of the SMILES that is missing from the
+                perceived connectivity of the xyz file (unless between reacting atoms).
+        """
+        target = self.mapped_atoms(ref_mol, mol)  # template index -> xyz index
+
+        # Unmapped hydrogens: nearest free xyz hydrogens of their heavy atom.
+        positions = mol.GetConformer().GetPositions()
+        free = {
+            a.GetIdx()
+            for a in mol.GetAtoms()
+            if a.GetAtomicNum() == 1 and a.GetIdx() not in target.values()
+        }
+        candidates = []
+        for atom in ref_mol.GetAtoms():
+            if atom.GetIdx() in target:
+                continue
+            heavy = atom.GetNeighbors()[0].GetIdx() if atom.GetDegree() == 1 else None
+            if atom.GetAtomicNum() != 1 or heavy not in target:
+                raise ValueError(
+                    f"atom {atom.GetIdx()} of the SMILES has no map number"
+                )
+            anchor = positions[target[heavy]]
+            candidates += [
+                (float(np.linalg.norm(positions[h] - anchor)), atom.GetIdx(), h)
+                for h in free
+            ]
+        for _, template_h, xyz_h in sorted(candidates):
+            if template_h not in target and xyz_h in free:
+                target[template_h] = xyz_h
+                free.discard(xyz_h)
+        if len(target) != ref_mol.GetNumAtoms():
+            raise ValueError("the numbers of hydrogens differ")
+
+        for atom in ref_mol.GetAtoms():
+            atom.SetAtomMapNum(target[atom.GetIdx()] + 1)
+        for atom in mol.GetAtoms():
+            atom.SetAtomMapNum(atom.GetIdx() + 1)
+        missing = self.bonds_missing_from_geometry(ref_mol, mol, reacting_atoms)
+        if missing:
+            i, j = missing[0]
+            raise ValueError(
+                f"atoms {i + 1} and {j + 1} are bonded in the SMILES but not in the xyz "
+                "file"
+            )
+        return [ref_mol, mol]
+
+    @staticmethod
+    def mapped_atoms(ref_mol: Chem.Mol, mol: Chem.Mol) -> Dict[int, int]:
+        """
+        Template atom index -> xyz atom index for the atoms of the SMILES with a map
+        number (number n is atom n of the xyz file, 1-based).
+
+        Raises:
+            ValueError: If a number is out of range, repeated or of another element.
+        """
+        target = {}
+        for atom in ref_mol.GetAtoms():
+            number = atom.GetAtomMapNum()
+            if not number:
+                continue
+            if not 1 <= number <= mol.GetNumAtoms():
+                raise ValueError(
+                    f"atom map number {number} is not an atom of the xyz file"
+                )
+            other = mol.GetAtomWithIdx(number - 1)
+            if other.GetAtomicNum() != atom.GetAtomicNum():
+                raise ValueError(
+                    f"atom map number {number} is {atom.GetSymbol()} in the SMILES but "
+                    f"{other.GetSymbol()} in the xyz file"
+                )
+            target[atom.GetIdx()] = number - 1
+        if len(set(target.values())) != len(target):
+            raise ValueError("atom map numbers are repeated")
+        return target
+
+    def match_by_substructure(
+        self, ref_mol: Chem.Mol, mol: Chem.Mol, reacting_atoms: List[int]
+    ) -> List[Chem.Mol]:
+        """
+        Match the atoms by a substructure search of the SMILES in the connectivity of
+        the xyz file, bond orders and charges aside, with the atoms that have a map
+        number held at their xyz atom (see mapped_atoms). Bonds between reacting atoms
+        may be missing from the connectivity, so they are added in steps (none, the
+        pairs closer than 1.7 x their covalent radii, all pairs) until a match gives a
+        valid molecule. Afterwards, atoms of both molecules carry their xyz index + 1
+        as map number, as for match_AtomMapNum.
+
+        Raises:
+            ValueError: If the map numbers do not fit the xyz file or nothing matches.
+        """
+        pinned = self.mapped_atoms(ref_mol, mol)
+        query = _plain_graph(ref_mol)
+        for label, index in enumerate(pinned, start=1):
+            query.GetAtomWithIdx(index).SetIsotope(label)
+        query.UpdatePropertyCache(strict=False)
+        Chem.FastFindRings(query)
+        for target in _connectivity_with_reacting_bonds(mol, reacting_atoms):
+            for label, index in enumerate(pinned.values(), start=1):
+                target.GetAtomWithIdx(index).SetIsotope(label)
+            target.UpdatePropertyCache(strict=False)
+            Chem.FastFindRings(target)
+            match = target.GetSubstructMatch(query, useChirality=False)
+            if not match:
+                continue
+            template, geometry = Chem.Mol(ref_mol), Chem.Mol(mol)
+            for atom in template.GetAtoms():
+                atom.SetAtomMapNum(match[atom.GetIdx()] + 1)
+            for atom in geometry.GetAtoms():
+                atom.SetAtomMapNum(atom.GetIdx() + 1)
+            try:  # e.g. an aromatic ring broken at the reaction centre
+                self.set_coords(Chem.Mol(template), Chem.Mol(geometry), reacting_atoms)
+            except Exception:
+                continue
+            return [template, geometry]
+        raise ValueError(
+            "the SMILES does not match the connectivity of the xyz file with the "
+            "mapped atoms in place"
+        )
+
+    @staticmethod
+    def bonds_missing_from_geometry(
+        ref_mol: Chem.Mol, mol: Chem.Mol, reacting_atoms: List[int]
+    ) -> List[tuple]:
+        """
+        Bonds of the matched SMILES template (ref_mol) that the perceived connectivity
+        of the xyz file (mol) lacks, as pairs of xyz atom indices. Pairs of reacting
+        atoms are skipped, as their bonds may form or break in the TS.
+        """
+        where = {atom.GetAtomMapNum(): atom.GetIdx() for atom in mol.GetAtoms()}
+        reacting = set(reacting_atoms)
+        missing = []
+        for bond in ref_mol.GetBonds():
+            i = where.get(bond.GetBeginAtom().GetAtomMapNum())
+            j = where.get(bond.GetEndAtom().GetAtomMapNum())
+            if i is None or j is None or {i, j} <= reacting:
+                continue
+            if mol.GetBondBetweenAtoms(i, j) is None:
+                missing.append((min(i, j), max(i, j)))
+        return missing
+
     def set_coords(
         self, pmol: Chem.Mol, mol_ts: Chem.Mol, reacting_atoms: List[int]
     ) -> Chem.Mol:
@@ -189,19 +353,23 @@ class MolGetterSMILES(BaseMolGetter):
         Returns:
             Chem.Mol: The final molecule with coordinates and bond order information
         """
+        map_to_idx = {atom.GetAtomMapNum(): atom.GetIdx() for atom in mol_ts.GetAtoms()}
         for atom in pmol.GetAtoms():
-            for atom2 in mol_ts.GetAtoms():
-                if atom.GetAtomMapNum() == atom2.GetAtomMapNum():
-                    atom2.SetFormalCharge(atom.GetFormalCharge())
+            idx = map_to_idx.get(atom.GetAtomMapNum())
+            if idx is not None:
+                mol_ts.GetAtomWithIdx(idx).SetFormalCharge(atom.GetFormalCharge())
         emol = Chem.EditableMol(mol_ts)
         for bond in mol_ts.GetBonds():
             emol.RemoveBond(bond.GetBeginAtomIdx(), bond.GetEndAtomIdx())
         for bond in pmol.GetBonds():
-            for atom in mol_ts.GetAtoms():
-                if atom.GetAtomMapNum() == bond.GetBeginAtom().GetAtomMapNum():
-                    id1 = atom.GetIdx()
-                elif atom.GetAtomMapNum() == bond.GetEndAtom().GetAtomMapNum():
-                    id2 = atom.GetIdx()
+            m1 = bond.GetBeginAtom().GetAtomMapNum()
+            m2 = bond.GetEndAtom().GetAtomMapNum()
+            if m1 not in map_to_idx or m2 not in map_to_idx:
+                raise ValueError(
+                    f"Bond {m1}-{m2} of the SMILES template has no counterpart in the "
+                    "TS geometry. Check that the SMILES matches the xyz file."
+                )
+            id1, id2 = map_to_idx[m1], map_to_idx[m2]
             if id1 not in reacting_atoms or id2 not in reacting_atoms:
                 emol.AddBond(id1, id2, order=bond.GetBondType())
             elif mol_ts.GetBondBetweenAtoms(id1, id2) is not None:
@@ -240,8 +408,25 @@ class MolGetterSMILES(BaseMolGetter):
                 "Input SMILES and reacting atoms must be provided as a list."
             )
         input_mol = self.combine_mols(input_smiles)
+        charge = kwargs.get("charge")
+        if charge is not None and charge != Chem.GetFormalCharge(input_mol):
+            raise ValueError(
+                f"Charge {charge} does not match the formal charges of the SMILES "
+                f"({Chem.GetFormalCharge(input_mol)})."
+            )
 
         mol_ts = Chem.MolFromXYZFile(file_name)
+        if mol_ts is None:
+            raise ValueError(f"Failed to read {file_name}.")
+        # Otherwise atoms missing from the SMILES are silently left without bonds.
+        in_smiles = Counter(atom.GetSymbol() for atom in input_mol.GetAtoms())
+        in_xyz = Counter(atom.GetSymbol() for atom in mol_ts.GetAtoms())
+        if in_smiles != in_xyz:
+            raise ValueError(
+                "The SMILES and the xyz file do not match. Extra atoms in the xyz file: "
+                f"{dict(in_xyz - in_smiles)}, extra atoms in the SMILES: "
+                f"{dict(in_smiles - in_xyz)}."
+            )
         new_mol = self.setup_mol(mol_ts, reacting_atoms, input_mol)
         if new_mol is None:
             raise ValueError(
@@ -252,8 +437,85 @@ class MolGetterSMILES(BaseMolGetter):
     def setup_mol(self, mol_ts, reacting_atoms, input_mol):
         rdDetermineBonds.DetermineConnectivity(mol_ts)
         # Chem.AssignStereochemistryFrom3D(mol_ts) <- This is not needed at this point as chirality is not used in atom mapping, we will do it later.
-        [input_mol, mol_ts] = self.match_AtomMapNum(input_mol, mol_ts)
+        heavy_maps = [
+            a.GetAtomMapNum() for a in input_mol.GetAtoms() if a.GetAtomicNum() > 1
+        ]
+        matched = None
+        if any(a.GetAtomMapNum() for a in input_mol.GetAtoms()):
+            # Complete maps fix every atom; partial ones (e.g. only the reacting atoms)
+            # pin a substructure search.
+            if heavy_maps and all(heavy_maps):
+                match = self.match_by_atom_maps
+            else:
+                match = self.match_by_substructure
+            try:
+                matched = match(input_mol, mol_ts, reacting_atoms)
+            except ValueError as error:
+                logger.warning(
+                    "The atom maps of the SMILES do not fit the xyz file (%s); matching "
+                    "the atoms by maximum common substructure instead.",
+                    error,
+                )
+        if matched is None:
+            matched = self.match_AtomMapNum(input_mol, mol_ts)
+            missing = self.bonds_missing_from_geometry(*matched, reacting_atoms)
+            if missing:
+                logger.warning(
+                    "The atoms of the SMILES were matched with bonds that the TS geometry "
+                    "does not have (atom pairs %s, 0-based); check the SMILES or give "
+                    "every heavy atom an atom map number (its atom in the xyz file).",
+                    missing,
+                )
+        [input_mol, mol_ts] = matched
 
         new_mol = self.set_coords(input_mol, mol_ts, reacting_atoms)
 
         return new_mol
+
+
+def _plain_graph(mol: Chem.Mol) -> Chem.RWMol:
+    """Copy with single bonds only and without charges, radicals, isotopes or maps."""
+    plain = Chem.RWMol(mol)
+    for atom in plain.GetAtoms():
+        atom.SetFormalCharge(0)
+        atom.SetNumRadicalElectrons(0)
+        atom.SetIsotope(0)
+        atom.SetAtomMapNum(0)
+        atom.SetIsAromatic(False)
+        atom.SetNoImplicit(True)
+    for bond in plain.GetBonds():
+        bond.SetBondType(Chem.BondType.SINGLE)
+        bond.SetIsAromatic(False)
+    return plain
+
+
+def _connectivity_with_reacting_bonds(
+    mol: Chem.Mol, reacting_atoms: List[int]
+) -> Iterator[Chem.RWMol]:
+    """
+    The connectivity of mol as a plain graph, first as it is, then with bonds between
+    the reacting atoms closer than 1.7 x their covalent radii, then between all of them.
+    """
+    table = Chem.GetPeriodicTable()
+    positions = mol.GetConformer().GetPositions()
+    pairs = [
+        (i, j)
+        for i, j in itertools.combinations(sorted(set(reacting_atoms)), 2)
+        if mol.GetBondBetweenAtoms(i, j) is None
+    ]
+    close = [
+        (i, j)
+        for i, j in pairs
+        if np.linalg.norm(positions[i] - positions[j])
+        < 1.7
+        * sum(table.GetRcovalent(mol.GetAtomWithIdx(k).GetAtomicNum()) for k in (i, j))
+    ]
+    steps = [[]]
+    for added in (close, pairs):
+        if added != steps[-1]:
+            steps.append(added)
+    for added in steps:
+        target = _plain_graph(mol)
+        for i, j in added:
+            target.AddBond(i, j, Chem.BondType.SINGLE)
+        yield target

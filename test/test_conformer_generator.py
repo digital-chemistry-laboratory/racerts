@@ -1,12 +1,16 @@
+import logging
 import os
+import shlex
 
 import pytest  # noqa
 from rdkit import Chem
+from rdkit.Chem import AllChem, Descriptors
 
 from racerts import ConformerGenerator
 from racerts.embedder import BoundsMatrixEmbedder
 from racerts.mol_getter import MolGetterBonds, MolGetterConnectivity, MolGetterSMILES
 from racerts.optimizer import UFFOptimizer
+from racerts.optimizer.ase import infer_charge_and_multiplicity
 from racerts.utils import atom_idx_input_validation, get_frozen_atoms
 
 filenames = [
@@ -166,5 +170,171 @@ def test():
     assert _test_conformer_generator(cg)
 
     cg = ConformerGenerator(randomSeed=random_seed)
-    cg.ff_optimizer = UFFOptimizer()
+    cg.optimizer = UFFOptimizer()
     assert _test_conformer_generator(cg)
+
+
+def test_default_conf_factor_is_80():
+    class SpyEmbedder:
+        n = None
+
+        def embed_TS(self, mol_ts, mol, reacting_atoms, frozen_atoms, n, verbose):
+            SpyEmbedder.n = n
+            mol.AddConformer(Chem.Conformer(mol_ts.GetConformer()), assignId=True)
+            return [0], []
+
+    cg = ConformerGenerator()
+    cg.embedder = SpyEmbedder()
+    mol = cg.generate_conformers(
+        filenames[0], charge, reacting_atoms, input_smiles=input_smiles
+    )
+
+    assert SpyEmbedder.n == Descriptors.NumRotatableBonds(mol) * 80 + 30
+
+
+def test_embedding_without_conformers_raises():
+    class EmptyEmbedder:
+        def embed_TS(self, mol_ts, mol, reacting_atoms, frozen_atoms, n, verbose):
+            return [], []
+
+    cg = ConformerGenerator()
+    cg.embedder = EmptyEmbedder()
+
+    with pytest.raises(RuntimeError, match="no conformers"):
+        cg.generate_conformers(
+            filenames[0], charge, reacting_atoms, input_smiles=input_smiles
+        )
+
+
+@pytest.mark.parametrize("auto_fallback", [True, False])
+def test_optimizer_errors_are_not_swallowed(auto_fallback):
+    # Only MMFF falls back to UFF; other optimizer errors must reach the caller.
+    class FailingOptimizer:
+        def tune_ts_conformers(self, mol, reference, align_indices):
+            raise RuntimeError("boom")
+
+    mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+    AllChem.EmbedMultipleConfs(mol, 2, randomSeed=1)
+    cg = ConformerGenerator()
+    cg.optimizer = FailingOptimizer()
+
+    with pytest.raises(RuntimeError, match="boom"):
+        cg.optimize(mol, Chem.Mol(mol), [0, 1], auto_fallback=auto_fallback)
+
+
+def test_uff_fallback_is_logged_every_time(boronic_acid, caplog):
+    with caplog.at_level(logging.WARNING):
+        for _ in range(2):
+            mol = ConformerGenerator(randomSeed=12).generate_conformers(
+                boronic_acid,
+                0,
+                [0, 1, 2],
+                input_smiles=["C=CCB(O)O"],
+                number_of_conformers=5,
+            )
+
+    assert caplog.text.count("falling back to UFF") == 2
+    assert mol.GetProp("energy_method") == "UFFOptimizer"
+
+
+def test_charge_is_passed_on_for_graphs_without_formal_charges(sn2_ts, caplog):
+    cg = ConformerGenerator(randomSeed=12)
+    cg.mol_getter = MolGetterConnectivity()  # perceives no formal charges
+
+    with caplog.at_level(logging.WARNING):
+        mol = cg.generate_conformers(sn2_ts, -1, [0, 1, 2], number_of_conformers=2)
+
+    assert infer_charge_and_multiplicity(mol) == {"charge": -1, "multiplicity": 1}
+    assert "charge" not in caplog.text.lower()
+
+
+def test_charge_and_multiplicity_that_do_not_fit_the_electrons_are_flagged_once(
+    sn2_ts, tmp_path, caplog
+):
+    cg = ConformerGenerator(randomSeed=12)
+    cg.mol_getter = MolGetterConnectivity()
+
+    def run(**kwargs):
+        cg.generate_conformers(sn2_ts, reacting_atoms=[0, 1, 2], **kwargs)
+        cg.write_xyz(str(tmp_path / "out.xyz"))
+
+    with caplog.at_level(logging.WARNING):
+        run(charge=0, number_of_conformers=2)  # charge -1 forgotten: 43 electrons
+    assert caplog.text.count("odd number of electrons") == 1
+    assert infer_charge_and_multiplicity(cg.mol) == {"charge": 0, "multiplicity": 2}
+
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        run(charge=-1, multiplicity=2, number_of_conformers=2)
+        run(charge=-1, multiplicity=3, number_of_conformers=2)  # a triplet fits
+    assert caplog.text.count("does not fit") == 1
+
+
+def test_radical_electrons_of_the_ts_graph_do_not_set_the_multiplicity(
+    sn2_ts_symmetric, caplog
+):
+    # The symmetric TS drops the template C-Cl bond, leaving two radical centres.
+    kwargs = dict(input_smiles=["CCl", "[Cl-]"], number_of_conformers=2)
+
+    with caplog.at_level(logging.WARNING):
+        mol = ConformerGenerator(randomSeed=12).generate_conformers(
+            sn2_ts_symmetric, -1, [0, 1, 2], **kwargs
+        )
+    assert sum(atom.GetNumRadicalElectrons() for atom in mol.GetAtoms()) == 2
+    assert infer_charge_and_multiplicity(mol)["multiplicity"] == 1
+    assert "electrons" not in caplog.text
+
+    mol = ConformerGenerator(randomSeed=12).generate_conformers(
+        sn2_ts_symmetric, -1, [0, 1, 2], multiplicity=3, **kwargs
+    )
+    assert infer_charge_and_multiplicity(mol)["multiplicity"] == 3
+
+
+def _ensemble_with_one_missing_energy():
+    mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+    AllChem.EmbedMultipleConfs(mol, 2, randomSeed=1)
+    mol.GetConformer(0).SetDoubleProp("energy", 23.06054783061903)  # 1 eV
+    mol.SetIntProp("charge", -1)
+    mol.SetIntProp("multiplicity", 2)
+    mol.SetProp("energy_method", "MMFFOptimizer")
+    return mol
+
+
+def _comment_lines(path, n_atoms):
+    return path.read_text().splitlines()[1 :: n_atoms + 2]
+
+
+def test_write_xyz_writes_extended_xyz_by_default(tmp_path, caplog):
+    cg = ConformerGenerator()
+    cg.mol = _ensemble_with_one_missing_energy()
+
+    with caplog.at_level(logging.WARNING):
+        cg.write_xyz(str(tmp_path / "out.xyz"))
+
+    first, second = [
+        dict(field.split("=", 1) for field in shlex.split(line))
+        for line in _comment_lines(tmp_path / "out.xyz", cg.mol.GetNumAtoms())
+    ]
+    assert first == {
+        "Properties": "species:S:1:pos:R:3",
+        "energy": "1.00000000",
+        "charge": "-1",
+        "spin": "2",
+        "multiplicity": "2",
+        "energy_method": "MMFFOptimizer",
+        "pbc": "F F F",
+    }
+    assert "energy" not in second
+    assert "no energy" in caplog.text
+
+
+def test_write_xyz_crest_energies_and_custom_comment(tmp_path):
+    cg = ConformerGenerator()
+    cg.mol = _ensemble_with_one_missing_energy()
+    n_atoms = cg.mol.GetNumAtoms()
+
+    cg.write_xyz(str(tmp_path / "crest.xyz"), use_energy=True)
+    assert _comment_lines(tmp_path / "crest.xyz", n_atoms) == ["0.036749", "nan"]
+
+    cg.write_xyz(str(tmp_path / "custom.xyz"), comment="0 1")
+    assert _comment_lines(tmp_path / "custom.xyz", n_atoms) == ["0 1", "0 1"]

@@ -1,0 +1,136 @@
+import logging
+import os
+
+import pytest
+from rdkit import Chem
+from rdkit.Chem import rdDetermineBonds
+
+import racerts.mol_getter.mol_getter as mol_getter_module
+from racerts import ConformerGenerator
+
+DATA = os.path.join(os.path.dirname(__file__), "data")
+
+
+def test_smiles_that_does_not_match_the_xyz_file_raises():
+    # ex.xyz is hept-1-ene; hex-1-ene lacks a CH2 group of the geometry.
+    with pytest.raises(ValueError, match="do not match"):
+        ConformerGenerator().get_mol(
+            os.path.join(DATA, "ex.xyz"),
+            0,
+            [3, 4, 5],
+            input_smiles=["CCCCC=C"],
+            auto_fallback=False,
+        )
+
+
+def test_rejected_smiles_is_reported_before_falling_back(caplog):
+    with caplog.at_level(logging.WARNING):
+        mol = ConformerGenerator().get_mol(
+            os.path.join(DATA, "ex.xyz"), 0, [3, 4, 5], input_smiles=["CCCCC=C"]
+        )
+
+    assert mol.GetNumAtoms() == 21  # graph from the fallback, not from the SMILES
+    assert "do not match" in caplog.text
+
+
+def test_missing_smiles_falls_back_without_warning(caplog):
+    with caplog.at_level(logging.WARNING):
+        ConformerGenerator().get_mol(os.path.join(DATA, "ex.xyz"), 0, [3, 4, 5])
+
+    assert not caplog.records
+
+
+def _bonds(path, charge, reacting, smiles):
+    mol = ConformerGenerator().get_mol(
+        path, charge, reacting, input_smiles=smiles, auto_fallback=False
+    )
+    return sorted(
+        (b.GetBeginAtomIdx(), b.GetEndAtomIdx(), str(b.GetBondType()))
+        for b in mol.GetBonds()
+    ), [a.GetFormalCharge() for a in mol.GetAtoms()]
+
+
+def test_complete_atom_maps_replace_the_mcs_search(sn2_ts, monkeypatch):
+    # Map number n is atom n of the xyz file; unmapped hydrogens go to their carbon.
+    expected = _bonds(sn2_ts, -1, [0, 1, 2], ["CCl", "[Cl-]"])
+
+    def no_mcs(*args, **kwargs):
+        raise AssertionError("MCS search despite complete atom maps")
+
+    monkeypatch.setattr(mol_getter_module.rdFMCS, "FindMCS", no_mcs)
+    assert _bonds(sn2_ts, -1, [0, 1, 2], ["[CH3:1][Cl:2]", "[Cl-:3]"]) == expected
+
+
+def test_partial_atom_maps_replace_the_mcs_search(monkeypatch):
+    # Typical use: only the reacting atoms (3, 4, 5; 0-based) have map numbers.
+    path = os.path.join(DATA, "ex.xyz")
+    expected = _bonds(path, 0, [3, 4, 5], ["CCCCCC=C"])
+
+    def no_mcs(*args, **kwargs):
+        raise AssertionError("MCS search despite atom maps")
+
+    monkeypatch.setattr(mol_getter_module.rdFMCS, "FindMCS", no_mcs)
+    assert _bonds(path, 0, [3, 4, 5], ["CCC[CH2:4][CH2:5][CH:6]=C"]) == expected
+
+
+@pytest.mark.parametrize("chloride", [2, 3])
+def test_partial_atom_maps_decide_ambiguous_matches(sn2_ts_symmetric, chloride):
+    # Both chlorines are 2.32 A from carbon; the map number says which is the chloride.
+    _, charges = _bonds(sn2_ts_symmetric, -1, [0, 1, 2], ["CCl", f"[Cl-:{chloride}]"])
+
+    assert charges[chloride - 1] == -1
+
+
+@pytest.mark.parametrize(
+    "smiles",
+    [
+        "[CH3:1][CH2:2][CH2:3][CH2:4][CH2:5][CH:6]=[CH2:30]",  # no atom 30
+        "[CH3:1][CH2:3][CH2:2][CH2:4][CH2:5][CH:6]=[CH2:7]",  # atoms 1 and 3 not bonded
+        "[CH3:30]CCCCC=C",  # partial maps: no atom 30
+        "[CH3:2]CCCCC=C",  # partial maps: atom 2 is inside the chain
+    ],
+)
+def test_atom_maps_that_do_not_fit_fall_back_to_the_mcs(smiles, caplog):
+    path = os.path.join(DATA, "ex.xyz")
+    with caplog.at_level(logging.WARNING):
+        mapped = _bonds(path, 0, [3, 4, 5], [smiles])
+
+    assert mapped == _bonds(path, 0, [3, 4, 5], ["CCCCCC=C"])
+    assert "maximum common substructure" in caplog.text
+
+
+def test_mcs_matches_with_bonds_missing_from_the_geometry_are_flagged(sn2_ts, caplog):
+    getter = mol_getter_module.MolGetterSMILES()
+    template = getter.combine_mols(["CCl", "[Cl-]"])
+    xyz = Chem.MolFromXYZFile(sn2_ts)
+    rdDetermineBonds.DetermineConnectivity(xyz)
+    template, xyz = getter.match_AtomMapNum(template, xyz)
+    assert getter.bonds_missing_from_geometry(template, xyz, [0, 1, 2]) == []
+
+    # Swap the numbers of a methyl hydrogen and the nucleophile (2.6 A from carbon).
+    h, cl = xyz.GetAtomWithIdx(3), xyz.GetAtomWithIdx(2)
+    h_number, cl_number = h.GetAtomMapNum(), cl.GetAtomMapNum()
+    h.SetAtomMapNum(cl_number)
+    cl.SetAtomMapNum(h_number)
+    assert (0, 2) in getter.bonds_missing_from_geometry(template, xyz, [0, 1])
+
+
+def test_invalid_smiles_raises_clearly(sn2_ts):
+    with pytest.raises(ValueError, match="Invalid SMILES"):
+        ConformerGenerator().get_mol(
+            sn2_ts, -1, [0, 1, 2], input_smiles=["C1CCl", "[Cl-]"], auto_fallback=False
+        )
+
+
+def test_smiles_that_does_not_match_the_charge_raises(sn2_ts):
+    # A forgotten charge=-1: the SMILES says chloride, the charge says neutral.
+    with pytest.raises(ValueError, match="formal charges of the SMILES"):
+        ConformerGenerator().get_mol(
+            sn2_ts, 0, [0, 1, 2], input_smiles=["CCl", "[Cl-]"], auto_fallback=False
+        )
+
+
+def test_mol_file_keeps_hydrogens():
+    mol = ConformerGenerator().get_mol(os.path.join(DATA, "ex.mol"), 0, [3, 4, 5])
+
+    assert mol.GetNumAtoms() == 21

@@ -2,6 +2,8 @@
 
 Reduce conformer ensembles based on relative conformer energy and structural similarity.
 
+Conformers without an `energy` property (e.g. from failed calculations) cannot be ranked; both pruners drop them and log a warning.
+
 ### EnergyPruner
 Removes conformers with high energy (`energy - minimal_energy > threshold`):
 Options:

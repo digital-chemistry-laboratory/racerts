@@ -282,8 +282,10 @@ class MolGetterSMILES(BaseMolGetter):
         number held at their xyz atom (see mapped_atoms). Bonds between reacting atoms
         may be missing from the connectivity, so they are added in steps (none, the
         pairs closer than 1.7 x their covalent radii, all pairs) until a match gives a
-        valid molecule. Afterwards, atoms of both molecules carry their xyz index + 1
-        as map number, as for match_AtomMapNum.
+        valid molecule. The fragments of the SMILES are matched one at a time (see
+        _fragments_in_search_order), so identical fragments such as solvent molecules
+        are never permuted against each other. Afterwards, atoms of both molecules
+        carry their xyz index + 1 as map number, as for match_AtomMapNum.
 
         Raises:
             ValueError: If the map numbers do not fit the xyz file or nothing matches.
@@ -292,15 +294,12 @@ class MolGetterSMILES(BaseMolGetter):
         query = _plain_graph(ref_mol)
         for label, index in enumerate(pinned, start=1):
             query.GetAtomWithIdx(index).SetIsotope(label)
-        query.UpdatePropertyCache(strict=False)
-        Chem.FastFindRings(query)
+        fragments = _fragments_in_search_order(query)
         for target in _connectivity_with_reacting_bonds(mol, reacting_atoms):
             for label, index in enumerate(pinned.values(), start=1):
                 target.GetAtomWithIdx(index).SetIsotope(label)
-            target.UpdatePropertyCache(strict=False)
-            Chem.FastFindRings(target)
-            match = target.GetSubstructMatch(query, useChirality=False)
-            if not match:
+            match = _match_fragments(fragments, target)
+            if match is None:
                 continue
             template, geometry = Chem.Mol(ref_mol), Chem.Mol(mol)
             for atom in template.GetAtoms():
@@ -309,7 +308,8 @@ class MolGetterSMILES(BaseMolGetter):
                 atom.SetAtomMapNum(atom.GetIdx() + 1)
             try:  # e.g. an aromatic ring broken at the reaction centre
                 self.set_coords(Chem.Mol(template), Chem.Mol(geometry), reacting_atoms)
-            except Exception:
+            except ValueError as error:  # includes RDKit's sanitization errors
+                logger.debug("Substructure match rejected: %s", error)
                 continue
             return [template, geometry]
         raise ValueError(
@@ -519,3 +519,54 @@ def _connectivity_with_reacting_bonds(
         for i, j in added:
             target.AddBond(i, j, Chem.BondType.SINGLE)
         yield target
+
+
+def _fragments_in_search_order(query: Chem.Mol) -> List[tuple]:
+    """
+    The connected fragments of the query as (atom indices, fragment): fragments with
+    pinned (isotope-labelled) atoms first, then larger before smaller, each with its
+    atoms in breadth-first order from the pinned atoms. A mismatch at the reaction
+    centre is then found before symmetric parts are tried in all their permutations.
+    """
+    fragments = []
+    for atoms in Chem.GetMolFrags(query):
+        pins = [i for i in atoms if query.GetAtomWithIdx(i).GetIsotope()]
+        order, seen = [], set(pins or atoms[:1])
+        queue = list(pins or atoms[:1])
+        while queue:
+            index = queue.pop(0)
+            order.append(index)
+            for neighbor in query.GetAtomWithIdx(index).GetNeighbors():
+                if neighbor.GetIdx() not in seen:
+                    seen.add(neighbor.GetIdx())
+                    queue.append(neighbor.GetIdx())
+        rest = [i for i in range(query.GetNumAtoms()) if i not in seen]
+        fragment = Chem.RWMol(Chem.RenumberAtoms(query, order + rest))
+        for index in range(fragment.GetNumAtoms() - 1, len(order) - 1, -1):
+            fragment.RemoveAtom(index)
+        fragment.UpdatePropertyCache(strict=False)
+        Chem.FastFindRings(fragment)
+        fragments.append((not pins, -len(order), order, fragment))
+    fragments.sort(key=lambda item: item[:2])
+    return [(order, fragment) for _, _, order, fragment in fragments]
+
+
+def _match_fragments(fragments: List[tuple], target: Chem.RWMol) -> Union[dict, None]:
+    """
+    Query atom index -> target atom index, matching the fragments one after the other;
+    target atoms used by earlier fragments become dummy atoms, which no atom matches.
+    None if a fragment has no match.
+    """
+    assignment, used = {}, set()
+    for order, fragment in fragments:
+        free = Chem.RWMol(target)
+        for index in used:
+            free.GetAtomWithIdx(index).SetAtomicNum(0)
+        free.UpdatePropertyCache(strict=False)
+        Chem.FastFindRings(free)
+        match = free.GetSubstructMatch(fragment, useChirality=False)
+        if not match:
+            return None
+        assignment.update(zip(order, match))
+        used.update(match)
+    return assignment

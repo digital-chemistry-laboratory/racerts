@@ -1,7 +1,9 @@
 from rdkit import Chem
 
-from typing import List
+from typing import Dict, List, Optional
 import os
+
+EV_TO_KCAL_MOL = 23.06054783061903
 
 
 class suppress_std:
@@ -80,3 +82,35 @@ def get_frozen_atoms(
         )
 
     return frozen_atoms
+
+
+def infer_charge_and_multiplicity(
+    mol: Chem.Mol, charge: Optional[int] = None, multiplicity: Optional[int] = None
+) -> Dict[str, int]:
+    """
+    Charge and spin multiplicity to use for mol.
+
+    Given values come first, then the "charge" and "multiplicity" properties of mol
+    (set by generate_conformers). Otherwise, the charge is the sum of the formal
+    charges and the multiplicity the lowest one for the number of electrons (1 or 2).
+    Radical electrons of the graph are not used: in a TS graph, they mostly stand for
+    bonds that are forming or breaking.
+    """
+    if charge is None:
+        charge = (
+            mol.GetIntProp("charge")
+            if mol.HasProp("charge")
+            else Chem.GetFormalCharge(mol)
+        )
+    if multiplicity is None:
+        multiplicity = (
+            mol.GetIntProp("multiplicity")
+            if mol.HasProp("multiplicity")
+            else 1 + count_electrons(mol, charge) % 2
+        )
+    return {"charge": int(charge), "multiplicity": int(multiplicity)}
+
+
+def count_electrons(mol: Chem.Mol, charge: int) -> int:
+    """Number of electrons of mol (all atoms explicit) at the given charge."""
+    return sum(atom.GetAtomicNum() for atom in mol.GetAtoms()) - charge

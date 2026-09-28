@@ -5,7 +5,13 @@ from typing import List, Optional
 from rdkit import Chem
 from rdkit.Chem import Descriptors
 
-from racerts.utils import atom_idx_input_validation, get_frozen_atoms
+from racerts.utils import (
+    EV_TO_KCAL_MOL,
+    atom_idx_input_validation,
+    count_electrons,
+    get_frozen_atoms,
+    infer_charge_and_multiplicity,
+)
 
 from .embedder import BaseEmbedder, CmapEmbedder
 from .mol_getter import (
@@ -15,11 +21,6 @@ from .mol_getter import (
     MolGetterSMILES,
 )
 from .optimizer import BaseOptimizer, MMFFOptimizer, UFFOptimizer
-from .optimizer.ase import (
-    EV_TO_KCAL_MOL,
-    count_electrons,
-    infer_charge_and_multiplicity,
-)
 from .pruner import BasePruner, EnergyPruner, RMSDPruner
 
 logger = logging.getLogger(__name__)
@@ -169,25 +170,25 @@ class ConformerGenerator(object):
                 return mol_ts
             except Exception as e:
                 if auto_fallback is False:
-                    print(e)
-                    raise e
+                    raise
                 # Without SMILES, the default SMILES getter always fails; that is expected.
                 if "input_smiles" in get_mol_kwargs or not isinstance(
                     self._mol_getter, MolGetterSMILES
                 ):
                     logger.warning("%s failed: %s", type(self._mol_getter).__name__, e)
-                try:
-                    if not isinstance(self._mol_getter, MolGetterBonds):
-                        print("Using mol based on DetermineBonds.")
+                if not isinstance(self._mol_getter, MolGetterBonds):
+                    try:
                         mol_ts = MolGetterBonds().get_mol(
                             file_name=file_name, **get_mol_kwargs
                         )
+                        logger.info("Using the bonds perceived by DetermineBonds.")
                         return mol_ts
-                except Exception as e:
-                    print(e)
+                    except Exception as e:
+                        logger.warning("MolGetterBonds failed: %s", e)
 
-                print(
-                    "Using mol based on DetermineConnectivity. No bond information is inferred."
+                logger.warning(
+                    "Using the connectivity of the xyz file only (DetermineConnectivity), "
+                    "without bond orders or formal charges."
                 )
                 mol_ts = MolGetterConnectivity().get_mol(
                     file_name=file_name, **get_mol_kwargs
@@ -280,13 +281,15 @@ class ConformerGenerator(object):
         Write all conformers to a multi-structure xyz file.
 
         By default, the comment lines are in extended XYZ format (e.g. for ase.io.read)
-        with the energy in eV, the charge, the spin multiplicity (as "spin" and
-        "multiplicity") and the method that produced the energies.
+        with the charge, the spin multiplicity (as "spin" and "multiplicity"), the
+        energy in eV as "racerts_energy" and the method that produced it as
+        "energy_method". The key is not "energy", which ASE would read as the potential
+        energy of the structure, although it is usually a force-field energy.
 
         Args:
             file_name (str): Output path.
             use_energy (bool): Instead, write only the energy in Hartree, as in CREST
-                ensembles (nan for conformers without an energy).
+                ensembles; conformers without an energy are left out.
             comment (str): Instead, write this comment line.
         """
         info = infer_charge_and_multiplicity(self.mol)
@@ -302,34 +305,36 @@ class ConformerGenerator(object):
         missing_energy = []
         with open(file_name, "w") as f:
             for conf in self.mol.GetConformers():
+                energy = (
+                    conf.GetDoubleProp("energy") if conf.HasProp("energy") else None
+                )
+                if energy is None and (use_energy or comment is None):
+                    missing_energy.append(conf.GetId())
+                    if use_energy:
+                        continue
                 mol_block = Chem.rdmolfiles.MolToXYZBlock(
                     self.mol, confId=conf.GetId()
                 ).strip()
                 lines = mol_block.split("\n")
 
-                energy = None
-                if conf.HasProp("energy"):
-                    energy = conf.GetDoubleProp("energy")
-                elif use_energy or comment is None:
-                    missing_energy.append(conf.GetId())
-
                 if use_energy:
-                    energy_val = (
-                        float("nan") if energy is None else energy / KCAL_TO_HARTREE
-                    )
-                    lines[1] = f"{energy_val:.6f}"
+                    lines[1] = f"{energy / KCAL_TO_HARTREE:.6f}"
                 elif comment is not None:
                     lines[1] = comment
                 else:
                     fields = ["Properties=species:S:1:pos:R:3"]
                     if energy is not None:
-                        fields.append(f"energy={energy / EV_TO_KCAL_MOL:.8f}")
+                        fields.append(f"racerts_energy={energy / EV_TO_KCAL_MOL:.8f}")
                     lines[1] = " ".join(fields + extxyz)
 
                 f.write("\n".join(lines) + "\n")
 
         if missing_energy:
-            logger.warning("Conformers %s have no energy.", missing_energy)
+            logger.warning(
+                "Conformers %s have no energy%s.",
+                missing_energy,
+                " and are left out" if use_energy else "",
+            )
 
     def prune(self, mol):
 

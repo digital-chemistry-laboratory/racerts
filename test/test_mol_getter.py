@@ -1,5 +1,6 @@
 import logging
 import os
+import time
 
 import pytest
 from rdkit import Chem
@@ -79,6 +80,44 @@ def test_partial_atom_maps_decide_ambiguous_matches(sn2_ts_symmetric, chloride):
     _, charges = _bonds(sn2_ts_symmetric, -1, [0, 1, 2], ["CCl", f"[Cl-:{chloride}]"])
 
     assert charges[chloride - 1] == -1
+
+
+def _in_water(xyz_path, n_water):
+    """The structure plus n waters on a grid 4 A apart, 6 A above and below it."""
+    lines = open(xyz_path).read().strip().splitlines()[2:]
+    grid = [
+        (4.0 * i, 4.0 * j, z)
+        for i in range(-3, 4)
+        for j in range(-3, 4)
+        for z in (-6, 6)
+    ]
+    for x, y, z in grid[:n_water]:
+        lines += [
+            f"O {x} {y} {z}",
+            f"H {x + 0.96} {y} {z}",
+            f"H {x - 0.24} {y + 0.93} {z}",
+        ]
+    return f"{len(lines)}\n\n" + "\n".join(lines) + "\n"
+
+
+def test_partial_atom_maps_with_many_identical_fragments(
+    sn2_ts_symmetric, tmp_path, monkeypatch
+):
+    # 60 atoms, waters listed first, and the first connectivity step cannot match
+    # (no C-Cl bond in the symmetric TS). One search over the whole SMILES tries the
+    # waters in all orders (seconds for 8 waters); fragment by fragment it is fast.
+    path = tmp_path / "sn2_in_18_waters.xyz"
+    path.write_text(_in_water(sn2_ts_symmetric, 18))
+
+    def no_mcs(*args, **kwargs):
+        raise AssertionError("MCS search despite atom maps")
+
+    monkeypatch.setattr(mol_getter_module.rdFMCS, "FindMCS", no_mcs)
+    start = time.time()
+    _, charges = _bonds(str(path), -1, [0, 1, 2], ["O"] * 18 + ["CCl", "[Cl-:3]"])
+
+    assert charges[2] == -1 and sum(charges) == -1
+    assert time.time() - start < 10
 
 
 @pytest.mark.parametrize(

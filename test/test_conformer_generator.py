@@ -2,15 +2,16 @@ import logging
 import os
 import shlex
 
+import numpy as np
 import pytest  # noqa
-from rdkit import Chem
+from rdkit import Chem, rdBase
 from rdkit.Chem import AllChem, Descriptors
 
 from racerts import ConformerGenerator
 from racerts.embedder import BoundsMatrixEmbedder
 from racerts.mol_getter import MolGetterBonds, MolGetterConnectivity, MolGetterSMILES
 from racerts.optimizer import UFFOptimizer
-from racerts.optimizer.ase import infer_charge_and_multiplicity
+from racerts.utils import infer_charge_and_multiplicity
 from racerts.utils import atom_idx_input_validation, get_frozen_atoms
 
 filenames = [
@@ -317,24 +318,64 @@ def test_write_xyz_writes_extended_xyz_by_default(tmp_path, caplog):
     ]
     assert first == {
         "Properties": "species:S:1:pos:R:3",
-        "energy": "1.00000000",
+        "racerts_energy": "1.00000000",
         "charge": "-1",
         "spin": "2",
         "multiplicity": "2",
         "energy_method": "MMFFOptimizer",
         "pbc": "F F F",
     }
-    assert "energy" not in second
+    assert "racerts_energy" not in second
     assert "no energy" in caplog.text
 
 
-def test_write_xyz_crest_energies_and_custom_comment(tmp_path):
+def test_write_xyz_crest_energies_and_custom_comment(tmp_path, caplog):
     cg = ConformerGenerator()
     cg.mol = _ensemble_with_one_missing_energy()
     n_atoms = cg.mol.GetNumAtoms()
 
-    cg.write_xyz(str(tmp_path / "crest.xyz"), use_energy=True)
-    assert _comment_lines(tmp_path / "crest.xyz", n_atoms) == ["0.036749", "nan"]
+    with caplog.at_level(logging.WARNING):
+        cg.write_xyz(str(tmp_path / "crest.xyz"), use_energy=True)
+    # Strict float parsers of CREST files would fail on nan: leave the conformer out.
+    assert _comment_lines(tmp_path / "crest.xyz", n_atoms) == ["0.036749"]
+    assert "left out" in caplog.text
 
     cg.write_xyz(str(tmp_path / "custom.xyz"), comment="0 1")
     assert _comment_lines(tmp_path / "custom.xyz", n_atoms) == ["0 1", "0 1"]
+
+
+# Embedding results differ between RDKit versions (also between 2025.03 and 2025.09).
+REFERENCE_RDKIT = "2025.03.2"
+REFERENCE_0_1_7 = os.path.join(
+    os.path.dirname(__file__), "data", f"ex_0.1.7_rdkit{REFERENCE_RDKIT}.xyz"
+)
+
+
+def _read_reference(path):
+    lines = open(path).read().splitlines()
+    frames, i = [], 0
+    while i < len(lines):
+        n = int(lines[i])
+        fields = dict(field.split("=") for field in lines[i + 1].split())
+        xyz = [
+            [float(v) for v in line.split()[1:]] for line in lines[i + 2 : i + 2 + n]
+        ]
+        frames.append((int(fields["conf_id"]), float(fields["energy"]), np.array(xyz)))
+        i += n + 2
+    return frames
+
+
+@pytest.mark.skipif(
+    rdBase.rdkitVersion != REFERENCE_RDKIT,
+    reason=f"the 0.1.7 reference was made with RDKit {REFERENCE_RDKIT}",
+)
+def test_ensemble_matches_the_0_1_7_release():
+    mol = ConformerGenerator().generate_conformers(
+        filenames[0], 0, [3, 4, 5], input_smiles=["CCCCCC=C"], number_of_conformers=50
+    )
+    reference = _read_reference(REFERENCE_0_1_7)
+
+    assert [conf.GetId() for conf in mol.GetConformers()] == [r[0] for r in reference]
+    for conf, (_, energy, xyz) in zip(mol.GetConformers(), reference):
+        assert conf.GetDoubleProp("energy") == pytest.approx(energy, abs=1e-6)
+        assert np.allclose(conf.GetPositions(), xyz, atol=1e-6)

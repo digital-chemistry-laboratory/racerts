@@ -8,7 +8,7 @@ from rdkit.Chem import rdMolAlign
 
 import numpy as np
 
-from racerts.optimizer.ase import EV_TO_KCAL_MOL
+from racerts.utils import EV_TO_KCAL_MOL
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +60,8 @@ class EnergyPruner(BasePruner):
             passed, res = rdEHTTools.RunMol(mol, confId=id)
 
             if passed is True:
+                # YAeHMOP works in eV (its H_ii parameters are ionization energies, e.g.
+                # -13.6 eV for H 1s; H2 gives a sigma orbital at -17.7 eV).
                 e = res.totalEnergy * EV_TO_KCAL_MOL
                 mol.GetConformer(id).SetDoubleProp("energy", e)
             else:

@@ -297,7 +297,9 @@ def test_written_ensemble_is_read_by_ase(tmp_path):
 
     assert len(frames) == 2
     assert all(f.info["charge"] == -1 and f.info["spin"] == 2 for f in frames)
-    assert frames[0].get_potential_energy() == pytest.approx(1.0)
+    # A force-field energy must not become ASE's potential energy of the structure.
+    assert frames[0].calc is None
+    assert frames[0].info["racerts_energy"] == pytest.approx(1.0)
     assert np.allclose(
         frames[1].get_positions(), mol.GetConformer(1).GetPositions(), atol=1e-5
     )

@@ -97,7 +97,7 @@ Runs `energy_pruner` then `rmsd_pruner` to reduce the number of conformers.
 ###### write_xyz(file_name, use_energy=False, comment=None)
 Writes the ensemble as a combined .xyz file. By default, the comment lines are in [extended XYZ](https://wiki.fysik.dtu.dk/ase/ase/io/formatoptions.html#extxyz) format, e.g.
 ```
-Properties=species:S:1:pos:R:3 energy=2.16817320 charge=-1 spin=1 multiplicity=1 energy_method=MMFFOptimizer pbc="F F F"
+Properties=species:S:1:pos:R:3 racerts_energy=2.16817320 charge=-1 spin=1 multiplicity=1 energy_method=MMFFOptimizer pbc="F F F"
 ```
-with the energy in eV (converted from the internal kcal/mol `energy` property; left out for conformers without an energy) and the spin multiplicity as `spin` (as used by e.g. fairchem) and `multiplicity`. `ase.io.read(file_name, index=":")` reads the conformers with these values.
-If `use_energy=True`, only the energy in Hartree is written instead, as in CREST ensembles (`nan` for conformers without an energy). A given `comment` is written as is.
+with the energy in eV as `racerts_energy` (converted from the internal kcal/mol `energy` property; left out for conformers without an energy; not called `energy`, which ASE would take as the potential energy of the structure, although it is usually a force-field energy, see `energy_method`) and the spin multiplicity as `spin` (as used by e.g. fairchem) and `multiplicity`. `ase.io.read(file_name, index=":")` reads the conformers with these values.
+If `use_energy=True`, only the energy in Hartree is written instead, as in CREST ensembles; conformers without an energy are left out with a warning. A given `comment` is written as is.

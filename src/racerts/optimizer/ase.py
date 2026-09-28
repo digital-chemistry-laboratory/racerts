@@ -11,6 +11,12 @@ import warnings
 from rdkit import Chem
 from rdkit.Geometry import Point3D
 
+from racerts.utils import (  # noqa: F401 (also importable from here, as before)
+    EV_TO_KCAL_MOL,
+    count_electrons,
+    infer_charge_and_multiplicity,
+)
+
 from .ff_optimizer import BaseOptimizer
 from .parallel import (
     OptimizationConfig,
@@ -57,41 +63,6 @@ def requires_dependency(imports: List[Import], scope: Dict[str, Any]):
         return _wrapper
 
     return _decorator
-
-
-EV_TO_KCAL_MOL = 23.06054783061903
-
-
-def infer_charge_and_multiplicity(
-    mol: Chem.Mol, charge: Optional[int] = None, multiplicity: Optional[int] = None
-) -> Dict[str, int]:
-    """
-    Charge and spin multiplicity to use for mol.
-
-    Given values come first, then the "charge" and "multiplicity" properties of mol
-    (set by generate_conformers). Otherwise, the charge is the sum of the formal
-    charges and the multiplicity the lowest one for the number of electrons (1 or 2).
-    Radical electrons of the graph are not used: in a TS graph, they mostly stand for
-    bonds that are forming or breaking.
-    """
-    if charge is None:
-        charge = (
-            mol.GetIntProp("charge")
-            if mol.HasProp("charge")
-            else Chem.GetFormalCharge(mol)
-        )
-    if multiplicity is None:
-        multiplicity = (
-            mol.GetIntProp("multiplicity")
-            if mol.HasProp("multiplicity")
-            else 1 + count_electrons(mol, charge) % 2
-        )
-    return {"charge": int(charge), "multiplicity": int(multiplicity)}
-
-
-def count_electrons(mol: Chem.Mol, charge: int) -> int:
-    """Number of electrons of mol (all atoms explicit) at the given charge."""
-    return sum(atom.GetAtomicNum() for atom in mol.GetAtoms()) - charge
 
 
 @requires_dependency([Import(module="ase", item="Atoms")], globals())

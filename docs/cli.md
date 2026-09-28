@@ -12,7 +12,7 @@ where the `filename.xyz` is the path to an .xyz file containing a single TS conf
 | Command | Options | Explanation |
 | --- | --- | --- |
 | `-c`<br>`--charge` | &lt;INT&gt; [0] | Overall molecular charge |
-| `-mult`<br>`--multiplicity` | &lt;INT&gt; | Spin multiplicity; inferred from the molecular graph if omitted |
+| `-mult`<br>`--multiplicity` | &lt;INT&gt; | Spin multiplicity; the lowest for the number of electrons (1 or 2) if omitted |
 | `-smiles`<br>`--input_smiles` | &lt;STR...&gt; | One (or multiple) SMILES for either product<br>or starting material to define topology |
 | `-atoms`<br>`--reacting_atoms` | &lt;INT...&gt; | List of (0-based) indices of reacting atoms |
 | `-frozen`<br>`--frozen_atoms` | &lt;INT...&gt; | Optional: overwrite of atoms to freeze;<br>if omitted, neighbors of reacting atoms are inferred |

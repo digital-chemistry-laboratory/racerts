@@ -33,7 +33,7 @@ def main():
         "--multiplicity",
         type=int,
         default=None,
-        help="Spin multiplicity 2S+1 (default: inferred from the molecular graph).",
+        help="Spin multiplicity 2S+1 (default: the lowest for the number of electrons).",
     )
 
     parser.add_argument(

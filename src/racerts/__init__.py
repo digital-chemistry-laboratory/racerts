@@ -11,7 +11,7 @@ racerts.compat and importable from here.
 """
 
 from .api import generate, generate_gs, generate_ts
-from .compat import (  # noqa: F401 (the legacy modules)
+from .compat import (
     ConformerGenerator,
     conformer_generator,
     embedder,
@@ -58,4 +58,10 @@ __all__ = [
     "mol_getters",
     "optimizers",
     "pruners",
+    "conformer_generator",
+    "embedder",
+    "mol_getter",
+    "optimizer",
+    "pruner",
+    "visualizer",
 ]

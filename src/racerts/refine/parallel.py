@@ -5,13 +5,10 @@ import os
 from concurrent.futures import ProcessPoolExecutor
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-if TYPE_CHECKING:
-    from ase import Atoms as ASEAtoms
-
-
-OptimizationTask = tuple[int, "ASEAtoms"]
+# (conf_id, ase.Atoms)
+OptimizationTask = tuple[int, Any]
 # (conf_id, positions, energy, converged, error); positions and energy are None on error.
 OptimizationResult = tuple[int, Any, "float | None", bool, "str | None"]
 

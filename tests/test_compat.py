@@ -1,5 +1,6 @@
 """The legacy racerts API that stays for external code (racerts.compat)."""
 
+import filecmp
 import importlib
 import json
 import os
@@ -17,6 +18,7 @@ from racerts.optimizer import BaseOptimizer, MMFFOptimizer, UFFOptimizer
 
 from .api_surface import incompatibilities
 from .conftest import DATA, EX
+from .routes import ASE_CASE, COMMANDS, CURRENT, LEGACY, run_command, write
 
 TS_ARGS = dict(input_smiles=["CCCCCC=C"], number_of_conformers=10)
 
@@ -58,6 +60,39 @@ def test_legacy_import_paths_are_kept(module):
     imported = importlib.import_module(module)
     for name in KEPT[module]:
         assert getattr(imported, name) is getattr(racerts.compat, name)
+
+
+# The routes of tests/routes.py write identical files through the legacy API, the current
+# API and the command lines, on any RDKit (test_baseline also compares them with the stored
+# Phase 1 files, on RDKit 2025.03.2).
+
+
+@pytest.mark.parametrize("name", [name for name in LEGACY if name != ASE_CASE])
+def test_legacy_and_current_api_write_the_same_file(name, tmp_path):
+    legacy = write(LEGACY, name, tmp_path / "legacy")
+    current = write(CURRENT, name, tmp_path / "current")
+    assert filecmp.cmp(legacy, current, shallow=False)
+
+
+@pytest.mark.ase
+def test_legacy_and_current_api_write_the_same_ase_file(tmp_path):
+    pytest.importorskip("ase")
+    legacy = write(LEGACY, ASE_CASE, tmp_path / "legacy")
+    current = write(CURRENT, ASE_CASE, tmp_path / "current")
+    assert filecmp.cmp(legacy, current, shallow=False)
+
+
+@pytest.fixture(scope="module")
+def legacy_default(tmp_path_factory):
+    return write(LEGACY, "ex_cmap_mmff.xyz", tmp_path_factory.mktemp("legacy"))
+
+
+@pytest.mark.parametrize("command", list(COMMANDS))
+def test_command_lines_write_the_legacy_api_file(
+    command, legacy_default, tmp_path, monkeypatch
+):
+    path = run_command(command, tmp_path / "cli.xyz", monkeypatch)
+    assert filecmp.cmp(path, legacy_default, shallow=False)
 
 
 # Deliberate differences to the API of racerts 0.1.7 (PyPI); see docs/migration.md.

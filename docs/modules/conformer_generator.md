@@ -1,6 +1,10 @@
 # **conformer_generator**
 
-The central orchestrator for generating TS-constrained conformer ensembles.
+The central orchestrator of legacy racerts for generating TS-constrained conformer
+ensembles, kept in `racerts.compat` (and importable as `from racerts import
+ConformerGenerator`). It runs on the pipeline and gives the same ensembles as
+`racerts.generate_ts`; see [Pipelines and tasks](../pipeline.md) and [Migrating from
+legacy racerts](../migration.md).
 
 ```python
 from racerts import ConformerGenerator
@@ -9,7 +13,7 @@ cg = ConformerGenerator(verbose=False, randomSeed=12, num_threads=1)
 
 ### Settings
 
-- `verbose` : print additional information on the progress and diagnostics
+- `verbose` : log progress and diagnostics (INFO level of the `racerts` logger) during `generate_conformers`
 - `randomSeed` : seed for randomization
 - `num_threads` : multithreading
 

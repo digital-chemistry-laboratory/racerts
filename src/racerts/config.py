@@ -1,0 +1,259 @@
+"""PipelineConfig: the settings of the default pipeline, as plain data."""
+
+import json
+import os
+import re
+import typing
+from dataclasses import asdict, dataclass, field, fields
+from typing import Any, Dict, Optional
+
+from racerts.embed import DEFAULT_CONF_FACTOR, EMBED_MODES, Embed, default_embedder
+from racerts.pipeline import Pipeline
+from racerts.prune import EnergyPruner, PruneEnergy, PruneRMSD, RMSDPruner
+from racerts.refine import REFINE_BACKENDS, Refine
+from racerts.task import Task
+from racerts.utils.optional import require
+
+
+@dataclass
+class EmbedConfig:
+    """
+    Attributes:
+        mode: "cmap" (frozen atoms placed by a coordinate map) or "bounds" (their
+            distances fixed in the bounds matrix).
+        n_conformers: Conformers to embed; -1 for rotatable bonds * conf_factor + 30.
+        conf_factor: Conformers per rotatable bond for the default count.
+        etkdg: Use ETKDGv3 instead of plain distance geometry. None: plain distance
+            geometry when atoms are frozen (as in legacy racerts), ETKDGv3 otherwise.
+        use_random_coords: Start embedding from random coordinates.
+    """
+
+    mode: str = "cmap"
+    n_conformers: int = -1
+    conf_factor: int = DEFAULT_CONF_FACTOR
+    etkdg: Optional[bool] = None
+    use_random_coords: bool = True
+
+    def __post_init__(self):
+        _check_types(self, "embed")
+        if self.mode not in EMBED_MODES:
+            raise ValueError(f"embed.mode must be one of {sorted(EMBED_MODES)}.")
+        if self.n_conformers != -1 and self.n_conformers < 1:
+            raise ValueError("embed.n_conformers must be -1 (default count) or > 0.")
+        if self.conf_factor < 0:
+            raise ValueError("embed.conf_factor must not be negative.")
+
+
+@dataclass
+class RefineConfig:
+    """
+    Attributes:
+        backend: "mmff" or "uff".
+        fallback: Fall back to UFF when MMFF has no parameters.
+        force_constant: Force constant (kcal/mol/A^2) that holds the frozen atoms.
+    """
+
+    backend: str = "mmff"
+    fallback: bool = True
+    force_constant: float = 1e6
+
+    def __post_init__(self):
+        _check_types(self, "refine")
+        if self.backend not in REFINE_BACKENDS:
+            raise ValueError(
+                f"refine.backend must be one of {sorted(REFINE_BACKENDS)}."
+            )
+        if self.force_constant <= 0:
+            raise ValueError("refine.force_constant must be positive.")
+
+
+@dataclass
+class PruneConfig:
+    """
+    Attributes:
+        energy_threshold: Energy window (kcal/mol) above the lowest conformer.
+        eht_energies: Rank by extended Hueckel (YAeHMOP) energies instead.
+        rmsd_threshold: Heavy-atom RMSD (A) below which conformers are duplicates.
+        include_hs: Include hydrogens in the RMSD.
+        filter_energies: Conformers further apart in energy than
+            rmsd_energy_threshold (kcal/mol) are not compared by RMSD.
+        filter_rotations: Neither are conformers whose principal moments of inertia
+            differ by more than rot_fraction_threshold.
+        max_matches: Maximum number of symmetry-equivalent atom maps for the RMSD.
+    """
+
+    energy_threshold: float = 20.0
+    eht_energies: bool = False
+    rmsd_threshold: float = 0.125
+    include_hs: bool = False
+    filter_energies: bool = True
+    filter_rotations: bool = True
+    rmsd_energy_threshold: float = 0.1
+    rot_fraction_threshold: float = 0.03
+    max_matches: int = 10000
+
+    def __post_init__(self):
+        _check_types(self, "prune")
+        for name in (
+            "energy_threshold",
+            "rmsd_threshold",
+            "rmsd_energy_threshold",
+            "rot_fraction_threshold",
+        ):
+            if getattr(self, name) < 0:
+                raise ValueError(f"prune.{name} must not be negative.")
+        if self.max_matches < 1:
+            raise ValueError("prune.max_matches must be positive.")
+
+
+_SECTIONS = {"embed": EmbedConfig, "refine": RefineConfig, "prune": PruneConfig}
+
+
+@dataclass
+class PipelineConfig:
+    """
+    Settings of the default pipeline (Embed, Refine, PruneEnergy, PruneRMSD). The
+    defaults reproduce legacy racerts.
+
+    Attributes:
+        seed: Random seed (the RDKit embedding seed).
+        num_threads: Threads for embedding, force-field refinement and RMSDs.
+    """
+
+    seed: int = 12
+    num_threads: int = 1
+    embed: EmbedConfig = field(default_factory=EmbedConfig)
+    refine: RefineConfig = field(default_factory=RefineConfig)
+    prune: PruneConfig = field(default_factory=PruneConfig)
+
+    def __post_init__(self):
+        _check_types(self, "")
+        for key, section in _SECTIONS.items():
+            value = getattr(self, key)
+            if isinstance(value, dict):
+                _check_keys(value, section, key)
+                setattr(self, key, section(**value))
+            elif not isinstance(value, section):
+                raise ValueError(
+                    f"{key} must be a mapping, not {type(value).__name__}."
+                )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "PipelineConfig":
+        """
+        Build from a (possibly partial) dict; unknown keys and values of the wrong
+        type raise ValueError.
+        """
+        _check_keys(data, cls, "config")
+        return cls(**data)
+
+    def to_file(self, path: str) -> None:
+        """Write as JSON, or as YAML for .yaml/.yml (needs PyYAML)."""
+        yaml = require("yaml", "yaml") if _is_yaml(path) else None  # before open()
+        with open(path, "w") as handle:
+            if yaml is not None:
+                yaml.safe_dump(self.to_dict(), handle, sort_keys=False)
+            else:
+                json.dump(self.to_dict(), handle, indent=2)
+                handle.write("\n")
+
+    @classmethod
+    def from_file(cls, path: str) -> "PipelineConfig":
+        """Read JSON, or YAML for .yaml/.yml (needs PyYAML)."""
+        with open(path) as handle:
+            data = _load_yaml(handle) if _is_yaml(path) else json.load(handle)
+        return cls.from_dict(data or {})
+
+    def build(self, task: Task) -> Pipeline:
+        """The default pipeline with these settings for the task."""
+        embedder = default_embedder(
+            task,
+            self.seed,
+            mode=self.embed.mode,
+            etkdg=self.embed.etkdg,
+            useRandomCoords=self.embed.use_random_coords,
+            num_threads=self.num_threads,
+        )
+        optimizer = REFINE_BACKENDS[self.refine.backend](
+            force_constant=self.refine.force_constant, num_threads=self.num_threads
+        )
+        prune = self.prune
+        return Pipeline(
+            [
+                Embed(embedder, self.embed.n_conformers, self.embed.conf_factor),
+                Refine(optimizer, fallback=self.refine.fallback),
+                PruneEnergy(
+                    EnergyPruner(
+                        threshold=prune.energy_threshold,
+                        YAeHMOP_energies=prune.eht_energies,
+                    )
+                ),
+                PruneRMSD(
+                    RMSDPruner(
+                        threshold=prune.rmsd_threshold,
+                        include_hs=prune.include_hs,
+                        num_threads=self.num_threads,
+                        filter_energies=prune.filter_energies,
+                        filter_rotations=prune.filter_rotations,
+                        energy_threshold=prune.rmsd_energy_threshold,
+                        rot_fraction_threshold=prune.rot_fraction_threshold,
+                        maxMatches=prune.max_matches,
+                    )
+                ),
+            ]
+        )
+
+
+_KINDS = {bool: "true or false", int: "an integer", float: "a number", str: "a string"}
+
+
+def _check_types(obj, section: str) -> None:
+    """Check the fields of a config dataclass against their annotations."""
+    hints = typing.get_type_hints(type(obj))
+    for f in fields(obj):
+        kind = hints[f.name]
+        if kind in _KINDS or typing.get_origin(kind) is typing.Union:
+            name = f"{section}.{f.name}" if section else f.name
+            setattr(obj, f.name, _convert(getattr(obj, f.name), kind, name))
+
+
+def _convert(value, kind, name: str):
+    if typing.get_origin(kind) is typing.Union:  # Optional[...]
+        if value is None:
+            return None
+        kind = next(arg for arg in typing.get_args(kind) if arg is not type(None))
+    if isinstance(value, bool) == (kind is bool):  # True/False are ints in Python
+        if kind is float and isinstance(value, int):
+            return float(value)
+        if isinstance(value, kind):
+            return value
+    raise ValueError(f"{name} must be {_KINDS[kind]}, not {value!r}.")
+
+
+def _check_keys(data, cls, where: str) -> None:
+    if not isinstance(data, dict):
+        raise ValueError(f"{where} must be a mapping, not {type(data).__name__}.")
+    unknown = set(data) - {f.name for f in fields(cls)}
+    if unknown:
+        raise ValueError(f"Unknown keys in {where}: {sorted(unknown)}.")
+
+
+def _is_yaml(path: str) -> bool:
+    return os.path.splitext(path)[1].lower() in (".yaml", ".yml")
+
+
+def _load_yaml(handle):
+    yaml = require("yaml", "yaml")
+
+    class Loader(yaml.SafeLoader):
+        """Reads e.g. 1e6 as a number, as YAML 1.2 does (YAML 1.1: a string)."""
+
+    Loader.add_implicit_resolver(
+        "tag:yaml.org,2002:float",
+        re.compile(r"^[-+]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)[eE][-+]?[0-9]+$"),
+        list("-+0123456789."),
+    )
+    return yaml.load(handle, Loader=Loader)

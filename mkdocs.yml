@@ -34,7 +34,9 @@ extra_css:
   - styles/extra.css
 nav:
   - Getting started: getting-started.md
+  - Pipelines and tasks: pipeline.md
   - CLI: cli.md
+  - Migrating from legacy racerts: migration.md
   - Modules:
       - Overview: modules/README.md
       - conformer_generator: modules/conformer_generator.md

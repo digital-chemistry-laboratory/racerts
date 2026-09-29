@@ -1,7 +1,41 @@
 # Command-line interface
 
-The `racerts` CLI mirrors the core functionality of the Python API.
-The command is always:
+The `racerts` CLI mirrors the core functionality of the Python API. It has two
+subcommands, `racerts ts` and `racerts gs`, and keeps the legacy racerts form
+`racerts filename.xyz [options]` (also `racerts run filename.xyz [options]`), which is
+described in the rest of this page. With the same settings, `racerts ts` and the legacy form
+write the same ensemble.
+
+## racerts ts / racerts gs
+
+```bash
+$ racerts ts ts.xyz --reacting-atoms 3 4 5 --smiles "CCCCCC=C" [options]
+$ racerts gs "OC(=O)[C@@H]1CCCN1C(C)=C" [options]
+```
+
+| Option | Explanation |
+| --- | --- |
+| `-r`, `--reacting-atoms` (ts) | 0-based indices of the atoms whose bonds form or break |
+| `-s`, `--smiles` (ts) | SMILES of the TS topology, one per fragment |
+| `--frozen-atoms` (ts) | frozen atoms instead of the reacting atoms and their neighbours |
+| `--graph` (ts) | first method for the graph: `smiles`, `bonds` or `connect` |
+| `-c`, `--charge` | total charge (ts: default 0; gs: from the SMILES) |
+| `--multiplicity` | spin multiplicity (default: the lowest for the electrons) |
+| `--config` | [PipelineConfig](pipeline.md#settings) as JSON or YAML; the options below override it |
+| `-n`, `--n-conformers`, `--conf-factor` | conformers to embed |
+| `--embed` | `cmap` or `bounds` |
+| `--etkdg`, `--no-etkdg` | ETKDGv3 instead of plain distance geometry (default: only for gs) |
+| `--refine` | `mmff` or `uff` |
+| `--no-fallback` | no fallback for the graph (bonds, connectivity) or MMFF (UFF) |
+| `--seed`, `--num-threads` | |
+| `--energy-threshold`, `--rmsd-threshold` | pruning |
+| `-o`, `--output` | output file (default `conformer_ensemble.xyz`) |
+| `--crest-energies` | only the energy (Hartree) on each comment line, as CREST does |
+| `-v`, `-vv` | progress (INFO) or details (DEBUG) on stderr |
+
+## racerts filename.xyz (legacy)
+
+The command is:
 ```bash
 $ racerts filename.xyz [options]
 ```
@@ -40,7 +74,7 @@ where the `filename.xyz` is the path to an .xyz file containing a single TS conf
 | --- | --- | --- |
 | `-o`<br>`--output` | &lt;STR&gt; [conformer_ensemble.xyz] | Output .xyz filename; the comment lines are in extended XYZ format<br>(energy in eV, charge, spin; readable with `ase.io.read`) |
 | `--out_energies` | - | Instead, write only the energy in E<sub>h</sub> on each comment line (as in CREST ensembles);<br>conformer property remains in kcal/mol |
-| `-v`<br>`--verbose` | - | Verbose output |
+| `-v`<br>`--verbose` | - | Progress on stderr (`-vv`: details) |
 
 ### Performance and reproducibility
 

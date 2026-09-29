@@ -27,16 +27,17 @@ workflows for transition state conformer ensemble generation.
 For further information, see the separate [documentation](https://digital-chemistry-laboratory.github.io/racerts/).
 
 ```shell
->>> from racerts import ConformerGenerator
->>> cg = ConformerGenerator()
->>> ts_conformers_mol = cg.generate_conformers(file_name="example.xyz", charge=0, reacting_atoms=[2,3,4])
->>> cg.write_xyz("ensemble.xyz")
+>>> import racerts
+>>> ensemble = racerts.generate_ts("example.xyz", reacting_atoms=[2, 3, 4], charge=0)
+>>> ensemble.write_xyz("ensemble.xyz")
 ```
 
+The legacy racerts API (`ConformerGenerator`) keeps working and gives the same ensembles.
 It can also be accessed via a command line interface.
 
 ```console
-$ racerts example.xyz --charge 0 --reacting_atoms 2 3 4
+$ racerts ts example.xyz --reacting-atoms 2 3 4 --charge 0
+$ racerts example.xyz --charge 0 --reacting_atoms 2 3 4   # legacy form
 ```
 
 # Cite this work

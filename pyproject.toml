@@ -39,16 +39,31 @@ ase = [
     "ase>=3.22.0",
     "threadpoolctl>=3.0.0",
 ]
+yaml = [
+    "pyyaml>=6.0",
+]
 dev = [
-    "black>=21.12b0",
-    "flake8>=6.1.0",
-    "isort>=5.12.0",
+    "pytest>=7.0",
+    "pyyaml>=6.0",
+    "ruff>=0.5.0",
 ]
 [project.scripts]
 racerts = "racerts.cli:main"
 
 [tool.pytest.ini_options]
+testpaths = ["tests"]
 addopts = "-m \"not ase\""
 markers = [
     "ase: tests requiring optional ASE dependency",
 ]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+extend-exclude = ["tests/data"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "W"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["racerts"]

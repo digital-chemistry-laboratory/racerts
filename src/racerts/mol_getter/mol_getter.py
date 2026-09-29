@@ -194,7 +194,8 @@ class MolGetterSMILES(BaseMolGetter):
         Match the atoms by the atom map numbers of the SMILES: number n is atom n of
         the xyz file (1-based). Hydrogens without a number are matched to the nearest
         free hydrogens of their heavy atom. Afterwards, atoms of both molecules carry
-        their xyz index + 1 as map number, as for match_AtomMapNum.
+        their 1-based atom number in the xyz file as map number (RDKit index + 1, since
+        map number 0 means "unmapped"), as for match_AtomMapNum.
 
         Raises:
             ValueError: If the numbers do not fit the xyz file: out of range, repeated,
@@ -250,6 +251,9 @@ class MolGetterSMILES(BaseMolGetter):
         Template atom index -> xyz atom index for the atoms of the SMILES with a map
         number (number n is atom n of the xyz file, 1-based).
 
+        The element is only a first check: match_by_atom_maps and match_by_substructure
+        then check the numbers against the bonds of the xyz file.
+
         Raises:
             ValueError: If a number is out of range, repeated or of another element.
         """
@@ -285,7 +289,8 @@ class MolGetterSMILES(BaseMolGetter):
         valid molecule. The fragments of the SMILES are matched one at a time (see
         _fragments_in_search_order), so identical fragments such as solvent molecules
         are never permuted against each other. Afterwards, atoms of both molecules
-        carry their xyz index + 1 as map number, as for match_AtomMapNum.
+        carry their 1-based atom number in the xyz file as map number, as for
+        match_AtomMapNum.
 
         Raises:
             ValueError: If the map numbers do not fit the xyz file or nothing matches.
@@ -403,10 +408,13 @@ class MolGetterSMILES(BaseMolGetter):
 
         if type(input_smiles) is str:
             input_smiles = [input_smiles]
-        if not type(input_smiles) is list and type(reacting_atoms) is not list:
+        if not isinstance(input_smiles, (list, tuple)) or not isinstance(
+            reacting_atoms, (list, tuple)
+        ):
             raise ValueError(
-                "Input SMILES and reacting atoms must be provided as a list."
+                "Input SMILES and reacting atoms must be provided as lists (or tuples)."
             )
+        input_smiles, reacting_atoms = list(input_smiles), list(reacting_atoms)
         input_mol = self.combine_mols(input_smiles)
         charge = kwargs.get("charge")
         if charge is not None and charge != Chem.GetFormalCharge(input_mol):

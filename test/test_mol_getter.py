@@ -173,3 +173,32 @@ def test_mol_file_keeps_hydrogens():
     mol = ConformerGenerator().get_mol(os.path.join(DATA, "ex.mol"), 0, [3, 4, 5])
 
     assert mol.GetNumAtoms() == 21
+
+
+@pytest.mark.parametrize(
+    "smiles, reacting_atoms",
+    [(["CCCCCC=C"], 3), ("CCCCCC=C", None), (7, [3, 4, 5])],
+    ids=["one atom", "no atoms", "no smiles"],
+)
+def test_smiles_and_reacting_atoms_must_be_lists(smiles, reacting_atoms):
+    # Either argument of the wrong type raises, not only both.
+    with pytest.raises(ValueError, match="must be provided as lists"):
+        mol_getter_module.MolGetterSMILES().get_mol(
+            os.path.join(DATA, "ex.xyz"),
+            input_smiles=smiles,
+            reacting_atoms=reacting_atoms,
+            charge=0,
+        )
+
+
+def test_tuples_work_as_lists():
+    getter = mol_getter_module.MolGetterSMILES()
+    path = os.path.join(DATA, "ex.xyz")
+    kwargs = dict(charge=0)
+    from_tuples = getter.get_mol(
+        path, input_smiles=("CCCCCC=C",), reacting_atoms=(3, 4, 5), **kwargs
+    )
+    from_lists = getter.get_mol(
+        path, input_smiles=["CCCCCC=C"], reacting_atoms=[3, 4, 5], **kwargs
+    )
+    assert Chem.MolToSmiles(from_tuples) == Chem.MolToSmiles(from_lists)

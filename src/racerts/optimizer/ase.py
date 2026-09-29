@@ -5,10 +5,17 @@ from dataclasses import dataclass
 from functools import wraps
 from importlib import import_module
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Type
+import logging
 import warnings
 
 from rdkit import Chem
 from rdkit.Geometry import Point3D
+
+from racerts.utils import (  # noqa: F401 (also importable from here, as before)
+    EV_TO_KCAL_MOL,
+    count_electrons,
+    infer_charge_and_multiplicity,
+)
 
 from .ff_optimizer import BaseOptimizer
 from .parallel import (
@@ -20,6 +27,8 @@ from .parallel import (
 
 if TYPE_CHECKING:
     from ase import Atoms as ASEAtoms
+
+logger = logging.getLogger(__name__)
 
 Atoms: Any = None
 FixAtoms: Any = None
@@ -56,25 +65,6 @@ def requires_dependency(imports: List[Import], scope: Dict[str, Any]):
     return _decorator
 
 
-EV_TO_KCAL_MOL = 23.06054783061903
-
-
-def infer_charge_and_multiplicity(mol: Chem.Mol) -> Dict[str, int]:
-    """
-    Infer the total formal charge and spin multiplicity of an RDKit molecule.
-
-    Args:
-        mol (Chem.Mol): The molecule to inspect.
-
-    Returns:
-        dict: A dict with charge (sum of per-atom formal charges) and multiplicity
-            (2S + 1 = n_radical_electrons + 1).
-    """
-    charge = sum(a.GetFormalCharge() for a in mol.GetAtoms())
-    multiplicity = 1 + sum(a.GetNumRadicalElectrons() for a in mol.GetAtoms())
-    return {"charge": charge, "multiplicity": multiplicity}
-
-
 @requires_dependency([Import(module="ase", item="Atoms")], globals())
 def rdkit_conformer_to_ase_atoms(
     mol: Chem.Mol,
@@ -85,30 +75,28 @@ def rdkit_conformer_to_ase_atoms(
     """
     Convert one conformer of an RDKit Mol to an ASE Atoms object.
 
-    Charge and spin multiplicity are stored on atoms.info (charge, spin and multiplicity,
-    where spin is the multiplicity expected by UMA models) so that downstream calculators
-    treat charged/radical species correctly. When either is None it is inferred from mol
-    via infer_charge_and_multiplicity.
-
-    Args:
-        mol (Chem.Mol): The molecule with at least one embedded conformer.
-        conf_id (int): The conformer to read.
-        multiplicity (int): The spin multiplicity. Inferred from mol when None.
-        charge (int): The total formal charge. Inferred from mol when None.
-
-    Returns:
-        ASEAtoms: The conformer geometry, with charge and spin set on atoms.info.
+    Charge and multiplicity (from infer_charge_and_multiplicity when None) are stored
+    in atoms.info as charge, spin (the multiplicity, as read by UMA models) and
+    multiplicity, and as initial charges and magnetic moments (read e.g. by tblite).
     """
     if multiplicity is None or charge is None:
-        inferred = infer_charge_and_multiplicity(mol)
-        if multiplicity is None:
-            multiplicity = inferred["multiplicity"]
-        if charge is None:
-            charge = inferred["charge"]
+        state = infer_charge_and_multiplicity(mol, charge, multiplicity)
+        charge, multiplicity = state["charge"], state["multiplicity"]
 
     conf = mol.GetConformer(conf_id)
     symbols = [atom.GetSymbol() for atom in mol.GetAtoms()]
-    atoms = Atoms(symbols=symbols, positions=conf.GetPositions())
+    # Codes such as tblite only read the totals; put what the formal charges do not
+    # explain, and all unpaired electrons, on the first atom.
+    charges = [float(atom.GetFormalCharge()) for atom in mol.GetAtoms()]
+    charges[0] += charge - sum(charges)
+    magmoms = [0.0] * mol.GetNumAtoms()
+    magmoms[0] = float(multiplicity - 1)
+    atoms = Atoms(
+        symbols=symbols,
+        positions=conf.GetPositions(),
+        charges=charges,
+        magmoms=magmoms,
+    )
     atoms.info.update(
         {
             "charge": int(charge),
@@ -143,7 +131,13 @@ class ASEOptimizer(BaseOptimizer):
         force_constant: float = 1e6,
         num_threads: Optional[int] = 1,
         num_workers: Optional[int] = 1,
+        charge: Optional[int] = None,
+        multiplicity: Optional[int] = None,
     ):
+        """
+        charge / multiplicity: override the values of the molecule (see
+        infer_charge_and_multiplicity), e.g. multiplicity=3 for a triplet.
+        """
         if calculator is None:
             raise ValueError("`calculator` must be provided.")
 
@@ -162,11 +156,15 @@ class ASEOptimizer(BaseOptimizer):
         self.conf_id_ref = conf_id_ref
         self.force_constant = force_constant
         self.num_workers = num_workers
+        self.charge = charge
+        self.multiplicity = multiplicity
 
         if num_threads != 1:
-            warnings.warn("Threads-based parallelism within ASEOptimizer is no longer supported and will be deprecated in future versions. " \
-            "Please set the number of parallel processes with num_workers."
-            "For now, the num_workers will be inferred from num_threads, if num_workers is not set.")
+            warnings.warn(
+                "Threads-based parallelism within ASEOptimizer is no longer supported and will be deprecated in future versions. "
+                "Please set the number of parallel processes with num_workers."
+                "For now, the num_workers will be inferred from num_threads, if num_workers is not set."
+            )
 
             if self.num_workers == 1:
                 self.num_workers = num_threads
@@ -202,15 +200,20 @@ class ASEOptimizer(BaseOptimizer):
         Full-ensemble calls use spawned processes when ``num_workers`` is ``None``
         or greater than one; otherwise conformers are optimized serially. A call
         with ``conf_id`` always optimizes that conformer serially.
+
+        A conformer whose calculation fails (e.g. an SCF that does not converge) is
+        left without an energy, so the pruners drop it. If all fail, RuntimeError is
+        raised.
         """
         conf_ids = (
             [conf_id]
             if conf_id is not None
             else [conformer.GetId() for conformer in mol.GetConformers()]
         )
+        state = infer_charge_and_multiplicity(mol, self.charge, self.multiplicity)
         tasks: List[OptimizationTask] = []
         for task_conf_id in conf_ids:
-            atoms = rdkit_conformer_to_ase_atoms(mol, conf_id=task_conf_id)
+            atoms = rdkit_conformer_to_ase_atoms(mol, conf_id=task_conf_id, **state)
             if constraints:
                 atoms.set_constraint(constraints)
             tasks.append((task_conf_id, atoms))
@@ -241,14 +244,36 @@ class ASEOptimizer(BaseOptimizer):
             ]
 
         failures = 0
-        for result_conf_id, positions, energy_ev, converged in results:
+        errors = {}
+        for result_conf_id, positions, energy_ev, converged, error in results:
             conf = mol.GetConformer(result_conf_id)
+            if error is not None:
+                errors[result_conf_id] = error
+                conf.ClearProp("energy")  # no stale energy from an earlier step
+                failures += 1
+                continue
             for idx, xyz in enumerate(positions):
                 conf.SetAtomPosition(
                     idx, Point3D(float(xyz[0]), float(xyz[1]), float(xyz[2]))
                 )
             conf.SetDoubleProp("energy", energy_ev * EV_TO_KCAL_MOL)
             failures += 0 if converged else 1
+
+        if errors:
+            first_error = next(iter(errors.values()))
+            if len(errors) == len(results):
+                raise RuntimeError(
+                    f"ASE optimization failed for all {len(results)} conformers: "
+                    f"{first_error}"
+                )
+            logger.warning(
+                "ASE optimization failed for %d of %d conformers %s; they are left "
+                "without an energy. First error: %s",
+                len(errors),
+                len(results),
+                sorted(errors),
+                first_error,
+            )
         return failures
 
     @requires_dependency([Import(module="ase.constraints", item="FixAtoms")], globals())

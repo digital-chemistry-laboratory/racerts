@@ -1,6 +1,7 @@
 """Pruning by energy window."""
 
 import logging
+import warnings
 
 import numpy as np
 from rdkit import Chem
@@ -19,6 +20,13 @@ class EnergyPruner(BasePruner):
     def __init__(self, threshold: float = 20.0, verbose: bool = False, **kwargs):
         check_threshold(threshold, "threshold")
         self.YAeHMOP_energies = kwargs.get("YAeHMOP_energies", False)
+        if self.YAeHMOP_energies:
+            warnings.warn(
+                "YAeHMOP_energies is deprecated; rescore the ensemble with an ASE "
+                "calculator instead (the Rescore stage).",
+                FutureWarning,  # shown by default, unlike DeprecationWarning
+                stacklevel=2,
+            )
         self.threshold = threshold
         self.verbose = verbose
 

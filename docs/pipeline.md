@@ -70,7 +70,7 @@ ensemble = racerts.generate_ts("ts.xyz", [3, 4, 5], config=config)
 | | `fallback` | true | UFF if MMFF has no parameters |
 | | `force_constant` | 1e6 | kcal/mol/Å² on the frozen atoms |
 | `prune` | `energy_threshold` | 20.0 | kcal/mol above the lowest conformer |
-| | `eht_energies` | false | rank by extended Hückel energies |
+| | `eht_energies` | false | rank by extended Hückel energies (deprecated: use `Rescore`) |
 | | `rmsd_threshold` | 0.125 | Å, heavy atoms |
 | | `include_hs`, `filter_energies`, `filter_rotations`, `rmsd_energy_threshold`, `rot_fraction_threshold`, `max_matches` | | see [pruner](modules/pruner.md) |
 

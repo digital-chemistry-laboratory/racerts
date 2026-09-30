@@ -1,5 +1,6 @@
 """Pruning of duplicates by RMSD (after energy and rotational-constant filters)."""
 
+import inspect
 import logging
 
 import numpy as np
@@ -58,6 +59,11 @@ class RMSDPruner(BasePruner):
             drop_conformers_without_energy(mol)
 
         conf_idx = [conf.GetId() for conf in self.get_sorted_conf_energy(mol)]
+        # The atom maps depend on the graph only: computed once, not for every pair
+        # (not for legacy subclasses whose check_similarity takes no maps).
+        options = {}
+        if len(conf_idx) > 1 and _takes_maps(self.check_similarity):
+            options["maps"] = self.symmetry_maps(mol)
 
         candidates = np.array(conf_idx)
         keep_list = []
@@ -75,6 +81,7 @@ class RMSDPruner(BasePruner):
                 energy_threshold=self.energy_threshold,
                 rot_fraction_threshold=self.rot_fraction_threshold,
                 maxMatches=self.maxMatches,
+                **options,
             )
 
             candidates = candidates[similarity]
@@ -107,6 +114,7 @@ class RMSDPruner(BasePruner):
         energy_threshold=0.05,
         rot_fraction_threshold=0.03,
         maxMatches=100000,
+        maps=None,
     ):
 
         ref_mol = Chem.Mol(mol)  # only the current candidate
@@ -167,11 +175,38 @@ class RMSDPruner(BasePruner):
                     ref_align_mol = Chem.RemoveHs(ref_align_mol, sanitize=False)
 
             rmsd = self.calc_rmsd(
-                ref_align_mol, ref_align_mol, -1, candidate_id, maxMatches=maxMatches
+                ref_align_mol,
+                ref_align_mol,
+                -1,
+                candidate_id,
+                maxMatches=maxMatches,
+                maps=maps,
             )
             checked.append(rmsd > self.threshold)
 
         return checked
+
+    def symmetry_maps(self, mol):
+        """
+        The atom maps of the symmetry-aware RMSD of mol (without hydrogens unless
+        include_hs), as check_similarity uses them; the same for every conformer pair.
+        """
+        graph = Chem.Mol(mol)
+        graph.RemoveAllConformers()
+        if self.include_hs is False:  # as in check_similarity
+            try:
+                graph = Chem.RemoveHs(graph, sanitize=True)
+            except Exception:
+                graph = Chem.RemoveHs(graph, sanitize=False)
+        maps = self.get_atom_maps(graph, graph, self.maxMatches)
+        if len(maps) >= self.maxMatches:
+            logger.warning(
+                "The symmetry matches reach maxMatches=%d, so the RMSD may miss "
+                "equivalent atom mappings, and duplicates of symmetric structures (e.g. "
+                "identical solvent molecules) can remain; increase maxMatches.",
+                self.maxMatches,
+            )
+        return maps
 
     def calc_rmsd(self, mol1, mol2, id_1, id_2, maxMatches=10000, maps=None):
         if maps is None:
@@ -233,3 +268,10 @@ class RMSDPruner(BasePruner):
             rw_mol.AddBond(atom_idx, nbr_idx, Chem.BondType.UNSPECIFIED)
 
         return rw_mol
+
+
+def _takes_maps(method) -> bool:
+    try:
+        return "maps" in inspect.signature(method).parameters
+    except (TypeError, ValueError):
+        return False

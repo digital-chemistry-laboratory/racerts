@@ -5,27 +5,49 @@ from __future__ import annotations
 import logging
 import warnings
 from collections.abc import Callable as ABCCallable
-from typing import Any, Dict, List, Optional, Sequence, Type
+from typing import Any, Callable, Dict, List, Optional, Sequence, Type
 
 from rdkit import Chem
 
 from racerts.io import ase as ase_io
+from racerts.pipeline.ensemble import ConformerEnsemble
 from racerts.system.spec import infer_charge_and_multiplicity
 from racerts.utils.optional import require
 from racerts.utils.units import EV_TO_KCAL_MOL
 
 from .base import BaseOptimizer
-from .parallel import (
-    OptimizationConfig,
-    OptimizationTask,
-    run_optimization,
-    run_optimizations_in_processes,
-)
+from .parallel import OptimizationConfig, OptimizationTask, optimize_all
 
 logger = logging.getLogger(__name__)
 
 
 class ASEOptimizer(BaseOptimizer):
+    """
+    Refinement with any ASE calculator (xTB, MLIPs, ...), with the anchor atoms fixed.
+
+    Args:
+        calculator: An ASE calculator, or a callable that returns one (a factory: one
+            calculator per worker process, or per call without workers; the way to
+            use calculators that keep state between structures).
+        optimizer_cls: Any class with the ASE optimizer interface,
+            cls(atoms, **optimizer_kwargs).run(fmax=..., steps=...); default BFGS.
+            E.g. Sella, with optimizer_kwargs={"order": 1} for saddle points (then
+            refine without anchors: Refine(ASEOptimizer(...), anchors=False)).
+        fmax, max_steps: Convergence criterion (eV/A) and step limit; max_steps=0
+            gives single points.
+        num_workers: Worker processes; 1 (default): none; None: all CPUs.
+        charge, multiplicity: Override the values of the molecule (see
+            infer_charge_and_multiplicity), e.g. multiplicity=3 for a triplet.
+        drop_unconverged: Remove conformers whose optimization did not converge
+            within max_steps (default: keep them).
+        prepare: prepare(calculator, reference_atoms), called once for every
+            calculator instance before its first conformer, with the reference
+            geometry (or the first conformer), e.g. to warm GFN-FF on the TS topology.
+            Must be picklable for worker processes.
+
+    Every conformer records "converged", "n_steps" and "wall_time" in its provenance.
+    """
+
     def __init__(
         self,
         calculator=None,
@@ -40,11 +62,9 @@ class ASEOptimizer(BaseOptimizer):
         num_workers: Optional[int] = 1,
         charge: Optional[int] = None,
         multiplicity: Optional[int] = None,
+        drop_unconverged: bool = False,
+        prepare: Optional[Callable[[Any, Any], None]] = None,
     ):
-        """
-        charge / multiplicity: override the values of the molecule (see
-        infer_charge_and_multiplicity), e.g. multiplicity=3 for a triplet.
-        """
         if calculator is None:
             raise ValueError("`calculator` must be provided.")
 
@@ -67,6 +87,8 @@ class ASEOptimizer(BaseOptimizer):
         self.num_workers = num_workers
         self.charge = charge
         self.multiplicity = multiplicity
+        self.drop_unconverged = drop_unconverged
+        self.prepare = prepare
 
         if num_threads != 1:
             warnings.warn(
@@ -103,16 +125,18 @@ class ASEOptimizer(BaseOptimizer):
         mol: Chem.Mol,
         constraints: Optional[List[Any]] = None,
         conf_id: Optional[int] = None,
+        reference: Optional[Chem.Mol] = None,
     ) -> int:
         """Optimize one conformer or the full ensemble in place.
 
         Full-ensemble calls use spawned processes when ``num_workers`` is ``None``
         or greater than one; otherwise conformers are optimized serially. A call
-        with ``conf_id`` always optimizes that conformer serially.
+        with ``conf_id`` always optimizes that conformer serially. reference: the
+        geometry passed to prepare (default: the first conformer).
 
         A conformer whose calculation fails (e.g. an SCF that does not converge) is
         left without an energy, so the pruners drop it. If all fail, RuntimeError is
-        raised.
+        raised. Returns the number of conformers that failed or did not converge.
         """
         conf_ids = (
             [conf_id]
@@ -135,51 +159,78 @@ class ASEOptimizer(BaseOptimizer):
             optimizer_kwargs=dict(self.optimizer_kwargs),
             fmax=self.fmax,
             max_steps=self.max_steps,
+            prepare=self.prepare,
         )
+        reference_atoms = None
+        if self.prepare is not None:
+            if reference is not None:
+                ref_id = reference.GetConformer(self.conf_id_ref).GetId()
+                reference_atoms = self._to_atoms(reference, ref_id, state)
+            else:  # a copy: the first conformer is relaxed in place
+                reference_atoms = tasks[0][1].copy()
         use_processes = conf_id is None and (
             self.num_workers is None or self.num_workers > 1
         )
-        if use_processes:
-            results = run_optimizations_in_processes(
-                tasks=tasks,
-                calculator=self.calculator,
-                calculator_is_factory=self._calculator_is_factory,
-                config=config,
-                num_workers=self.num_workers,
-            )
-        else:
-            results = [
-                run_optimization(self._get_calculator(), config, task) for task in tasks
-            ]
+        outcomes = optimize_all(
+            tasks,
+            self.calculator,
+            self._calculator_is_factory,
+            config,
+            num_workers=self.num_workers if use_processes else 1,
+            reference=reference_atoms,
+        )
 
+        ensemble = ConformerEnsemble(mol)  # a view, to record the provenance
         failures = 0
         errors = {}
-        for result_conf_id, positions, energy_ev, converged, error in results:
-            conf = mol.GetConformer(result_conf_id)
-            if error is not None:
-                errors[result_conf_id] = error
+        unconverged = []
+        for outcome in outcomes:
+            conf = mol.GetConformer(outcome.conf_id)
+            ensemble.add_provenance(
+                outcome.conf_id,
+                converged=outcome.converged,
+                n_steps=outcome.n_steps,
+                wall_time=round(outcome.seconds, 3),
+            )
+            if outcome.error is not None:
+                errors[outcome.conf_id] = outcome.error
                 conf.ClearProp("energy")  # no stale energy from an earlier step
                 failures += 1
                 continue
-            ase_io.set_positions(conf, positions)
-            conf.SetDoubleProp("energy", energy_ev * EV_TO_KCAL_MOL)
-            failures += 0 if converged else 1
+            ase_io.set_positions(conf, outcome.positions)
+            conf.SetDoubleProp("energy", outcome.energy * EV_TO_KCAL_MOL)
+            if not outcome.converged:
+                failures += 1
+                unconverged.append(outcome.conf_id)
 
         if errors:
             first_error = next(iter(errors.values()))
-            if len(errors) == len(results):
+            if len(errors) == len(outcomes):
                 raise RuntimeError(
-                    f"ASE optimization failed for all {len(results)} conformers: "
+                    f"ASE optimization failed for all {len(outcomes)} conformers: "
                     f"{first_error}"
                 )
             logger.warning(
                 "ASE optimization failed for %d of %d conformers %s; they are left "
                 "without an energy. First error: %s",
                 len(errors),
-                len(results),
+                len(outcomes),
                 sorted(errors),
                 first_error,
             )
+        if unconverged and self.drop_unconverged:
+            if len(unconverged) + len(errors) == len(outcomes):
+                raise RuntimeError(
+                    f"No conformer converged within {self.max_steps} steps."
+                )
+            logger.warning(
+                "Dropping %d conformers that did not converge within %d steps: %s",
+                len(unconverged),
+                self.max_steps,
+                unconverged,
+            )
+            for unconverged_id in unconverged:
+                mol.RemoveConformer(unconverged_id)
         return failures
 
     def _to_atoms(self, mol: Chem.Mol, conf_id: int, state: Dict[str, int]):
@@ -203,7 +254,7 @@ class ASEOptimizer(BaseOptimizer):
         constraints = None
         if anchors:
             constraints = [require("ase.constraints", "ase").FixAtoms(indices=anchors)]
-        failures = self.optimize(mol=mol, constraints=constraints)
+        failures = self.optimize(mol=mol, constraints=constraints, reference=reference)
         self.align_mols(mol, reference, anchors)
         logger.info("ASE failures: %d", failures)
         return failures

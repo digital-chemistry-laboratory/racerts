@@ -120,6 +120,7 @@ More stages:
 
 | Stage | Does |
 | --- | --- |
+| `Refine(optimizer, anchors=False)` | refines all atoms freely, e.g. a saddle-point search from TS-like conformers |
 | `Rescore(calculator)` or `Rescore(batch=fn)` | replaces the energies by single points of an ASE calculator (xTB, MLIPs), or of a function that evaluates a list of Atoms at once; the replaced energy goes into the provenance |
 | `PruneCount(n_max, renumber=False)` | keeps the `n_max` lowest conformers |
 

@@ -86,3 +86,22 @@ def test_the_ase_atoms_builder_can_be_patched_in_racerts_io(hept_1_ene_ts, monke
     ).run(racerts.Context.create(mol, TransitionState([3, 4, 5])))
 
     assert len(calls) == 2 and not np.isnan(ensemble.energies()).any()
+
+
+def _embedded(mol, n=12):
+    """n conformers of the TS of ex.xyz, embedded (not refined)."""
+    task = TransitionState([3, 4, 5])
+    ctx = racerts.Context.create(mol, task)
+    return racerts.Embed(n_conformers=n).run(ctx), ctx
+
+
+def test_refine_without_anchors_moves_the_frozen_atoms(hept_1_ene_ts):
+    ensemble, ctx = _embedded(hept_1_ene_ts, n=3)
+    racerts.Refine(anchors=False).run(ctx, ensemble)
+    frozen = list(ctx.frozen.hard)
+    reference = ctx.reference.GetConformer().GetPositions()[frozen]
+    moved = [
+        np.abs(conf.GetPositions()[frozen] - reference).max()
+        for conf in ensemble.mol.GetConformers()
+    ]
+    assert min(moved) > 0.05

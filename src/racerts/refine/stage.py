@@ -57,21 +57,29 @@ class Refine:
     Args:
         optimizer: Any BaseOptimizer; default MMFFOptimizer.
         fallback: Fall back to UFF if MMFF fails.
+        anchors: Hold the hard frozen atoms at the reference (default). False refines
+            all atoms freely, e.g. for a saddle-point search from TS-like conformers
+            (ASEOptimizer with Sella).
     """
 
     name = "refine"
 
     def __init__(
-        self, optimizer: Optional[BaseOptimizer] = None, fallback: bool = True
+        self,
+        optimizer: Optional[BaseOptimizer] = None,
+        fallback: bool = True,
+        anchors: bool = True,
     ):
         self.optimizer = optimizer
         self.fallback = fallback
+        self.anchors = anchors
 
     def run(self, ctx, ensemble: ConformerEnsemble) -> ConformerEnsemble:
         optimizer = self.optimizer if self.optimizer is not None else MMFFOptimizer()
+        anchors = ctx.frozen.hard if self.anchors else ()
         energy_method = refine_with_fallback(
             optimizer,
-            lambda opt: opt.refine(ensemble.mol, ctx.reference, ctx.frozen.hard),
+            lambda opt: opt.refine(ensemble.mol, ctx.reference, anchors),
             fallback=UFFOptimizer if self.fallback else None,
         )
         ensemble.mol.SetProp("energy_method", energy_method)

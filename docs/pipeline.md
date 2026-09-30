@@ -144,10 +144,13 @@ Conformer ids are those of the embedding; pruning leaves gaps, so use `conf_ids`
 ```python
 ensemble.conf_ids              # e.g. [0, 3, 4, 9]
 ensemble.energies()            # numpy array in the order of conf_ids, NaN where missing
+ensemble.energies(unit="eV")   # also "kJ/mol", "hartree"
 best = ensemble.best()         # id of the lowest conformer
 ensemble.record(best)          # ConformerRecord(conf_id, energy, energy_method, provenance)
-ensemble.filter(ensemble.conf_ids[:5])  # a copy with these conformers
+ensemble.filter([9, 0])        # a copy with these conformers, in this order
+ensemble.filter([9, 0], renumber=True)  # ... with the ids 0, 1
 ensemble.merge(other)          # conformers of both (same graph and energy method)
+ensemble.merge(other, identity="elements")  # same elements only, e.g. other bond orders
 ensemble.to_ase(best)          # ASE Atoms with charge and multiplicity
 ensemble.write_xyz("out.xyz")  # extended XYZ; use_energy=True for CREST-style energies
 ```

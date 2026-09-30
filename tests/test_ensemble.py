@@ -120,3 +120,84 @@ def test_copy_is_independent(ethanol):
     copy.mol.GetConformer(0).SetDoubleProp("energy", 5.0)
 
     assert ethanol.energy(0) == 2.0
+
+
+# Ported from catmlp (test_conformer_selection, test_conformer_merge,
+# test_external_conformers at e1547eb), for the racerts API.
+
+
+@pytest.mark.parametrize("renumber", [False, True])
+def test_filter_keeps_the_requested_order(ethanol, renumber):
+    ethanol.add_provenance(2, seed=12)
+    before = ethanol.mol.ToBinary()
+    subset = ethanol.filter([2, 0], renumber=renumber)
+
+    assert subset.conf_ids == ([0, 1] if renumber else [2, 0])
+    assert subset.energies().tolist() == [1.0, 2.0]
+    assert subset.provenance(subset.conf_ids[0]) == {"seed": 12}
+    assert np.array_equal(
+        subset.mol.GetConformer(subset.conf_ids[0]).GetPositions(),
+        ethanol.mol.GetConformer(2).GetPositions(),
+    )
+    assert ethanol.mol.ToBinary() == before  # unchanged
+
+
+@pytest.mark.parametrize(
+    "ids, error", [([0, 0], ValueError), ([7], ValueError), ([True], TypeError)]
+)
+def test_filter_rejects_invalid_ids(ethanol, ids, error):
+    with pytest.raises(error):
+        ethanol.filter(ids)
+
+
+def _with_conformer(smiles, x=0.0, energy=None):
+    mol = Chem.MolFromSmiles(smiles)
+    conf = Chem.Conformer(mol.GetNumAtoms())
+    conf.SetAtomPosition(0, (x, 2, 3))
+    if energy is not None:
+        conf.SetDoubleProp("energy", energy)
+    mol.AddConformer(conf)
+    return ConformerEnsemble(mol)
+
+
+@pytest.mark.parametrize("first, second", [("C", "CC"), ("CO", "CN"), ("CO", "OC"),
+                                           ("CO", "[13CH3]O")])  # fmt: skip
+def test_merge_rejects_other_atoms(first, second):
+    for identity in ("graph", "elements"):
+        with pytest.raises(ValueError, match="can be merged"):
+            _with_conformer(first).merge(_with_conformer(second), identity=identity)
+
+
+@pytest.mark.parametrize(
+    "first, second",
+    [
+        ("CC", "[CH2][CH2]"),  # radicals
+        ("[NH3]->[Cu+2]", "[NH3+]-[Cu+]"),  # bond type, charges
+        ("F[C@](Cl)(Br)I", "F[C@@](Cl)(Br)I"),  # stereo
+    ],
+)
+def test_merge_by_elements_ignores_the_representation(first, second):
+    a, b = _with_conformer(first, 0, -2.0), _with_conformer(second, 1, -1.0)
+    before = [a.mol.ToBinary(), b.mol.ToBinary()]
+    merged = a.merge(b, identity="elements")
+
+    assert merged.conf_ids == [0, 1]
+    assert merged.energies().tolist() == [-2.0, -1.0]
+    assert merged.mol.GetConformer(1).GetPositions()[0].tolist() == [1, 2, 3]
+    assert Chem.MolToSmiles(merged.mol) == Chem.MolToSmiles(a.mol)
+    assert [a.mol.ToBinary(), b.mol.ToBinary()] == before
+    if "@" not in first:  # the graph identity sees radicals, bonds and charges
+        with pytest.raises(ValueError, match="same molecular graph"):
+            a.merge(b)
+    with pytest.raises(ValueError, match="identity"):
+        a.merge(b, identity="smiles")
+
+
+def test_energies_in_other_units(ethanol):
+    energies = ethanol.energies(unit="eV")
+    assert energies[0] == pytest.approx(2.0 / 23.06054783061903)
+    assert math.isnan(energies[1])
+    assert ethanol.energies("hartree")[2] == pytest.approx(1.0 / 627.5094740629)
+    assert ethanol.energies("kJ/mol")[2] == pytest.approx(4.184)
+    with pytest.raises(ValueError, match="unit"):
+        ethanol.energies("kcal")

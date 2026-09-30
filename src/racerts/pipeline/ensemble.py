@@ -2,12 +2,14 @@
 
 import json
 from dataclasses import dataclass, field
+from numbers import Integral
 from typing import Dict, Iterable, List, Optional
 
 import numpy as np
 from rdkit import Chem
 
 from racerts.io.xyz import write_xyz
+from racerts.utils.units import ENERGY_UNITS
 
 PROVENANCE = "provenance"
 
@@ -64,9 +66,15 @@ class ConformerEnsemble:
     def energy(self, conf_id: int) -> Optional[float]:
         return _energy(self.mol.GetConformer(conf_id))
 
-    def energies(self) -> np.ndarray:
-        """Energies in kcal/mol in the order of conf_ids; NaN where missing."""
-        return np.array([_energy(c) for c in self.mol.GetConformers()], dtype=float)
+    def energies(self, unit: str = "kcal/mol") -> np.ndarray:
+        """
+        Energies in the order of conf_ids; NaN where missing. unit: "kcal/mol" (as
+        stored), "kJ/mol", "eV" or "hartree".
+        """
+        if unit not in ENERGY_UNITS:
+            raise ValueError(f"unit must be one of {sorted(ENERGY_UNITS)}.")
+        energies = np.array([_energy(c) for c in self.mol.GetConformers()], dtype=float)
+        return energies / ENERGY_UNITS[unit]
 
     def best(self) -> int:
         """The id of the conformer with the lowest energy."""
@@ -103,28 +111,51 @@ class ConformerEnsemble:
             provenance=_provenance(conf),
         )
 
-    def filter(self, conf_ids: Iterable[int]) -> "ConformerEnsemble":
-        """A copy with only the given conformers (ids and data kept)."""
-        keep = set(conf_ids)
-        unknown = keep - set(self.conf_ids)
+    def filter(
+        self, conf_ids: Iterable[int], renumber: bool = False
+    ) -> "ConformerEnsemble":
+        """
+        A copy with only the given conformers, in the given order, with their data.
+        They keep their ids, or with renumber get the ids 0, 1, ... in that order.
+        """
+        conf_ids = list(conf_ids)
+        if any(isinstance(i, bool) or not isinstance(i, Integral) for i in conf_ids):
+            raise TypeError("Conformer ids must be integers.")
+        conf_ids = [int(i) for i in conf_ids]
+        if len(set(conf_ids)) != len(conf_ids):
+            raise ValueError(f"Repeated conformer ids: {conf_ids}.")
+        unknown = set(conf_ids) - set(self.conf_ids)
         if unknown:
             raise ValueError(f"No conformers with ids {sorted(unknown)}.")
         mol = Chem.Mol(self.mol)
-        for conf_id in self.conf_ids:
-            if conf_id not in keep:
-                mol.RemoveConformer(conf_id)
+        mol.RemoveAllConformers()
+        for conf_id in conf_ids:
+            conf = Chem.Conformer(self.mol.GetConformer(conf_id))  # with its data
+            mol.AddConformer(conf, assignId=renumber)
         return ConformerEnsemble(mol)
 
-    def merge(self, other: "ConformerEnsemble") -> "ConformerEnsemble":
+    def merge(
+        self, other: "ConformerEnsemble", identity: str = "graph"
+    ) -> "ConformerEnsemble":
         """
-        A copy with the conformers of both ensembles, which must share the molecular
-        graph. The conformers of other get new ids. Energies from different methods
-        cannot be ranked together, so ensembles with different energy_method values
-        are not merged.
+        A copy with the conformers of both ensembles, atom by atom. The conformers of
+        other get new ids; self supplies the molecule.
+
+        identity: What must agree at every atom index: "graph" (elements, isotopes,
+            formal charges, radical electrons and bonds) or "elements" (elements and
+            isotopes only, e.g. for conformers of the same system under another
+            graph, as catmlp merges TS guesses).
+
+        Energies from different methods cannot be ranked together, so ensembles with
+        different energy_method values are not merged.
         """
-        if not _same_graph(self.mol, other.mol):
+        if identity not in ("graph", "elements"):
+            raise ValueError("identity must be 'graph' or 'elements'.")
+        same = _same_graph if identity == "graph" else _same_elements
+        if not same(self.mol, other.mol):
+            what = "molecular graph" if identity == "graph" else "elements"
             raise ValueError(
-                "Only ensembles of the same molecular graph can be merged."
+                f"Only ensembles with the same {what} (atom by atom) can be merged."
             )
         methods = {e.energy_method for e in (self, other)} - {None}
         if len(methods) > 1:
@@ -172,11 +203,29 @@ def _provenance(conf: Chem.Conformer) -> dict:
     return json.loads(conf.GetProp(PROVENANCE)) if conf.HasProp(PROVENANCE) else {}
 
 
+def _same_elements(a: Chem.Mol, b: Chem.Mol) -> bool:
+    def elements(mol):
+        return [(atom.GetAtomicNum(), atom.GetIsotope()) for atom in mol.GetAtoms()]
+
+    return elements(a) == elements(b)
+
+
 def _same_graph(a: Chem.Mol, b: Chem.Mol) -> bool:
     def graph(mol):
-        atoms = [atom.GetAtomicNum() for atom in mol.GetAtoms()]
+        atoms = [
+            (
+                atom.GetAtomicNum(),
+                atom.GetIsotope(),
+                atom.GetFormalCharge(),
+                atom.GetNumRadicalElectrons(),
+            )
+            for atom in mol.GetAtoms()
+        ]
         bonds = sorted(
-            (bond.GetBeginAtomIdx(), bond.GetEndAtomIdx(), str(bond.GetBondType()))
+            (
+                *sorted((bond.GetBeginAtomIdx(), bond.GetEndAtomIdx())),
+                str(bond.GetBondType()),
+            )
             for bond in mol.GetBonds()
         )
         return atoms, bonds

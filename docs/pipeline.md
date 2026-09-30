@@ -116,6 +116,12 @@ Components written for legacy racerts (`embed_TS`, `tune_ts_conformers`) run in 
 too: their base classes in `racerts.compat` route `embed` and `refine` to the legacy
 methods.
 
+More stages:
+
+| Stage | Does |
+| --- | --- |
+| `Rescore(calculator)` or `Rescore(batch=fn)` | replaces the energies by single points of an ASE calculator (xTB, MLIPs), or of a function that evaluates a list of Atoms at once; the replaced energy goes into the provenance |
+
 `Pipeline.run(ctx, ensemble)` continues an ensemble (e.g. to refine it with another
 method) and leaves the ensemble passed in unchanged; stages may change the ensemble they
 get in place. `Embed` starts an ensemble: to combine two embedding runs (with different

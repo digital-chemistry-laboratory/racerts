@@ -1,11 +1,12 @@
-"""ASE refinement: hooks, failures, convergence and provenance."""
+"""ASE refinement and rescoring: hooks, failures, convergence and provenance."""
 
 import numpy as np
 import pytest
 from rdkit import Chem
 
 import racerts
-from racerts import TransitionState
+from racerts import Rescore, TransitionState
+from racerts.utils.units import EV_TO_KCAL_MOL
 
 pytestmark = pytest.mark.ase
 ase = pytest.importorskip("ase")
@@ -58,6 +59,82 @@ def refined(hept_1_ene_ts):
         ctx
     )
     return ensemble, ctx
+
+
+def _lj_energy(positions, symbols):
+    atoms = ase.Atoms(symbols=symbols, positions=positions)
+    atoms.calc = LennardJones()
+    return atoms.get_potential_energy() * EV_TO_KCAL_MOL
+
+
+def test_rescore_replaces_the_energies(refined):
+    ensemble, ctx = refined
+    before = ensemble.copy()
+    Rescore(LennardJones()).run(ctx, ensemble)
+
+    assert ensemble.energy_method == "LennardJones"
+    symbols = [a.GetSymbol() for a in ensemble.mol.GetAtoms()]
+    for conf_id in ensemble.conf_ids:
+        positions = ensemble.mol.GetConformer(conf_id).GetPositions()
+        # Single points: the geometry stays.
+        assert np.array_equal(
+            positions, before.mol.GetConformer(conf_id).GetPositions()
+        )
+        assert ensemble.energy(conf_id) == pytest.approx(_lj_energy(positions, symbols))
+        provenance = ensemble.provenance(conf_id)
+        assert provenance["previous_energy"] == before.energy(conf_id)
+        assert provenance["previous_energy_method"] == "MMFFOptimizer"
+        assert provenance["embedder"] == "CmapEmbedder"  # earlier entries are kept
+
+
+class AlwaysFails(LennardJones):
+    def calculate(self, *args, **kwargs):
+        raise RuntimeError("SCF not converged")
+
+
+@pytest.mark.parametrize("on_fail", ["clear", "drop"])
+def test_rescore_failures(refined, on_fail, caplog):
+    ensemble, ctx = refined
+    first, second = ensemble.conf_ids[:2]
+    # A factory: one calculator per conformer without workers; the second fails.
+    calculators = iter([LennardJones(), AlwaysFails(), LennardJones(), LennardJones()])
+
+    Rescore(lambda: next(calculators), method="LJ", on_fail=on_fail).run(ctx, ensemble)
+    assert "SCF not converged" in caplog.text
+    assert ensemble.energy(first) is not None
+    if on_fail == "clear":
+        assert ensemble.energy(second) is None
+    else:
+        assert second not in ensemble.conf_ids
+
+
+def test_rescore_raises_if_every_conformer_fails(refined):
+    ensemble, ctx = refined
+    with pytest.raises(RuntimeError, match="all 4 conformers: RuntimeError: SCF"):
+        Rescore(AlwaysFails).run(ctx, ensemble)
+
+
+def test_rescore_with_a_batch_function(refined):
+    ensemble, ctx = refined
+    seen = []
+
+    def batch(structures):
+        seen.append(len(structures))
+        return [1.0, None, float("nan"), 2.0][: len(structures)]
+
+    Rescore(batch=batch).run(ctx, ensemble)
+    assert seen == [4]
+    assert ensemble.energy_method == "batch"
+    energies = ensemble.energies()
+    assert energies[0] == pytest.approx(EV_TO_KCAL_MOL)
+    assert np.isnan(energies[1]) and np.isnan(energies[2])
+
+    with pytest.raises(ValueError, match="returned 1 energies for 4"):
+        Rescore(batch=lambda structures: [0.0]).run(ctx, ensemble)
+    with pytest.raises(ValueError, match="either"):
+        Rescore()
+    with pytest.raises(ValueError, match="on_fail"):
+        Rescore(batch=batch, on_fail="ignore")
 
 
 def test_prepare_gets_the_reference(refined):

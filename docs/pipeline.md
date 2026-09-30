@@ -157,5 +157,10 @@ ensemble.write_sdf("out.sdf")  # one record per conformer, with energy and prove
 racerts.ConformerEnsemble.from_frames(mol, frames)  # external geometries (Atoms or arrays)
 ```
 
+Graphs for geometries from elsewhere: `racerts.system.mol_from_geometry(atoms, smiles)`
+takes the bond orders, charges and radicals of an explicit-hydrogen SMILES onto the
+connectivity of a geometry and raises if they do not fit; `mol_from_explicit_h_smiles`
+and `bondless_mol` are the pieces.
+
 Ensembles can be pickled (e.g. to return them from worker processes) with all their
 data; plain RDKit pickling of `ensemble.mol` drops the properties.

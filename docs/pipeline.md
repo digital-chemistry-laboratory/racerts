@@ -153,6 +153,7 @@ ensemble.merge(other)          # conformers of both (same graph and energy metho
 ensemble.merge(other, identity="elements")  # same elements only, e.g. other bond orders
 ensemble.to_ase(best)          # ASE Atoms with charge and multiplicity
 ensemble.write_xyz("out.xyz")  # extended XYZ; use_energy=True for CREST-style energies
+racerts.ConformerEnsemble.from_frames(mol, frames)  # external geometries (Atoms or arrays)
 ```
 
 Ensembles can be pickled (e.g. to return them from worker processes) with all their

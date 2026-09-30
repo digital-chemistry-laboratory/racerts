@@ -3,7 +3,7 @@
 import json
 from dataclasses import dataclass, field
 from numbers import Integral
-from typing import Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 import numpy as np
 from rdkit import Chem
@@ -170,6 +170,52 @@ class ConformerEnsemble:
             mol.AddConformer(conf, assignId=True)  # AddConformer copies
         return ConformerEnsemble(mol)
 
+    @classmethod
+    def from_frames(
+        cls,
+        template: Chem.Mol,
+        frames: Iterable[Any],
+        atom_order: Optional[Sequence[int]] = None,
+    ) -> "ConformerEnsemble":
+        """
+        Conformers of template from external geometries (catmlp import_conformers):
+        ASE Atoms or arrays of positions (A, one row per atom, hydrogens included).
+
+        atom_order[i] is the index in the frames of template atom i (default: the
+        same order). The elements (for Atoms) and finite, isolated, unconstrained
+        frames are checked; no chemistry or stereo is (see racerts.validate).
+        Energies and other results of the frames are not taken over; the provenance
+        records source "external" and the frame number. The template keeps its graph
+        and its charge and multiplicity properties; its conformers and other
+        properties are dropped.
+        """
+        n_atoms = template.GetNumAtoms()
+        numbers = np.array([atom.GetAtomicNum() for atom in template.GetAtoms()])
+        if not n_atoms or 0 in numbers:
+            raise ValueError("The template must contain real atoms, not placeholders.")
+        order = list(range(n_atoms)) if atom_order is None else list(atom_order)
+        if any(isinstance(i, bool) or not isinstance(i, Integral) for i in order):
+            raise TypeError("atom_order must contain integer indices.")
+        if sorted(order) != list(range(n_atoms)):
+            raise ValueError("atom_order must be a permutation of the atom indices.")
+
+        mol = Chem.Mol(template)
+        mol.RemoveAllConformers()
+        for key in list(mol.GetPropNames(includePrivate=True, includeComputed=False)):
+            if key not in ("charge", "multiplicity"):
+                mol.ClearProp(key)
+        ensemble = cls(mol)
+        for index, frame in enumerate(frames):
+            positions = _frame_positions(frame, index, numbers, order)
+            conf = Chem.Conformer(n_atoms)
+            for atom, position in enumerate(positions):
+                conf.SetAtomPosition(atom, position.tolist())
+            conf_id = mol.AddConformer(conf, assignId=True)
+            ensemble.add_provenance(conf_id, source="external", frame=index)
+        if not mol.GetNumConformers():
+            raise ValueError("The external ensemble is empty.")
+        return ensemble
+
     def write_xyz(
         self, file_name: str, use_energy: bool = False, comment: Optional[str] = None
     ) -> None:
@@ -231,3 +277,28 @@ def _same_graph(a: Chem.Mol, b: Chem.Mol) -> bool:
         return atoms, bonds
 
     return graph(a) == graph(b)
+
+
+def _frame_positions(frame, index: int, numbers: np.ndarray, order) -> np.ndarray:
+    """The positions of one external frame in template order, checked."""
+    if hasattr(frame, "get_positions") and hasattr(frame, "numbers"):
+        if len(frame) != len(numbers) or not np.array_equal(
+            np.asarray(frame.numbers)[order], numbers
+        ):
+            raise ValueError(f"Frame {index} has a different atom count or order.")
+        if np.any(frame.pbc) or frame.constraints:
+            raise ValueError(f"Frame {index} must be isolated and unconstrained.")
+        positions = np.asarray(frame.get_positions(), dtype=float)
+    elif isinstance(frame, (np.ndarray, list, tuple)):
+        positions = np.asarray(frame, dtype=float)
+        if positions.shape != (len(numbers), 3):
+            raise ValueError(
+                f"Frame {index} has positions of shape {positions.shape}, not "
+                f"({len(numbers)}, 3)."
+            )
+    else:
+        raise TypeError("Frames must be ASE Atoms or arrays of positions.")
+    positions = positions[order]
+    if not np.isfinite(positions).all():
+        raise ValueError(f"Frame {index} has nonfinite coordinates.")
+    return positions

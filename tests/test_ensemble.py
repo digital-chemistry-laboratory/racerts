@@ -201,3 +201,56 @@ def test_energies_in_other_units(ethanol):
     assert ethanol.energies("kJ/mol")[2] == pytest.approx(4.184)
     with pytest.raises(ValueError, match="unit"):
         ethanol.energies("kcal")
+
+
+def test_from_frames_takes_positions_not_results():
+    template = Chem.AddHs(Chem.MolFromSmiles("[2H]O"))  # D-O-H
+    template.GetAtomWithIdx(0).SetAtomMapNum(7)
+    template.SetProp("_thermo", "stale")
+    template.SetIntProp("charge", 0)
+    old = Chem.Conformer(3)
+    old.SetDoubleProp("energy", -100)
+    template.AddConformer(old)
+    positions = np.array([[0, 1, 0], [0, 0, 0], [1, 0, 0]], dtype=float)
+    frames = [positions[[1, 2, 0]], positions[[1, 2, 0]].tolist()]
+
+    ensemble = ConformerEnsemble.from_frames(template, frames, atom_order=[2, 0, 1])
+    assert ensemble.conf_ids == [0, 1]
+    for conf_id in ensemble.conf_ids:
+        assert np.array_equal(
+            ensemble.mol.GetConformer(conf_id).GetPositions(), positions
+        )
+        assert ensemble.energy(conf_id) is None
+        assert ensemble.provenance(conf_id) == {"source": "external", "frame": conf_id}
+    atom = ensemble.mol.GetAtomWithIdx(0)
+    assert (atom.GetIsotope(), atom.GetAtomMapNum()) == (2, 7)
+    assert not ensemble.mol.HasProp("_thermo") and ensemble.mol.HasProp("charge")
+    assert template.GetNumConformers() == 1  # unchanged
+
+
+def test_from_frames_with_ase_atoms():
+    ase = pytest.importorskip("ase")
+    from ase.constraints import FixAtoms
+
+    template = Chem.MolFromSmiles("[H][H]")
+    atoms = ase.Atoms("H2", positions=[[0, 0, 0], [0, 0, 0.74]])
+    assert len(ConformerEnsemble.from_frames(template, [atoms, atoms])) == 2
+    invalid = [
+        ([], "empty"),
+        ([ase.Atoms("H")], "count or order"),
+        ([ase.Atoms("He2")], "count or order"),
+        ([ase.Atoms("H2", positions=[[np.nan, 0, 0], [0, 0, 0]])], "nonfinite"),
+        ([ase.Atoms("H2", pbc=True)], "isolated"),
+        ([ase.Atoms("H2", constraint=FixAtoms(indices=[0]))], "unconstrained"),
+        ([np.zeros((3, 3))], "shape"),
+    ]
+    for frames, message in invalid:
+        with pytest.raises(ValueError, match=message):
+            ConformerEnsemble.from_frames(template, frames)
+    with pytest.raises(TypeError, match="ASE Atoms or arrays"):
+        ConformerEnsemble.from_frames(template, [object()])
+    with pytest.raises(ValueError, match="permutation"):
+        ConformerEnsemble.from_frames(template, [atoms], atom_order=[0, 0])
+    for smiles in ("", "*"):
+        with pytest.raises(ValueError, match="real atoms"):
+            ConformerEnsemble.from_frames(Chem.MolFromSmiles(smiles), [])

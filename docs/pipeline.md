@@ -24,6 +24,7 @@ ensemble = racerts.generate(mol, racerts.TransitionState([3, 4, 5]))
 | Task | Frozen atoms | Needs a reference geometry |
 | --- | --- | --- |
 | `TransitionState(reacting_atoms, frozen_atoms=None)` | reacting atoms and their neighbours (or `frozen_atoms`) | yes |
+| `TransitionState.from_endpoints(reactant, product)` | the same, with the reacting atoms from the bonds that form or break between two atom-aligned endpoints | yes |
 | `GroundState()` | none | no |
 | `Constrained(hard)` | the `hard` atoms | yes |
 

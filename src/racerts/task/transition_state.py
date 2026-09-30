@@ -1,7 +1,7 @@
 """Transition states: the reacting atoms and their neighbours are kept fixed."""
 
 import logging
-from typing import List, Optional, Sequence
+from typing import List, Optional, Sequence, Tuple
 
 from rdkit import Chem
 
@@ -29,14 +29,63 @@ class TransitionState:
     ):
         self.reacting_atoms = list(reacting_atoms)
         self.user_frozen_atoms = list(frozen_atoms) if frozen_atoms else []
+        # The bonds that form or break, if known (from_endpoints).
+        self.bond_changes: Optional[List[Tuple[int, int]]] = None
 
     def frozen_atoms(self, mol: Chem.Mol) -> FrozenSet:
         check_atom_indices(mol, self.reacting_atoms, "reacting atoms")
         frozen = get_frozen_atoms(mol, self.reacting_atoms, self.user_frozen_atoms)
         return FrozenSet(hard=tuple(frozen), core=tuple(self.reacting_atoms))
 
+    @classmethod
+    def from_endpoints(
+        cls,
+        reactant: Chem.Mol,
+        product: Chem.Mol,
+        frozen_atoms: Optional[Sequence[int]] = None,
+    ) -> "TransitionState":
+        """
+        The TS between two atom-aligned endpoints (atom i is the same atom in both):
+        the reacting atoms are the atoms of the bonds that form or break. A bond
+        whose order changes but that stays is not counted. The bonds are kept as
+        bond_changes.
+        """
+        changes = formed_or_broken_bonds(reactant, product)
+        if not changes:
+            raise ValueError(
+                "The endpoints have the same bonds: no bond forms or breaks."
+            )
+        task = cls(sorted({atom for bond in changes for atom in bond}), frozen_atoms)
+        task.bond_changes = changes
+        return task
+
     def __repr__(self) -> str:
         return f"TransitionState(reacting_atoms={self.reacting_atoms})"
+
+
+def formed_or_broken_bonds(
+    reactant: Chem.Mol, product: Chem.Mol
+) -> List[Tuple[int, int]]:
+    """
+    The bonds (i, j), i < j, present in one of two atom-aligned molecules but not in
+    the other, sorted (catmlp formed_or_broken_bonds).
+    """
+    if reactant.GetNumAtoms() != product.GetNumAtoms() or any(
+        a.GetAtomicNum() != b.GetAtomicNum()
+        for a, b in zip(reactant.GetAtoms(), product.GetAtoms())
+    ):
+        raise ValueError(
+            "The endpoints must have the same atoms in the same order "
+            f"({reactant.GetNumAtoms()} and {product.GetNumAtoms()} atoms)."
+        )
+
+    def bonds(mol):
+        return {
+            tuple(sorted((b.GetBeginAtomIdx(), b.GetEndAtomIdx())))
+            for b in mol.GetBonds()
+        }
+
+    return sorted(bonds(reactant) ^ bonds(product))
 
 
 def get_frozen_atoms(

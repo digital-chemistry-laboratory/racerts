@@ -1,6 +1,7 @@
 """Tasks decide which atoms stay at the reference geometry."""
 
 import pytest
+from rdkit import Chem
 
 from racerts import Constrained, Context, FrozenSet, GroundState, Task, TransitionState
 from racerts.embed.bounds import fixed_distance_pairs
@@ -71,3 +72,34 @@ def test_frozen_atoms_of_every_task_are_checked(hept_1_ene_ts, task):
 )
 def test_tasks_follow_the_protocol(task):
     assert isinstance(task, Task)
+
+
+def _sn2_endpoints():
+    """CH3Cl + Cl- and Cl- + CH3Cl, atom-aligned (C 0, Cl 1, Cl 2, H 3-5)."""
+    reactant = Chem.AddHs(Chem.MolFromSmiles("CCl.[Cl-]"))
+    product = Chem.RWMol(reactant)
+    product.RemoveBond(0, 1)
+    product.AddBond(0, 2, Chem.BondType.SINGLE)
+    product.GetAtomWithIdx(1).SetFormalCharge(-1)
+    product.GetAtomWithIdx(2).SetFormalCharge(0)
+    return reactant, product.GetMol()
+
+
+def test_transition_state_from_endpoints():
+    reactant, product = _sn2_endpoints()
+    task = TransitionState.from_endpoints(reactant, product)
+    assert task.reacting_atoms == [0, 1, 2]
+    assert task.bond_changes == [(0, 1), (0, 2)]
+    assert TransitionState([0]).bond_changes is None
+
+
+def test_from_endpoints_needs_aligned_endpoints_with_bond_changes():
+    ethene = Chem.MolFromSmiles("C=C")
+    ethane_graph = Chem.RWMol(ethene)
+    ethane_graph.GetBondWithIdx(0).SetBondType(Chem.BondType.SINGLE)
+    with pytest.raises(ValueError, match="no bond forms or breaks"):
+        TransitionState.from_endpoints(ethene, ethane_graph.GetMol())
+    with pytest.raises(ValueError, match="same atoms"):
+        TransitionState.from_endpoints(
+            Chem.MolFromSmiles("CO"), Chem.MolFromSmiles("OC")
+        )

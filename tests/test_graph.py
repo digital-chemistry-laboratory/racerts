@@ -5,6 +5,7 @@ import pytest
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
+import racerts
 from racerts.system import (
     bondless_mol,
     mol_from_explicit_h_smiles,
@@ -75,3 +76,12 @@ def test_bondless_mol():
     assert mol.GetNumBonds() == 0 and mol.GetNumConformers() == 1
     with pytest.raises(ValueError, match="shape"):
         bondless_mol(["O"], [[0, 0]])
+
+
+def test_ground_states_with_radicals_get_their_multiplicity():
+    config = racerts.PipelineConfig(embed=racerts.EmbedConfig(n_conformers=2))
+    carbene = racerts.generate_gs("[CH2]", config=config)  # 2 radical electrons
+    assert carbene.mol.GetIntProp("multiplicity") == 3
+    assert racerts.generate_gs("C", config=config).mol.GetIntProp("multiplicity") == 1
+    singlet = racerts.generate_gs("[CH2]", multiplicity=1, config=config)
+    assert singlet.mol.GetIntProp("multiplicity") == 1

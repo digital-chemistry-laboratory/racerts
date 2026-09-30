@@ -8,6 +8,7 @@ from rdkit import Chem
 from racerts.config import PipelineConfig
 from racerts.pipeline import ConformerEnsemble, Context, Pipeline
 from racerts.system.build import BaseMolGetter, build_mol
+from racerts.system.graph import radical_multiplicity
 from racerts.task import GroundState, Task, TransitionState
 from racerts.utils.log import verbose_logging
 
@@ -117,12 +118,17 @@ def generate_gs(
     """
     A ground-state conformer ensemble (nothing frozen) from a SMILES or a Mol.
     Hydrogens are added; by default embedding uses ETKDGv3, and the stereocentres of
-    the input are kept.
+    the input are kept. Without a given multiplicity, a graph with radical electrons
+    (e.g. "[CH2]", a triplet carbene) has 1 + their number; otherwise the lowest
+    multiplicity for the electrons.
     """
     mol = Chem.MolFromSmiles(smiles) if isinstance(smiles, str) else smiles
     if mol is None:
         raise ValueError(f"Invalid SMILES: {smiles}")
     mol = Chem.AddHs(mol, addCoords=mol.GetNumConformers() > 0)  # a new Mol
+    if multiplicity is None and not mol.HasProp("multiplicity"):
+        if radical_multiplicity(mol) > 1:
+            multiplicity = radical_multiplicity(mol)
     return generate(
         mol,
         GroundState(),

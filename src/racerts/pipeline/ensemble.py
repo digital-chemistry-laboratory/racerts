@@ -222,6 +222,31 @@ class ConformerEnsemble:
         """Write all conformers to a multi-structure xyz file (see io.xyz.write_xyz)."""
         write_xyz(self.mol, file_name, use_energy=use_energy, comment=comment)
 
+    def write_sdf(self, file_name: str) -> None:
+        """
+        Write all conformers to an SDF file: one record per conformer, with the graph,
+        and the properties conf_id, energy (kcal/mol), energy_method and provenance
+        (JSON). V3000 for molecules with dative bonds.
+        """
+        mol = self.mol
+        writer = Chem.SDWriter(file_name)
+        writer.SetKekulize(False)
+        if any(b.GetBondType() == Chem.BondType.DATIVE for b in mol.GetBonds()):
+            writer.SetForceV3000(True)
+        try:
+            for conf in mol.GetConformers():
+                record = Chem.Mol(mol, confId=conf.GetId())
+                record.SetIntProp("conf_id", conf.GetId())
+                if conf.HasProp("energy"):
+                    record.SetDoubleProp("energy", conf.GetDoubleProp("energy"))
+                if self.energy_method:
+                    record.SetProp("energy_method", self.energy_method)
+                if conf.HasProp(PROVENANCE):
+                    record.SetProp(PROVENANCE, conf.GetProp(PROVENANCE))
+                writer.write(record)
+        finally:
+            writer.close()
+
     def to_ase(self, conf_id: int):
         """One conformer as ASE Atoms, with charge and multiplicity (needs ASE)."""
         from racerts.io.ase import rdkit_conformer_to_ase_atoms

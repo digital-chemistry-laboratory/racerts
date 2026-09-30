@@ -254,3 +254,21 @@ def test_from_frames_with_ase_atoms():
     for smiles in ("", "*"):
         with pytest.raises(ValueError, match="real atoms"):
             ConformerEnsemble.from_frames(Chem.MolFromSmiles(smiles), [])
+
+
+def test_write_sdf(ethanol, tmp_path):
+    ethanol.add_provenance(0, seed=12)
+    path = str(tmp_path / "ensemble.sdf")
+    ethanol.write_sdf(path)
+    records = list(Chem.SDMolSupplier(path, removeHs=False))
+    assert [r.GetIntProp("conf_id") for r in records] == ethanol.conf_ids
+    assert records[0].GetDoubleProp("energy") == 2.0 and not records[1].HasProp(
+        "energy"
+    )
+    assert records[0].GetProp("energy_method") == "MMFFOptimizer"
+    assert records[0].GetProp("provenance") == '{"seed": 12}'
+    assert np.allclose(
+        records[2].GetConformer().GetPositions(),
+        ethanol.mol.GetConformer(2).GetPositions(),
+        atol=1e-4,
+    )

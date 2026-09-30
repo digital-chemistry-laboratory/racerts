@@ -1,10 +1,12 @@
-"""Pruning details: RMSD symmetry maps."""
+"""Pruning details: the RMSD of RMSDPruner (racerts.geometry), thresholds, energies."""
 
 import logging
 
+import numpy as np
 from rdkit import Chem
-from rdkit.Chem import AllChem
+from rdkit.Chem import AllChem, rdMolAlign
 
+import racerts.prune.rmsd
 from racerts.prune import RMSDPruner
 
 
@@ -22,13 +24,13 @@ def _conformers(smiles, n, seed=3):
 def test_symmetry_maps_are_computed_once(monkeypatch):
     mol = _conformers("CCCCC(C)(C)O", 12)
     calls = []
-    original = RMSDPruner.get_atom_maps
+    original = racerts.prune.rmsd.symmetry_maps
 
-    def counting(self, *args, **kwargs):
+    def counting(*args, **kwargs):
         calls.append(1)
-        return original(self, *args, **kwargs)
+        return original(*args, **kwargs)
 
-    monkeypatch.setattr(RMSDPruner, "get_atom_maps", counting)
+    monkeypatch.setattr(racerts.prune.rmsd, "symmetry_maps", counting)
     # No energy prefilter: every pair is compared by RMSD.
     pruned = RMSDPruner(filter_energies=False).prune(Chem.Mol(mol))
     assert len(calls) == 1
@@ -41,6 +43,27 @@ def test_too_many_symmetry_matches_are_reported(caplog):
     with caplog.at_level(logging.WARNING):
         RMSDPruner(include_hs=True, maxMatches=10).prune(Chem.Mol(mol))
     assert "maxMatches=10" in caplog.text
+
+
+def test_superposition_can_be_left_out():
+    # Conformer 1 is conformer 0 turned by 90 degrees: a duplicate after
+    # superposition, not in the frame of the coordinates (e.g. of a frozen core).
+    mol = _conformers("CCCCO", 1)
+    turned = Chem.Conformer(mol.GetConformer(0))
+    positions = turned.GetPositions() @ np.array([[0, -1, 0], [1, 0, 0], [0, 0, 1]]).T
+    for i, position in enumerate(positions):
+        turned.SetAtomPosition(i, position.tolist())
+    mol.AddConformer(turned, assignId=True)
+    assert RMSDPruner().prune(Chem.Mol(mol)).GetNumConformers() == 1
+    assert RMSDPruner(align=False).prune(Chem.Mol(mol)).GetNumConformers() == 2
+
+
+def test_calc_rmsd_gives_rdkits_best_rms():
+    mol = Chem.RemoveHs(_conformers("CC(C)(C)CC(=O)[O-]", 4))
+    pruner = RMSDPruner()
+    for i, j in [(0, 1), (2, 3)]:
+        best = rdMolAlign.GetBestRMS(Chem.Mol(mol), mol, prbId=i, refId=j)
+        assert abs(pruner.calc_rmsd(mol, mol, i, j) - best) < 1e-6
 
 
 # Ported from catmlp (test_conformer_pruning, test_conformer_selection at e1547eb).

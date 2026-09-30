@@ -4,27 +4,30 @@ import inspect
 import logging
 
 import numpy as np
-from rdkit import Chem
-from rdkit.Chem import rdMolAlign, rdMolDescriptors
+from rdkit.Chem import rdMolDescriptors
+
+from racerts.geometry import (
+    atom_matches,
+    rmsd,
+    rmsd_within,
+    symmetrize_terminal_atoms,
+    symmetry_maps,
+)
 
 from .base import BasePruner, check_threshold, drop_conformers_without_energy
 
 logger = logging.getLogger(__name__)
 
-# Terminal O or N (degree 1) in X-*=X or X=*-X, e.g. carboxylate or nitro oxygens.
-_TERMINAL = "O,N;D1"
-_TERMINAL_O_N = Chem.MolFromSmarts(
-    f"[{_TERMINAL};$([{_TERMINAL}]-[*]=[{_TERMINAL}]),$([{_TERMINAL}]=[*]-[{_TERMINAL}])]"
-    "~[*]"
-)
-
 
 class RMSDPruner(BasePruner):
     """
-    Drops duplicates: conformers within threshold (A, symmetry-aware heavy-atom RMSD,
-    or all atoms with include_hs) of a lower one. Pairs whose energies differ by more
-    than energy_threshold (kcal/mol; catmlp's default 0.1 is in eV) or whose principal
-    moments of inertia differ by more than rot_fraction_threshold are not compared.
+    Drops duplicates: conformers within threshold (A) of a lower one by the RMSD of
+    racerts.geometry: over the heavy atoms (all atoms with include_hs), the smallest
+    over the symmetry maps of the graph, after superposition (align=False: in the frame
+    that the conformers share, e.g. of a frozen core). The RMSD is computed only for
+    pairs whose energies differ by at most energy_threshold (kcal/mol; catmlp's default
+    0.1 is in eV) and whose principal moments of inertia differ by at most
+    rot_fraction_threshold.
     """
 
     def __init__(self, threshold=0.125, verbose=False, **kwargs):
@@ -33,9 +36,10 @@ class RMSDPruner(BasePruner):
             if name in kwargs:
                 check_threshold(kwargs[name], name)
         self.include_hs = kwargs.get("include_hs", False)
+        self.align = kwargs.get("align", True)
         self.threshold = threshold
         self.verbose = verbose
-        self.num_threads = kwargs.get("num_threads", 1)
+        self.num_threads = kwargs.get("num_threads", 1)  # unused (legacy)
         self.filter_energies = kwargs.get("filter_energies", True)
         self.filter_rotations = kwargs.get("filter_rotations", True)
         self.energy_threshold = kwargs.get("energy_threshold", 0.1)
@@ -70,11 +74,11 @@ class RMSDPruner(BasePruner):
             drop_conformers_without_energy(mol)
 
         conf_idx = [conf.GetId() for conf in self.get_sorted_conf_energy(mol)]
-        # The atom maps depend on the graph only: computed once, not for every pair
-        # (not for legacy subclasses whose check_similarity takes no maps).
+        # The atoms and symmetry maps depend on the graph only: computed once, not for
+        # every pair (not for legacy subclasses whose check_similarity takes none).
         options = {}
-        if len(conf_idx) > 1 and _takes_maps(self.check_similarity):
-            options["maps"] = self.symmetry_maps(mol)
+        if len(conf_idx) > 1 and _takes(self.check_similarity, "symmetry"):
+            options["symmetry"] = symmetry_maps(mol, self.include_hs, self.maxMatches)
 
         candidates = np.array(conf_idx)
         keep_list = []
@@ -125,20 +129,22 @@ class RMSDPruner(BasePruner):
         energy_threshold=0.05,
         rot_fraction_threshold=0.03,
         maxMatches=100000,
-        maps=None,
+        symmetry=None,
     ):
-
-        ref_mol = Chem.Mol(mol)  # only the current candidate
+        """
+        For each conformer j of j_s, whether it differs from conformer id: in energy,
+        in principal moments of inertia (filters), or else by an RMSD above threshold.
+        symmetry: the atoms and maps of the RMSD (racerts.geometry.symmetry_maps).
+        """
         ref_conformer = mol.GetConformer(int(id))
-        ref_mol.RemoveAllConformers()
-        id = ref_mol.AddConformer(ref_conformer, assignId=True)
-
         filter_energies = filter_energies and ref_conformer.HasProp("energy")
         if filter_energies:
             ref_energy = ref_conformer.GetDoubleProp("energy")
-
         if filter_rotations:
-            ref_rotations = self.calc_rotations(ref_mol, id=id)
+            ref_rotations = self.calc_rotations(mol, id=int(id))
+        if symmetry is None:
+            symmetry = symmetry_maps(mol, self.include_hs, maxMatches)
+        ref_positions = ref_conformer.GetPositions()
 
         checked = []
 
@@ -173,116 +179,46 @@ class RMSDPruner(BasePruner):
                     continue
 
             # check rmsd similarity
-            ref_align_mol = Chem.Mol(ref_mol)
-            # A new id: keeping id j would clash with the reference copy when j == 0.
-            candidate_id = ref_align_mol.AddConformer(
-                Chem.Conformer(conf), assignId=True
+            duplicate = rmsd_within(
+                ref_positions,
+                conf.GetPositions(),
+                self.threshold,
+                symmetry.atoms,
+                symmetry.maps,
+                align=self.align,
             )
-
-            if self.include_hs is False:
-                try:
-                    ref_align_mol = Chem.RemoveHs(ref_align_mol, sanitize=True)
-                except Exception:
-                    ref_align_mol = Chem.RemoveHs(ref_align_mol, sanitize=False)
-
-            rmsd = self.calc_rmsd(
-                ref_align_mol,
-                ref_align_mol,
-                -1,
-                candidate_id,
-                maxMatches=maxMatches,
-                maps=maps,
-            )
-            checked.append(rmsd > self.threshold)
+            checked.append(not duplicate)
 
         return checked
 
-    def symmetry_maps(self, mol):
-        """
-        The atom maps of the symmetry-aware RMSD of mol (without hydrogens unless
-        include_hs), as check_similarity uses them; the same for every conformer pair.
-        """
-        graph = Chem.Mol(mol)
-        graph.RemoveAllConformers()
-        if self.include_hs is False:  # as in check_similarity
-            try:
-                graph = Chem.RemoveHs(graph, sanitize=True)
-            except Exception:
-                graph = Chem.RemoveHs(graph, sanitize=False)
-        maps = self.get_atom_maps(graph, graph, self.maxMatches)
-        if len(maps) >= self.maxMatches:
-            logger.warning(
-                "The symmetry matches reach maxMatches=%d, so the RMSD may miss "
-                "equivalent atom mappings, and duplicates of symmetric structures (e.g. "
-                "identical solvent molecules) can remain; increase maxMatches.",
-                self.maxMatches,
-            )
-        return maps
-
     def calc_rmsd(self, mol1, mol2, id_1, id_2, maxMatches=10000, maps=None):
-        if maps is None:
+        """
+        The RMSD between conformer id_1 of mol1 and id_2 of mol2 (graphs of the same
+        atoms) after superposition, the smallest over maps: lists of (index in mol1,
+        index in mol2) pairs, by default get_atom_maps(mol1, mol2). The pruner uses
+        racerts.geometry directly.
+        """
+        if maps is None or len(maps) == 0:
             maps = self.get_atom_maps(mol1, mol2, maxMatches)
-        rmsd = rdMolAlign.GetBestRMS(
-            mol1,
-            mol2,
-            prbId=id_1,
-            refId=id_2,
-            numThreads=self.num_threads,
-            map=maps,
-            symmetrizeConjugatedTerminalGroups=True,
-        )
-        return rmsd
+        if not maps:
+            raise ValueError("The graphs of mol1 and mol2 do not match.")
+        pairs = np.asarray(maps, dtype=np.intp)
+        a = mol1.GetConformer(int(id_1)).GetPositions()
+        b = mol2.GetConformer(int(id_2)).GetPositions()
+        return min(rmsd(a[p[:, 0]], b[p[:, 1]]) for p in pairs)
 
     def get_atom_maps(self, mol1, mol2, maxMatches, symmetrize=True):
-
-        if symmetrize:
-            same = mol2 is mol1
-            mol1 = self.symmetrize_terminal_atoms(mol1)
-            mol2 = mol1 if same else self.symmetrize_terminal_atoms(mol2)
-        maps = mol1.GetSubstructMatches(
-            mol2,
-            maxMatches=maxMatches,
-            uniquify=False,
-            useChirality=True,
-            useQueryQueryMatches=False,
-        )
-        maps = [[(i, j) for i, j in enumerate(list(matches))] for matches in maps]
-        return maps
+        """The matches of mol2 in mol1 as lists of (index, index) pairs."""
+        matches = atom_matches(mol1, mol2, maxMatches, symmetrize)
+        return [list(enumerate(match)) for match in matches]
 
     def symmetrize_terminal_atoms(self, mol):
-        """
-        Symmetrize terminal O or N atoms (degree 1) in specific bonding patterns:
-        - Sets formal charge to 0
-        - Replaces their bond with an unspecified bond (to generalize single/double)
-
-        Args:
-            mol (Chem.Mol or Chem.RWMol): Input molecule
-
-        Returns:
-            Chem.RWMol: Modified molecule
-        """
-        # Ensure mol is editable
-        rw_mol = Chem.RWMol(mol)
-
-        matches = rw_mol.GetSubstructMatches(_TERMINAL_O_N)
-        if not matches:
-            return rw_mol  # return unchanged
-
-        for match in matches:
-            atom_idx, nbr_idx = match[0], match[1]
-            atom = rw_mol.GetAtomWithIdx(atom_idx)
-            atom.SetFormalCharge(0)
-            bond = rw_mol.GetBondBetweenAtoms(atom_idx, nbr_idx)
-            if bond is None:
-                raise RuntimeError("could not find expected bond")
-            rw_mol.RemoveBond(atom_idx, nbr_idx)
-            rw_mol.AddBond(atom_idx, nbr_idx, Chem.BondType.UNSPECIFIED)
-
-        return rw_mol
+        """racerts.geometry.symmetrize_terminal_atoms."""
+        return symmetrize_terminal_atoms(mol)
 
 
-def _takes_maps(method) -> bool:
+def _takes(method, name: str) -> bool:
     try:
-        return "maps" in inspect.signature(method).parameters
+        return name in inspect.signature(method).parameters
     except (TypeError, ValueError):
         return False

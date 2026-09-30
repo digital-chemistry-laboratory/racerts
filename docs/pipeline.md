@@ -59,7 +59,7 @@ ensemble = racerts.generate_ts("ts.xyz", [3, 4, 5], config=config)
 | Section | Setting | Default | Meaning |
 | --- | --- | --- | --- |
 | | `seed` | 12 | RDKit embedding seed |
-| | `num_threads` | 1 | threads for embedding, force fields and RMSDs |
+| | `num_threads` | 1 | threads for embedding and force fields |
 | `embed` | `mode` | `cmap` | `cmap` (coordinate map) or `bounds` (bounds matrix) |
 | | `n_conformers` | -1 | conformers to embed; -1: rotatable bonds × `conf_factor` + 30 |
 | | `conf_factor` | 80 | |

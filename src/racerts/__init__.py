@@ -27,7 +27,7 @@ from .compat import (
 from .config import EmbedConfig, PipelineConfig, PruneConfig, RefineConfig
 from .embed import Embed
 from .pipeline import ConformerEnsemble, ConformerRecord, Context, Pipeline, Stage
-from .prune import PruneEnergy, PruneRMSD
+from .prune import PruneCount, PruneEnergy, PruneRMSD
 from .refine import Refine, Rescore
 from .task import Constrained, FrozenSet, GroundState, Task, TransitionState
 
@@ -43,6 +43,7 @@ __all__ = [
     "Pipeline",
     "PipelineConfig",
     "PruneConfig",
+    "PruneCount",
     "PruneEnergy",
     "PruneRMSD",
     "Refine",

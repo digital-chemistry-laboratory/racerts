@@ -1,6 +1,9 @@
 """The pruning stages."""
 
+from numbers import Integral
 from typing import Optional
+
+import numpy as np
 
 from racerts.pipeline import ConformerEnsemble
 
@@ -46,3 +49,37 @@ class PruneRMSD(_Prune):
 
     name = "prune_rmsd"
     default_pruner = RMSDPruner
+
+
+class PruneCount:
+    """
+    Keeps the n_max conformers of lowest energy, ordered by energy (catmlp
+    prune_to_max_conformers); with renumber, their ids become 0, 1, ... in that
+    order. Every conformer needs a finite energy.
+    """
+
+    name = "prune_count"
+
+    def __init__(self, n_max: int, renumber: bool = False):
+        if isinstance(n_max, bool) or not isinstance(n_max, Integral):
+            raise TypeError(f"n_max must be an integer, not {n_max!r}.")
+        if n_max < 1:
+            raise ValueError("n_max must be positive.")
+        self.n_max = int(n_max)
+        self.renumber = renumber
+
+    def run(self, ctx, ensemble: ConformerEnsemble) -> ConformerEnsemble:
+        energies = ensemble.energies()
+        if not len(energies):
+            raise ValueError("PruneCount got an ensemble without conformers.")
+        if not np.isfinite(energies).all():
+            missing = [
+                i for i, e in zip(ensemble.conf_ids, energies) if not np.isfinite(e)
+            ]
+            raise ValueError(
+                f"Conformers {missing} have no finite energy; refine or rescore first."
+            )
+        order = np.argsort(energies, kind="stable")[: self.n_max]
+        return ensemble.filter(
+            [ensemble.conf_ids[i] for i in order], renumber=self.renumber
+        )

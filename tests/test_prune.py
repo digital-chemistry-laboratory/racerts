@@ -75,6 +75,7 @@ import pytest  # noqa: E402
 import racerts  # noqa: E402
 from racerts.prune import (  # noqa: E402
     EnergyPruner,
+    PruneCount,
 )
 
 
@@ -85,6 +86,30 @@ def ensemble():
     for conf, energy in zip(mol.GetConformers(), [3.0, 1.0, 4.0, 1.5, 2.0]):
         conf.SetDoubleProp("energy", energy)
     return racerts.ConformerEnsemble(mol)
+
+
+@pytest.mark.parametrize("renumber", [False, True])
+def test_prune_count_keeps_the_lowest_in_energy_order(ensemble, renumber):
+    kept = PruneCount(3, renumber=renumber).run(None, ensemble)
+    assert kept.energies().tolist() == [1.0, 1.5, 2.0]
+    assert kept.conf_ids == ([0, 1, 2] if renumber else [1, 3, 4])
+    assert len(PruneCount(10).run(None, ensemble)) == 5
+
+
+@pytest.mark.parametrize("n, error", [(0, ValueError), (-1, ValueError),
+                                      (1.5, TypeError), (True, TypeError)])  # fmt: skip
+def test_prune_count_checks_n(n, error):
+    with pytest.raises(error):
+        PruneCount(n)
+
+
+def test_prune_count_needs_finite_energies(ensemble):
+    ensemble.mol.GetConformer(2).SetDoubleProp("energy", math.nan)
+    ensemble.mol.GetConformer(4).ClearProp("energy")
+    before = ensemble.mol.ToBinary()
+    with pytest.raises(ValueError, match=r"Conformers \[2, 4\] have no finite energy"):
+        PruneCount(2).run(None, ensemble)
+    assert ensemble.mol.ToBinary() == before
 
 
 @pytest.mark.parametrize(

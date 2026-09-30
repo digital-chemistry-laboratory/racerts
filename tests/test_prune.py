@@ -43,6 +43,51 @@ def test_too_many_symmetry_matches_are_reported(caplog):
     assert "maxMatches=10" in caplog.text
 
 
+# Ported from catmlp (test_conformer_pruning, test_conformer_selection at e1547eb).
+
+import math  # noqa: E402
+
+import pytest  # noqa: E402
+
+import racerts  # noqa: E402
+from racerts.prune import (  # noqa: E402
+    EnergyPruner,
+)
+
+
+@pytest.fixture
+def ensemble():
+    """Five conformers of pentanol with energies 3, 1, 4, 1.5, 2 kcal/mol."""
+    mol = _conformers("CCCCCO", 5)
+    for conf, energy in zip(mol.GetConformers(), [3.0, 1.0, 4.0, 1.5, 2.0]):
+        conf.SetDoubleProp("energy", energy)
+    return racerts.ConformerEnsemble(mol)
+
+
+@pytest.mark.parametrize(
+    "make, error",
+    [
+        (lambda: EnergyPruner(threshold=-1), ValueError),
+        (lambda: EnergyPruner(threshold=math.inf), ValueError),
+        (lambda: RMSDPruner(threshold=math.nan), ValueError),
+        (lambda: RMSDPruner(threshold="0.1"), TypeError),
+        (lambda: RMSDPruner(energy_threshold=-0.1), ValueError),
+        (lambda: RMSDPruner(threshold=True), TypeError),
+    ],
+)
+def test_pruner_thresholds_are_checked(make, error):
+    with pytest.raises(error):
+        make()
+
+
+def test_energy_pruner_drops_non_finite_energies(ensemble, caplog):
+    ensemble.mol.GetConformer(2).SetDoubleProp("energy", math.nan)
+    with caplog.at_level(logging.WARNING):
+        EnergyPruner(threshold=10).prune(ensemble.mol)
+    assert ensemble.conf_ids == [0, 1, 3, 4]
+    assert "non-finite one): [2]" in caplog.text
+
+
 def test_legacy_rmsd_pruners_without_maps_still_work():
     class LegacySubclass(RMSDPruner):
         def check_similarity(self, mol, id, j_s, filter_energies=True,

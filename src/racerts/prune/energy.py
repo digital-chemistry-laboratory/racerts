@@ -8,13 +8,16 @@ from rdkit.Chem import rdEHTTools
 
 from racerts.utils.units import EV_TO_KCAL_MOL
 
-from .base import BasePruner, drop_conformers_without_energy
+from .base import BasePruner, check_threshold, drop_conformers_without_energy
 
 logger = logging.getLogger(__name__)
 
 
 class EnergyPruner(BasePruner):
+    """Drops conformers more than threshold (kcal/mol) above the lowest one."""
+
     def __init__(self, threshold: float = 20.0, verbose: bool = False, **kwargs):
+        check_threshold(threshold, "threshold")
         self.YAeHMOP_energies = kwargs.get("YAeHMOP_energies", False)
         self.threshold = threshold
         self.verbose = verbose
@@ -63,7 +66,7 @@ class EnergyPruner(BasePruner):
         energies = [
             conf.GetDoubleProp("energy")
             for conf in mol.GetConformers()
-            if conf.HasProp("energy")
+            if conf.HasProp("energy") and np.isfinite(conf.GetDoubleProp("energy"))
         ]
         if not energies:
             raise ValueError(

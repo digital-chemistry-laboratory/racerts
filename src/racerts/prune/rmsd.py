@@ -7,7 +7,7 @@ import numpy as np
 from rdkit import Chem
 from rdkit.Chem import rdMolAlign, rdMolDescriptors
 
-from .base import BasePruner, drop_conformers_without_energy
+from .base import BasePruner, check_threshold, drop_conformers_without_energy
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +20,18 @@ _TERMINAL_O_N = Chem.MolFromSmarts(
 
 
 class RMSDPruner(BasePruner):
+    """
+    Drops duplicates: conformers within threshold (A, symmetry-aware heavy-atom RMSD,
+    or all atoms with include_hs) of a lower one. Pairs whose energies differ by more
+    than energy_threshold (kcal/mol; catmlp's default 0.1 is in eV) or whose principal
+    moments of inertia differ by more than rot_fraction_threshold are not compared.
+    """
+
     def __init__(self, threshold=0.125, verbose=False, **kwargs):
+        check_threshold(threshold, "threshold")
+        for name in ("energy_threshold", "rot_fraction_threshold"):
+            if name in kwargs:
+                check_threshold(kwargs[name], name)
         self.include_hs = kwargs.get("include_hs", False)
         self.threshold = threshold
         self.verbose = verbose

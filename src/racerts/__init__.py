@@ -29,6 +29,7 @@ from .embed import Embed
 from .pipeline import ConformerEnsemble, ConformerRecord, Context, Pipeline, Stage
 from .prune import PruneCount, PruneEnergy, PruneRMSD
 from .refine import Refine, Rescore
+from .system.swap import Swap, SwapError, SwapResult, apply_swap
 from .task import Constrained, FrozenSet, GroundState, Task, TransitionState
 from .validate import Validate
 
@@ -51,9 +52,13 @@ __all__ = [
     "RefineConfig",
     "Rescore",
     "Stage",
+    "Swap",
+    "SwapError",
+    "SwapResult",
     "Task",
     "TransitionState",
     "Validate",
+    "apply_swap",
     "generate",
     "generate_gs",
     "generate_ts",

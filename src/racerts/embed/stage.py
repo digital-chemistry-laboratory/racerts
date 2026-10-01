@@ -7,6 +7,7 @@ from rdkit import Chem
 from rdkit.Chem import Descriptors
 
 from racerts.pipeline import ConformerEnsemble
+from racerts.refine.base import accepts_restraints
 from racerts.system.spec import rigid_body_dof
 from racerts.task import FrozenSet
 
@@ -157,6 +158,14 @@ class Embed:
         }
         if getattr(embedder, "etkdg", None) is not None:
             provenance["etkdg"] = embedder.etkdg
+        restraints = ctx.restraints.for_stage("embed")
+        if restraints:
+            if not accepts_restraints(embedder.embed):
+                raise ValueError(
+                    f"{type(embedder).__name__}.embed takes no restraints, so it cannot "
+                    "embed with distance restraints."
+                )
+            provenance["restraints"] = [r.label for r in restraints]
 
         references = self._references(ctx)
         if references is None:
@@ -199,9 +208,16 @@ class Embed:
         return list(self.references)
 
     @staticmethod
-    def _embed(embedder, ctx, reference, n, check=True) -> ConformerEnsemble:
+    def _embed(
+        embedder, ctx, reference, n, restraints=None, check=True
+    ) -> ConformerEnsemble:
         mol = ctx.graph()
-        embedder.embed(mol, reference, ctx.frozen, n)
+        if restraints is None:
+            restraints = ctx.restraints.for_stage("embed")
+        if restraints:
+            embedder.embed(mol, reference, ctx.frozen, n, restraints=restraints)
+        else:
+            embedder.embed(mol, reference, ctx.frozen, n)
         if check and mol.GetNumConformers() == 0:
             raise no_conformers_error(ctx.frozen)
         return ConformerEnsemble(mol)

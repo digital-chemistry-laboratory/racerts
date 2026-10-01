@@ -32,6 +32,39 @@ H     -0.535000    -0.926647     0.000000
 """
 
 
+# The early SN2 TS with a water hydrogen-bonded to the nucleophile:
+# Cl2...H7 = 2.20 A and Cl2...O6 = 3.16 A.
+SN2_TS_WATER = SN2_TS.replace("6\n", "9\n", 1).replace("(early)", "(early) + water") + (
+    "O      0.000000     0.000000    -5.660000\n"
+    "H      0.000000     0.000000    -4.700000\n"
+    "H      0.929422     0.000000    -5.900365\n"
+)
+
+# A second water donates a hydrogen bond to the first one (O6...H10 = 1.95 A), which is
+# closer to it (relative to van der Waals radii) than to the nucleophile.
+SN2_TS_TWO_WATERS = SN2_TS_WATER.replace("9\n", "12\n", 1).replace(
+    "+ water", "+ two waters"
+) + (
+    "O     -1.746000     0.000000    -7.988000\n"
+    "H     -1.170000     0.000000    -7.220000\n"
+    "H     -2.634000     0.000000    -7.623000\n"
+)
+
+
+@pytest.fixture
+def sn2_ts_water(tmp_path):
+    path = tmp_path / "sn2_ts_water.xyz"
+    path.write_text(SN2_TS_WATER)
+    return str(path)
+
+
+@pytest.fixture
+def sn2_ts_two_waters(tmp_path):
+    path = tmp_path / "sn2_ts_two_waters.xyz"
+    path.write_text(SN2_TS_TWO_WATERS)
+    return str(path)
+
+
 @pytest.fixture
 def sn2_ts(tmp_path):
     path = tmp_path / "sn2_ts.xyz"

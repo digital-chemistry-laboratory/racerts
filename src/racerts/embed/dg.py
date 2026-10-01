@@ -1,7 +1,7 @@
 """Distance-geometry embedders: coordinate map (CmapEmbedder) or bounds matrix."""
 
 import logging
-from typing import Optional, Union
+from typing import Optional, Sequence, Union
 
 import numpy as np
 from rdkit import Chem
@@ -80,13 +80,26 @@ class DistanceGeometryEmbedder(BaseEmbedder):
         mol: Chem.Mol,
         reference: Optional[Chem.Mol],
         frozen: FrozenSet,
+        restraints: Sequence = (),
     ) -> None:
-        """Set what keeps the frozen atoms in place (coordinate map or bounds)."""
+        """
+        Set what keeps the frozen atoms in place (coordinate map or bounds) and the
+        windows of the restraints.
+        """
         raise NotImplementedError
 
     def embed(
-        self, mol: Chem.Mol, reference: Optional[Chem.Mol], frozen: FrozenSet, n: int
+        self,
+        mol: Chem.Mol,
+        reference: Optional[Chem.Mol],
+        frozen: FrozenSet,
+        n: int,
+        restraints: Sequence = (),
     ):
+        """
+        Add n conformers to mol with the frozen atoms at the reference positions and
+        the distances of the restraints (DistanceRestraint) in their windows.
+        """
         if not isinstance(mol, Chem.rdchem.Mol):
             raise TypeError("Embedding: input for embedding is not a molecule!")
 
@@ -98,7 +111,11 @@ class DistanceGeometryEmbedder(BaseEmbedder):
         params.useSmallRingTorsions = True
         params.embedFragmentsSeparately = False
         params.clearConfs = False
-        self._configure(params, mol, reference, frozen)
+        self._configure(params, mol, reference, frozen, restraints)
+        if restraints and self.etkdg:
+            # ETKDG's torsion terms override about 60 % of bounds windows otherwise
+            # (verified on RDKit 2023.09-2026.03); plain DG keeps most of them.
+            params.boundsMatForceScaling = 100.0
         params.trackFailures = True
         params.pruneRmsThresh = self.pruneRmsThresh
         params.randomSeed = self.randomSeed
@@ -281,9 +298,19 @@ def chirality_fallback(
 
 
 class CmapEmbedder(DistanceGeometryEmbedder):
-    """The frozen atoms are placed at the reference positions (coordinate map)."""
+    """
+    The frozen atoms are placed at the reference positions (coordinate map). With
+    restraints, a bounds matrix holds their windows and the distances between the
+    frozen atoms; without, there is none (as in legacy racerts).
+    """
 
-    def _configure(self, params, mol, reference, frozen):
+    def _configure(self, params, mol, reference, frozen, restraints=()):
+        if restraints:
+            hard = frozen.hard if reference is not None else ()
+            pairs = [(a, b) for k, a in enumerate(hard) for b in hard[k + 1 :]]
+            params.SetBoundsMat(
+                bounds_matrix(mol, reference, pairs=pairs, windows=restraints)
+            )
         if reference is None:
             return
         cmap = {
@@ -299,9 +326,12 @@ class BoundsMatrixEmbedder(DistanceGeometryEmbedder):
     the reference geometry in the bounds matrix.
     """
 
-    def _configure(self, params, mol, reference, frozen):
+    def _configure(self, params, mol, reference, frozen, restraints=()):
         bounds = bounds_matrix(
-            mol, reference=reference, pairs=fixed_distance_pairs(frozen)
+            mol,
+            reference=reference,
+            pairs=fixed_distance_pairs(frozen),
+            windows=restraints,
         )
         log_inconsistent_bounds(bounds)
         params.SetBoundsMat(bounds)

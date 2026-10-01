@@ -58,20 +58,31 @@ def fixed_distance_pairs(frozen: FrozenSet) -> List[Tuple[int, int]]:
     ]
 
 
+INCONSISTENT_RESTRAINTS = (
+    "The distance restraints are inconsistent with each other or with the frozen "
+    "atoms: triangle smoothing would have to move other bounds (e.g. stretch bonds)."
+)
+
+
 def bounds_matrix(
     mol: Chem.Mol,
     reference: Optional[Chem.Mol] = None,
     pairs: Sequence[Tuple[int, int]] = (),
     max_tolerance: float = 0.4,
+    windows: Sequence = (),
 ) -> np.ndarray:
     """
     The bounds matrix of mol, with the distances of the given pairs fixed at the
-    reference geometry, after triangle smoothing.
+    reference geometry and the windows (DistanceRestraint) replacing the bounds of
+    their pairs, after triangle smoothing.
 
     Smoothing starts without tolerance; while it fails, the tolerance grows (see
-    tol_function) up to max_tolerance.
+    tol_function) up to max_tolerance. A tolerance lets smoothing repair bounds, e.g.
+    by stretching a bond, so the windows may not need more of it than the bounds
+    without them.
 
     Raises:
+        ValueError: If the windows need more tolerance than the bounds without them.
         Exception: If the triangle smoothing needs more than max_tolerance.
     """
     bounds = AllChem.GetMoleculeBoundsMatrix(mol)  # type: ignore[attr-defined]
@@ -82,25 +93,39 @@ def bounds_matrix(
         for atom, other in pairs:
             bounds[atom, other] = dm[atom, other]
             bounds[other, atom] = dm[other, atom]
+    without_windows = bounds.copy()
+    for window in windows:  # the upper triangle holds the upper bounds
+        bounds[window.first, window.second] = window.upper
+        bounds[window.second, window.first] = window.lower
 
     # Do triangle smoothing of the BM
     bounds_backup = bounds.copy()
     tol = 0
+    failed_tol = None
     failures = 0
     smoothing = DoTriangleSmoothing(bounds, tol=tol)
     # Gradually increase tolerance up to a certain limit, until smoothing is True
     while not smoothing:
         failures += 1
+        failed_tol = tol
         tol = tol_function(tol, a=1.2, b=0.02)
         bounds = bounds_backup.copy()
         smoothing = DoTriangleSmoothing(bounds, tol=tol)
         if tol > max_tolerance:
+            if windows and _smooths(without_windows, failed_tol):
+                raise ValueError(INCONSISTENT_RESTRAINTS)
             raise Exception(
                 "Triangle smoothing error: tolerance above threshold "
                 f"({tol:.3f} > {max_tolerance})"
             )
+    if windows and failed_tol is not None and _smooths(without_windows, failed_tol):
+        raise ValueError(INCONSISTENT_RESTRAINTS)
     logger.debug("Triangle smoothing: %d failures, tolerance %s", failures, float(tol))
     return bounds
+
+
+def _smooths(bounds: np.ndarray, tol: float) -> bool:
+    return bool(DoTriangleSmoothing(bounds.copy(), tol=tol))
 
 
 def log_inconsistent_bounds(bounds: np.ndarray) -> None:

@@ -1,5 +1,6 @@
 """The optimizer interface."""
 
+import inspect
 from abc import ABC, abstractmethod
 from typing import List, Optional, Sequence
 
@@ -59,3 +60,11 @@ class BaseOptimizer(ABC):
                 prbCid=conformer.GetId(),
                 refCid=self.conf_id_ref,
             )
+
+
+def accepts_restraints(method) -> bool:
+    """Whether a component method takes a restraints argument."""
+    try:
+        return "restraints" in inspect.signature(method).parameters
+    except (TypeError, ValueError):
+        return False

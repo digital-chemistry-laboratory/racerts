@@ -1,14 +1,18 @@
 """Context: what every stage of a pipeline can use."""
 
+import logging
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
 from rdkit import Chem
 
+from racerts.restraints.model import RestraintSet
 from racerts.system.spec import set_charge_and_multiplicity
 from racerts.task import FrozenSet, Task
 from racerts.task.base import check_atom_indices
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -23,12 +27,15 @@ class Context:
         frozen: The FrozenSet of the task for mol.
         seed: The random seed; embedders that stages create use it as their RDKit
             seed (-1: random).
+        restraints: Distance windows for embedding and force-field refinement (see
+            racerts.restraints).
     """
 
     mol: Chem.Mol
     task: Task
     frozen: FrozenSet
     seed: int = 12
+    restraints: RestraintSet = field(default_factory=RestraintSet)
 
     @property
     def reference(self) -> Optional[Chem.Mol]:
@@ -77,11 +84,13 @@ class Context:
         seed: int = 12,
         charge: Optional[int] = None,
         multiplicity: Optional[int] = None,
+        restraints: Optional[RestraintSet] = None,
     ) -> "Context":
         """
         A context for a copy of mol: charge and multiplicity are settled and stored as
         properties of the copy (see set_charge_and_multiplicity), then the frozen atoms
-        of the task are determined and checked.
+        of the task are determined and checked. Restraints between two frozen atoms
+        are left out (their distance is fixed), with a warning.
         """
         if not isinstance(mol, Chem.Mol):
             raise TypeError(f"Expected an RDKit Mol, not {type(mol).__name__}.")
@@ -93,4 +102,13 @@ class Context:
         set_charge_and_multiplicity(mol, charge, multiplicity)
         frozen = task.frozen_atoms(mol)
         check_atom_indices(mol, frozen.hard + frozen.core, "frozen atoms")
-        return cls(mol=mol, task=task, frozen=frozen, seed=seed)
+        restraints = RestraintSet(restraints or ())
+        restraints.check_atoms(mol.GetNumAtoms())
+        kept = restraints.without_pairs_within(frozen.hard)
+        if len(kept) < len(restraints):
+            dropped = sorted({r.pair for r in restraints} - {r.pair for r in kept})
+            logger.warning(
+                "Restraints %s are ignored: both atoms are frozen at the reference.",
+                dropped,
+            )
+        return cls(mol=mol, task=task, frozen=frozen, seed=seed, restraints=kept)

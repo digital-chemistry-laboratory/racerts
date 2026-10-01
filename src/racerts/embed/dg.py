@@ -239,8 +239,20 @@ class DistanceGeometryEmbedder(BaseEmbedder):
             for i in changed:
                 mol.GetAtomWithIdx(i).SetChiralTag(from_reference[i])
         check = StereoCheck(mol, exempt=frozen.core)
-        inverted = [c.GetId() for c in mol.GetConformers() if check.mismatch(c)]
-        if inverted:
+        reasons = {c.GetId(): check.mismatch(c) for c in mol.GetConformers()}
+        inverted = [conf_id for conf_id, reason in reasons.items() if reason]
+        if inverted and len(inverted) == len(reasons):
+            # e.g. a frozen stereocentre whose one free substituent sets its
+            # configuration: legacy racerts returns only the other stereoisomer
+            logger.warning(
+                "All %d conformers have inverted stereo after the chirality fallback "
+                "(e.g. %s) and are removed: the frozen atoms and the chiral tags could "
+                "not be embedded together. chirality_fallback='legacy' keeps them, "
+                "with the inverted stereo.",
+                len(inverted),
+                reasons[inverted[0]],
+            )
+        elif inverted:
             logger.warning(
                 "Removing %d of %d conformers whose stereo is inverted after the "
                 "chirality fallback: %s",

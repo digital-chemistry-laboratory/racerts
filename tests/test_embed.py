@@ -1,6 +1,7 @@
 """Embedding details: the chirality fallback of legacy racerts and the bounds matrix."""
 
 import logging
+import re
 
 import numpy as np
 import pytest
@@ -288,3 +289,27 @@ def test_embed_needs_named_references(hept_1_ene_ts):
     ctx = racerts.Context.create(hept_1_ene_ts, racerts.TransitionState([3, 4, 5]))
     with pytest.raises(ValueError, match="at least one"):
         racerts.Embed(references=[]).run(ctx)
+
+
+def test_frozen_first_explains_when_every_conformer_is_inverted(
+    butanol, monkeypatch, caplog
+):
+    # Benchmark Ti_elimination: frozen stereocentres whose one free methyl sets their
+    # configuration come out inverted in every conformer (legacy racerts returns only
+    # the wrong stereoisomer); frozen_first removes them all and says why.
+    from racerts.system.stereo import StereoCheck
+
+    monkeypatch.setattr(dg, "chirality_fallback", lambda *args: "strip_tags")
+    monkeypatch.setattr(
+        StereoCheck, "mismatch", lambda self, conf: "stereo of atom 1 inverted"
+    )
+    config = PipelineConfig(
+        embed=EmbedConfig(n_conformers=5, chirality_fallback="frozen_first")
+    )
+    with (
+        caplog.at_level(logging.WARNING),
+        pytest.raises(RuntimeError, match="no conformers"),
+    ):
+        racerts.generate(butanol, Constrained(hard=[3, 4, 12, 13]), config=config)
+    assert re.search(r"All \d+ conformers have inverted stereo", caplog.text)
+    assert "chirality_fallback='legacy' keeps them" in caplog.text

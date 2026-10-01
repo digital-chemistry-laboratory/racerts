@@ -563,6 +563,11 @@ def test_a_replaced_atom_passes_its_role_on(sn2_ts):
 
 # Regression tests.
 
+TETRAHEDRAL_TAGS = (
+    Chem.ChiralType.CHI_TETRAHEDRAL_CW,
+    Chem.ChiralType.CHI_TETRAHEDRAL_CCW,
+)
+
 
 @pytest.mark.parametrize(
     "fragment", ["[*:1][C@](F)(Cl)Br", "F[C@H]([*:1])Cl", "[*:1]/C=C/F"]
@@ -593,6 +598,41 @@ def test_a_dative_bond_type_keeps_the_donor_stereo():
         ),
     )
     assert identity(written.mol) == identity(typed.mol)
+
+
+def test_new_stereo_at_the_attachment_comes_from_the_reference():
+    # Which hydrogen is replaced chooses the configuration (catmlp): the graph takes it
+    # from the reference, so embedding cannot mix the two.
+    mol = embedded("OCc1ccccc1")
+    hydrogens = [
+        n.GetIdx()
+        for n in mol.GetAtomWithIdx(1).GetNeighbors()
+        if n.GetAtomicNum() == 1
+    ]
+    graphs = set()
+    for h in hydrogens:
+        result = apply_swap(mol, Swap("[*:1]C", remove_atoms=[h]))
+        assert result.mol.GetAtomWithIdx(1).GetChiralTag() in TETRAHEDRAL_TAGS
+        assert _stereo_agrees(result.mol)
+        graphs.add(identity(result.mol))
+    assert len(graphs) == 2  # the enantiomers
+    ensemble = racerts.swap(
+        mol, Swap("[*:1]C", remove_atoms=[hydrogens[0]]), routes=["dg"], n_conformers=10
+    )
+    assert ensemble.mol.GetAtomWithIdx(1).GetChiralTag() in TETRAHEDRAL_TAGS
+    assert _stereo_agrees(ensemble.mol)
+    # The same for a double bond: one H of CH2= of styrene gives E, the other Z.
+    styrene = embedded("C=Cc1ccccc1")
+    hydrogens = [
+        n.GetIdx()
+        for n in styrene.GetAtomWithIdx(0).GetNeighbors()
+        if n.GetAtomicNum() == 1
+    ]
+    graphs = {
+        identity(apply_swap(styrene, Swap("[*]C", remove_atoms=[h])).mol)
+        for h in hydrogens
+    }
+    assert graphs == {canonical("C/C=C/c1ccccc1"), canonical("C/C=C\\c1ccccc1")}
 
 
 def test_the_graft_keeps_a_stretched_bond(sn2_ts):
@@ -664,6 +704,64 @@ def test_soft_atoms_dropped_by_an_optimizer_are_reported(caplog):
     assert "soft atoms" in caplog.text
 
 
+def _labels(mol):
+    """Canonical SMILES of the graph and of the geometry of each conformer."""
+    graph = identity(mol)
+    geometry = []
+    for conf in mol.GetConformers():
+        probe = Chem.Mol(mol)
+        Chem.AssignStereochemistryFrom3D(probe, confId=conf.GetId())
+        geometry.append(identity(probe))
+    return graph, geometry
+
+
+def test_no_e_z_from_the_rotation_of_a_graft():
+    # C=O -> C=CHF: the E/Z of the new double bond would come from where the graft
+    # happens to put F; it stays unspecified whatever the seed.
+    mol = embedded("CCC=O")
+    graphs = {
+        identity(apply_swap(mol, Swap("[*]=CF", remove_atoms=[3]), seed=s).mol)
+        for s in range(6)
+    }
+    assert graphs == {canonical("CCC=CF")}
+
+
+def test_new_ring_stereo_comes_from_the_reference():
+    # Methylcyclohexane C4-H -> CH3: C1 and C4 get cis/trans, both from the reference.
+    mol = embedded("CC1CCCCC1")
+    c4 = 4
+    hydrogens = [
+        n.GetIdx()
+        for n in mol.GetAtomWithIdx(c4).GetNeighbors()
+        if n.GetAtomicNum() == 1
+    ]
+    graphs = set()
+    for h in hydrogens:
+        result = apply_swap(mol, Swap("[*]C", remove_atoms=[h]))
+        graph, geometry = _labels(result.mol)
+        assert geometry == [graph]
+        graphs.add(graph)
+    assert graphs == {
+        canonical("C[C@H]1CC[C@H](C)CC1"),
+        canonical("C[C@H]1CC[C@@H](C)CC1"),
+    }
+    ensemble = racerts.swap(
+        mol, Swap("[*]C", remove_atoms=[hydrogens[0]]), conserve="free", n_conformers=8
+    )
+    assert _stereo_agrees(ensemble.mol)  # one isomer only
+
+
+def test_no_spurious_e_z_between_stereo_double_bonds():
+    # (E)-penta-1,3-diene, a terminal H -> /C=C/F: the new E/Z at C1=C2 is that of the
+    # reference, not read from bond directions set for the neighbouring double bonds.
+    mol = embedded("C=C/C=C/C")
+    for h in (5, 6):
+        graph, geometry = _labels(
+            apply_swap(mol, Swap("[*]/C=C/F", remove_atoms=[h])).mol
+        )
+        assert geometry == [graph]
+
+
 def test_hard_mode_takes_charge_and_multiplicity(methylbiphenyl):
     hard = racerts.swap(
         methylbiphenyl, BUTYL_SWAP, conserve="hard", charge=1, multiplicity=2
@@ -704,6 +802,47 @@ def test_contacts_of_the_reference_are_no_clashes(caplog):
     with caplog.at_level("WARNING"):
         racerts.swap(mol.GetMol(), Swap("[*]C", remove_atoms=[h]), conserve="hard")
     assert "clash" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "reference, fragment",
+    [
+        ("C[C@@H](O)CC", "[*]C(O)C"),
+        ("C[C@@H](F)CC", "[*]C(F)C"),
+        ("C/C=C\\CC", "[*]C=CC"),
+    ],
+)
+def test_new_stereo_does_not_depend_on_the_seed(reference, fragment):
+    # C3 becomes a stereocentre whose stereogenicity depends on the unspecified stereo
+    # of the graft; its configuration comes from the reference whatever the seed.
+    mol = embedded(reference)
+    hydrogens = [
+        n.GetIdx()
+        for n in mol.GetAtomWithIdx(3).GetNeighbors()
+        if n.GetAtomicNum() == 1
+    ]
+    results = [
+        apply_swap(mol, Swap(fragment, remove_atoms=[hydrogens[0]]), seed=s)
+        for s in range(8)
+    ]
+    assert len({identity(r.mol) for r in results}) == 1
+    assert results[0].mol.GetAtomWithIdx(3).GetChiralTag() in TETRAHEDRAL_TAGS
+
+
+@pytest.mark.parametrize("legacy", [True, False])
+def test_new_stereo_with_either_stereo_perception(legacy):
+    Chem.SetUseLegacyStereoPerception(legacy)
+    try:
+        mol = embedded("C/C=C/C(C)C")  # a methyl H of the isopropyl -> CH3
+        h = next(
+            n.GetIdx()
+            for n in mol.GetAtomWithIdx(4).GetNeighbors()
+            if n.GetAtomicNum() == 1
+        )
+        result = apply_swap(mol, Swap("[*]C", remove_atoms=[h]))
+        assert result.mol.GetAtomWithIdx(3).GetChiralTag() in TETRAHEDRAL_TAGS
+    finally:
+        Chem.SetUseLegacyStereoPerception(True)
 
 
 def test_clashes_are_judged_against_each_reference(caplog):

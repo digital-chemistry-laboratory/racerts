@@ -13,6 +13,8 @@ from racerts import EmbedConfig, PipelineConfig, TransitionState
 from racerts.restraints import (
     DistanceRestraint,
     RestraintSet,
+    build_restraints,
+    sources,
 )
 from racerts.system import build_mol
 
@@ -91,6 +93,50 @@ def test_restraint_sets():
     assert RestraintSet.from_json(both.to_json()) == both
     sampled = [len(both.sample(np.random.default_rng(i), 0.5)) for i in range(200)]
     assert 0.4 < np.mean(sampled) / 2 < 0.6
+
+
+# ---- sources ----
+
+
+def test_hydrogen_bonds_of_the_seed_become_two_windows(sn2_ts_water):
+    mol = _sn2_water(sn2_ts_water)
+    triplets = sources.hydrogen_bonds(mol)
+    assert [(i, j) for i, j, _ in triplets] == [(7, 2), (6, 2)]
+    assert [round(d, 2) for _, _, d in triplets] == [2.2, 3.16]
+
+
+def test_contacts_include_the_neighbours_for_orientation(sn2_ts_water):
+    mol = _sn2_water(sn2_ts_water)
+    pairs = [(i, j) for i, j, _ in sources.contacts(mol, [(2, 6)])]
+    assert sorted(pairs) == [(2, 6), (2, 7), (2, 8)]
+    with pytest.raises(ValueError, match="bonded or share a neighbour"):
+        sources.contacts(mol, [(6, 8)])
+
+
+def test_fragments_keep_their_closest_contact(sn2_ts_water, sn2_ts_two_waters):
+    assert sources.fragment_contacts(_sn2_water(sn2_ts_water), REACTING) == [(2, 7)]
+    two = build_mol(sn2_ts_two_waters, -1, REACTING, input_smiles=SN2_SMILES + ["O"])
+    # The second water is attached to the first one, not to the nucleophile.
+    assert sources.fragment_contacts(two, REACTING) == [(2, 7), (6, 10)]
+
+
+def test_build_restraints_precedence(sn2_ts_water, caplog):
+    mol = _sn2_water(sn2_ts_water)
+    frozen = TransitionState(REACTING).frozen_atoms(mol)
+    with caplog.at_level(logging.WARNING):
+        restraints = build_restraints(
+            mol, frozen, user=[(2, 7, 2.5), (0, 1, 2.0)], hbonds=True
+        )
+    by_pair = {r.pair: r for r in restraints}
+    assert by_pair[(2, 7)].source == "user" and by_pair[(2, 7)].upper == 2.75
+    assert by_pair[(2, 6)].source == "hbond"
+    assert (0, 1) not in by_pair and "both atoms are frozen" in caplog.text
+    with pytest.raises(ValueError, match="Conflicting"):
+        build_restraints(mol, frozen, user=[(2, 7, 2.5), (7, 2, 2.6)])
+    with pytest.raises(ValueError, match="list of \\(atom, atom, distance\\) triplets"):
+        build_restraints(mol, frozen, user=(2, 7, 2.5))
+    with pytest.raises(ValueError, match="outside the 9-atom molecule"):
+        build_restraints(mol, frozen, user=[(2, 70, 2.5)])
 
 
 # ---- embedding ----
@@ -211,6 +257,26 @@ def test_ase_refinement_runs_without_the_restraints(caplog):
     assert "refines without the 1 restraints" in caplog.text
 
 
+def test_generated_windows_that_do_not_fit_are_left_out(sn2_ts_water, caplog):
+    # Cl2...O6 at 3.75 A does not fit with Cl2...H7 at 2.2 A (O6-H7 is a bond): from
+    # the user it raises (test_inconsistent_windows_raise); generated, it is left out.
+    from racerts.restraints.build import _consistent
+
+    mol = _sn2_water(sn2_ts_water)
+    frozen = TransitionState(REACTING).frozen_atoms(mol)
+    user = RestraintSet([DistanceRestraint.around(2, 7, 2.2)])
+    generated = RestraintSet(
+        [
+            DistanceRestraint.around(2, 6, 3.75, source="contact"),
+            DistanceRestraint.around(0, 6, 5.66, source="contact"),
+        ]
+    )
+    with caplog.at_level(logging.WARNING):
+        kept = _consistent(mol, frozen, user, generated)
+    assert [r.pair for r in kept] == [(0, 6)]
+    assert "contact:2-6" in caplog.text and "left out" in caplog.text
+
+
 # ---- ported from catmlp test_embedding_constraints (e1547eb) ----
 
 
@@ -228,3 +294,16 @@ def test_parallel_restrained_refinement_reports_physical_energies():
         assert np.linalg.norm(p[0] - p[3]) < 2.93
         ff = AllChem.MMFFGetMoleculeForceField(mol, props, confId=conf_id)
         assert conf.GetDoubleProp("energy") == pytest.approx(ff.CalcEnergy(), abs=1e-8)
+
+
+@pytest.mark.parametrize(
+    "user, error",
+    [
+        ([(0, 0, 2.0)], ValueError),
+        ([(0, 99, 2.0)], ValueError),
+        ([(0, 1, -1.0)], ValueError),
+    ],
+)
+def test_invalid_user_restraints_fail_early(user, error):
+    with pytest.raises(error):
+        build_restraints(Chem.AddHs(Chem.MolFromSmiles("CC")), user=user)

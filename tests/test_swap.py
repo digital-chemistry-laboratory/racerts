@@ -1,5 +1,7 @@
 """Swaps: graph surgery (apply_swap) and catmlp's substitutions."""
 
+import json
+
 import numpy as np
 import pytest
 from rdkit import Chem
@@ -352,6 +354,187 @@ def test_soft_atoms_need_the_coordinate_map_embedder():
         racerts.Embed(embedder, n_conformers=2).run(ctx)
 
 
+# racerts.swap: sampling after the swap.
+from racerts.prune import aligned_rmsd  # noqa: E402
+
+BUTYL_SWAP = Swap("[*:1]CCCC", old_fragment="[CH3][c:1]")
+
+
+def _in_frame(positions, target, atoms):
+    """positions superposed on target by the atoms (Kabsch)."""
+    a, b = positions[atoms], target[atoms]
+    ca, cb = a.mean(0), b.mean(0)
+    u, _, vt = np.linalg.svd((a - ca).T @ (b - cb))
+    rotation = u @ np.diag([1, 1, np.sign(np.linalg.det(u @ vt))]) @ vt
+    return (positions - ca) @ rotation + cb
+
+
+def _ring_torsion(mol, conf_id=-1):
+    from rdkit.Chem import rdMolTransforms
+
+    bond = next(
+        b for b in mol.GetBonds()
+        if b.GetBeginAtom().GetIsAromatic() and b.GetEndAtom().GetIsAromatic()
+        and not b.IsInRing()
+    )  # fmt: skip
+    a, b = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
+    na = min(
+        n.GetIdx() for n in mol.GetAtomWithIdx(a).GetNeighbors() if n.GetIdx() != b
+    )
+    nb = min(
+        n.GetIdx() for n in mol.GetAtomWithIdx(b).GetNeighbors() if n.GetIdx() != a
+    )
+    return rdMolTransforms.GetDihedralDeg(mol.GetConformer(conf_id), na, a, b, nb)
+
+
+def test_swap_soft_samples_the_chain_around_the_kept_skeleton(methylbiphenyl):
+    mol = methylbiphenyl
+    grafted = apply_swap(mol, BUTYL_SWAP).mol.GetConformer().GetPositions()
+    skeleton = [a.GetIdx() for a in mol.GetAtoms() if a.GetIsAromatic()]
+    assert {
+        racerts.swap(mol, BUTYL_SWAP, n_conformers=4).provenance(c)["route"]
+        for c in racerts.swap(mol, BUTYL_SWAP, n_conformers=4).conf_ids
+    } == {"dg"}  # the default route
+    ensemble = racerts.swap(mol, BUTYL_SWAP, n_conformers=30)
+    assert identity(ensemble.mol) == BUTYL
+    reference_torsion = _ring_torsion(mol)
+    butyl = [
+        a.GetIdx()
+        for a in ensemble.mol.GetAtoms()
+        if a.GetAtomicNum() == 6 and not a.GetIsAromatic()
+    ]
+    poses = []
+    for conf_id in ensemble.conf_ids:
+        positions = ensemble.mol.GetConformer(conf_id).GetPositions()
+        # The skeleton stays in the basin of the reference; the 0.3 A flat bottom of
+        # the position restraints lets the ring torsion adapt (15 deg measured).
+        assert aligned_rmsd(positions[skeleton], grafted[skeleton]) < 0.2
+        turn = (
+            _ring_torsion(ensemble.mol, conf_id) - reference_torsion + 180
+        ) % 360 - 180
+        assert abs(turn) < 25
+        pose = _in_frame(positions, grafted, skeleton)[butyl]
+        if all(np.sqrt(((pose - other) ** 2).sum(1).mean()) > 0.3 for other in poses):
+            poses.append(pose)
+    assert len(poses) >= 4  # distinct chain conformers
+
+
+def test_swap_free_and_hard(methylbiphenyl):
+    mol = methylbiphenyl
+    skeleton = [a.GetIdx() for a in mol.GetAtoms() if a.GetIsAromatic()]
+    result = apply_swap(mol, BUTYL_SWAP, seed=racerts.PipelineConfig().seed)
+    grafted = result.mol.GetConformer().GetPositions()
+    free = racerts.swap(
+        mol, BUTYL_SWAP, conserve="free", n_conformers=30, routes=["dg"]
+    )
+    # Resampled as a whole: the ring torsion takes other values too.
+    turns = {
+        round(abs((_ring_torsion(free.mol, c) - _ring_torsion(mol) + 180) % 360 - 180))
+        for c in free.conf_ids
+    }
+    assert max(turns) > 90
+    hard = racerts.swap(mol, BUTYL_SWAP, conserve="hard")
+    assert len(hard) == 1 and hard.provenance(0) == {"route": "graft", "reference": 0}
+    np.testing.assert_array_equal(hard.mol.GetConformer(0).GetPositions(), grafted)
+    assert (
+        np.abs(
+            hard.mol.GetConformer(0).GetPositions()[skeleton]
+            - mol.GetConformer().GetPositions()[skeleton]
+        ).max()
+        == 0
+    )
+
+
+def test_swap_in_a_transition_state(sn2_ts, caplog):
+    # As in catmlp: SN2 TS, H -> 4-hydroxybutyl on the reacting carbon. The first chain
+    # atom is a neighbour of a reacting atom: it is held where the graft puts it.
+    from racerts.system import build_mol
+
+    mol = build_mol(sn2_ts, -1, [0, 1, 2], input_smiles=["CCl", "[Cl-]"])
+    task = TransitionState([0, 1, 2])
+    change = Swap("[*]CCCCO", remove_atoms=[3])
+    result = apply_swap(mol, change)
+    held = task.remap(result.ref_to_new).frozen_atoms(result.mol).hard
+    assert sorted(held) == [0, 1, 2, 3, 4, 5]  # atom 3 is now the chain's C1
+    with caplog.at_level("WARNING"):
+        ensemble = racerts.swap(mol, change, task=task, n_conformers=20)
+    assert "attaches at the frozen atoms" in caplog.text
+    assert "clash" not in caplog.text  # the forming C...Cl pair is not a clash
+    assert identity(ensemble.mol) == identity(Chem.MolFromSmiles("OCCCCCCl.[Cl-]"))
+    grafted = result.mol.GetConformer().GetPositions()
+    assert len(ensemble) >= 5
+    for conf_id in ensemble.conf_ids:
+        positions = ensemble.mol.GetConformer(conf_id).GetPositions()
+        assert np.abs(positions[list(held)] - grafted[list(held)]).max() < 1e-3
+
+
+def test_swap_every_reference_conformer():
+    mol = embedded("CCCO", n=2, seed=5)
+    change = Swap("[*]CC", remove_atoms=[0])
+    ensemble = racerts.swap(mol, change, n_conformers=4, routes=["dg"])
+    references = {ensemble.provenance(c).get("reference") for c in ensemble.conf_ids}
+    assert references == {0, 1}
+
+
+def test_swap_errors(methylbiphenyl, sn2_ts):
+    from racerts.system import build_mol
+
+    mol = methylbiphenyl
+    with pytest.raises(ValueError, match="conserve"):
+        racerts.swap(mol, BUTYL_SWAP, conserve="all")
+    with pytest.raises(ValueError, match="routes"):
+        racerts.swap(mol, BUTYL_SWAP, routes=["etkdg"])
+    with pytest.raises(ValueError, match="conformers"):
+        racerts.swap(Chem.MolFromSmiles("CC"), BUTYL_SWAP)
+    methyl_h = next(
+        n.GetIdx()
+        for n in mol.GetAtomWithIdx(0).GetNeighbors()
+        if n.GetAtomicNum() == 1
+    )
+    with pytest.raises(ValueError, match="hard atoms"):
+        racerts.swap(mol, BUTYL_SWAP, hard=[methyl_h])  # leaves, nothing replaces it
+    ts = build_mol(sn2_ts, -1, [0, 1, 2], input_smiles=["CCl", "[Cl-]"])
+    with pytest.raises(ValueError, match="windows"):
+        racerts.swap(
+            ts,
+            Swap("[*]C", remove_atoms=[3]),
+            task=TransitionState([0, 1, 2], active_window=0.3),
+        )
+    with pytest.raises(ValueError, match="reacting atoms"):  # the nucleophile leaves
+        racerts.swap(
+            ts,
+            Swap("[*]C", remove_atoms=[2, 3], attach_map={1: 0}),
+            task=TransitionState([0, 1, 2]),
+        )
+    pd = Chem.AddHs(Chem.MolFromSmiles("Cl[Pd]Cl"))
+    AllChem.Compute2DCoords(pd)
+    with pytest.raises(ValueError, match="single attachment"):
+        racerts.swap(
+            pd,
+            Swap("[*:1]<-P(C)(C)C", remove_atoms=[], attach_map={1: 1}),
+            conserve="hard",
+        )
+
+
+def test_a_replaced_atom_passes_its_role_on(sn2_ts):
+    # The leaving group Cl -> Br: Br takes the slot and the role of Cl.
+    from racerts.system import build_mol
+
+    ts = build_mol(sn2_ts, -1, [0, 1, 2], input_smiles=["CCl", "[Cl-]"])
+    result = apply_swap(ts, Swap("[*]Br", remove_atoms=[1]))
+    assert result.replaced == {1: 1} and result.index_map[1] == 1
+    assert result.mol.GetAtomWithIdx(1).GetSymbol() == "Br"
+    task = TransitionState([0, 1, 2]).remap(result.index_map)
+    assert task.reacting_atoms == [0, 1, 2]
+    ensemble = racerts.swap(
+        ts,
+        Swap("[*]Br", remove_atoms=[1]),
+        task=TransitionState([0, 1, 2]),
+        conserve="hard",
+    )
+    assert len(ensemble) == 1
+
+
 # Regression tests.
 
 
@@ -412,6 +595,25 @@ def test_custom_tasks_may_return_lists():
     assert ctx.frozen.hard == (0, 1, 2) and ctx.frozen.core == (0, 1, 2)
 
 
+def test_swap_rejects_settings_it_does_not_use(methylbiphenyl):
+    with pytest.raises(ValueError, match="restraints"):
+        racerts.swap(
+            methylbiphenyl,
+            BUTYL_SWAP,
+            config=racerts.PipelineConfig.from_dict({"restraints": {"hbonds": True}}),
+        )
+    with pytest.raises(ValueError, match="cmap"):
+        racerts.swap(
+            methylbiphenyl,
+            BUTYL_SWAP,
+            config=racerts.PipelineConfig.from_dict({"embed": {"mode": "bounds"}}),
+        )
+    with pytest.raises(ValueError, match="hard"):
+        racerts.swap(methylbiphenyl, BUTYL_SWAP, conserve="hard", routes=["dg"])
+    with pytest.raises(ValueError, match="Invalid"):
+        racerts.swap(methylbiphenyl, BUTYL_SWAP, hard=[999])
+
+
 def test_soft_atoms_dropped_by_an_optimizer_are_reported(caplog):
     from racerts.refine.base import BaseOptimizer
 
@@ -423,6 +625,18 @@ def test_soft_atoms_dropped_by_an_optimizer_are_reported(caplog):
     with caplog.at_level("WARNING"):
         Plain().refine(Chem.Mol(mol), mol, (), [PositionRestraint(0, (0.0, 0.0, 0.0))])
     assert "soft atoms" in caplog.text
+
+
+def test_hard_mode_takes_charge_and_multiplicity(methylbiphenyl):
+    hard = racerts.swap(
+        methylbiphenyl, BUTYL_SWAP, conserve="hard", charge=1, multiplicity=2
+    )
+    assert (hard.mol.GetIntProp("charge"), hard.mol.GetIntProp("multiplicity")) == (
+        1,
+        2,
+    )
+    index_map = json.loads(hard.mol.GetProp("swap_index_map"))
+    assert index_map["1"] == 1
 
 
 def test_e_z_survives_when_a_stereo_atom_leaves():

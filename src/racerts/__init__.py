@@ -10,7 +10,7 @@ module paths such as racerts.embedder or racerts.optimizer.ase) is kept in
 racerts.compat and importable from here.
 """
 
-from .api import generate, generate_gs, generate_ts
+from .api import generate, generate_gs, generate_ts, swap
 from .compat import (
     ConformerGenerator,
     conformer_generator,
@@ -62,6 +62,7 @@ __all__ = [
     "generate",
     "generate_gs",
     "generate_ts",
+    "swap",
     "ConformerGenerator",
     "embedders",
     "mol_getters",

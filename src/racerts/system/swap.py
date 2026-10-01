@@ -4,7 +4,7 @@ geometry of the other atoms (as catmlp's substitutions do).
 
 apply_swap returns the new graph with every conformer of the reference: the kept atoms
 at their coordinates and, for a single attachment, the fragment grafted rigidly along
-the removed bond (as catmlp).
+the removed bond (as catmlp). racerts.swap then samples the new atoms (api.py).
 """
 
 import logging

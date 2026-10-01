@@ -246,7 +246,7 @@ def test_small_kept_share_warns(caplog):
 
 import racerts  # noqa: E402
 from racerts.restraints import PositionRestraint  # noqa: E402
-from racerts.task import Constrained, FrozenSet  # noqa: E402
+from racerts.task import Constrained, FrozenSet, TransitionState  # noqa: E402
 
 
 def test_frozen_set_and_constrained_with_soft_atoms():
@@ -264,6 +264,18 @@ def test_frozen_set_and_constrained_with_soft_atoms():
     assert (moved.hard, moved.soft, moved.core) == ((5,), (6, 7), (5,))
     with pytest.raises(ValueError, match=r"soft atoms \[2\]"):
         task.remap({0: 5, 1: 6})
+
+
+def test_transition_state_remap():
+    task = TransitionState([0, 1, 2], active_bonds=[(0, 2)], active_window=0.3)
+    task.bond_changes = [(0, 2)]
+    moved = task.remap({0: 3, 1: 4, 2: 1})
+    assert moved.reacting_atoms == [3, 4, 1]
+    assert moved.active_bonds == [(1, 3)] and moved.bond_changes == [(1, 3)]
+    assert moved.active_window == 0.3
+    with pytest.raises(ValueError, match=r"reacting atoms \[2\]"):
+        task.remap({0: 3, 1: 4})
+    assert racerts.GroundState().remap({}).frozen_atoms(None) == FrozenSet()
 
 
 def _eclipsed_octane():

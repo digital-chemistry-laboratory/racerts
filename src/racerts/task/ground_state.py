@@ -13,5 +13,8 @@ class GroundState:
     def frozen_atoms(self, mol: Chem.Mol) -> FrozenSet:
         return FrozenSet()
 
+    def remap(self, index_map) -> "GroundState":
+        return GroundState()
+
     def __repr__(self) -> str:
         return "GroundState()"

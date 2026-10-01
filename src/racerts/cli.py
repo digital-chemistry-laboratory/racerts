@@ -233,6 +233,12 @@ def _subcommand_parser() -> argparse.ArgumentParser:
             help="Keep fragments without reacting atoms (e.g. solvent) at the core (ts).",
         )
         command.add_argument(
+            "--link-fragments",
+            action="store_true",
+            default=None,
+            help="Embed the fragments of a complex together (gs).",
+        )
+        command.add_argument(
             "--restraint-half-width",
             type=float,
             help=f"Half width of restraint windows, A (default "
@@ -301,6 +307,7 @@ def _config_from_args(args) -> PipelineConfig:
             hbonds=args.keep_hbonds,
             contacts=[list(pair) for pair in args.contact] if args.contact else None,
             keep_fragments=args.keep_fragments,
+            link_fragments=args.link_fragments,
             half_width=args.restraint_half_width,
             force_constant=args.restraint_force_constant,
         ),

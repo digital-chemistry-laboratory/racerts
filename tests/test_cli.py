@@ -157,3 +157,11 @@ def test_ts_restraint_options(tmp_path, monkeypatch):
     assert (restraints.half_width, restraints.force_constant) == (0.3, 50.0)
     with pytest.raises(ValueError, match="--restraint takes"):
         run_subcommand(["ts", EX, "-r", "3", "--restraint", "a", "6", "4.6"])
+
+
+def test_gs_links_fragments(tmp_path):
+    out = tmp_path / "gs.xyz"
+    ensemble = run_subcommand(
+        ["gs", "CC(=O)[O-].[NH4+]", "-n", "4", "--link-fragments", "-o", str(out)]
+    )
+    assert len(ensemble) > 0 and out.exists()

@@ -188,6 +188,9 @@ class RestraintConfig:
         hbonds: Keep the hydrogen bonds of the reference geometry.
         contacts: [atom, atom] non-covalent contacts to keep as in the reference.
         keep_fragments: Keep fragments without core atoms (solvent) at the core.
+        fragment_links: [atom, atom] links between fragments (catmlp): windows
+            [1.0, 1.3] x the vdW sum.
+        link_fragments: Also choose links that join every fragment.
     """
 
     user: list = field(default_factory=list)
@@ -196,10 +199,12 @@ class RestraintConfig:
     hbonds: bool = False
     contacts: list = field(default_factory=list)
     keep_fragments: bool = False
+    fragment_links: list = field(default_factory=list)
+    link_fragments: bool = False
 
     def __post_init__(self):
         _check_types(self, "restraints")
-        for name, size in (("user", 3), ("contacts", 2)):
+        for name, size in (("user", 3), ("contacts", 2), ("fragment_links", 2)):
             items = getattr(self, name)
             if not isinstance(items, (list, tuple)) or any(
                 not isinstance(item, (list, tuple)) or len(item) != size
@@ -214,9 +219,16 @@ class RestraintConfig:
                 raise ValueError(f"restraints.{name} must be positive.")
 
     def __bool__(self) -> bool:
-        return bool(self.user or self.hbonds or self.contacts or self.keep_fragments)
+        return bool(
+            self.user
+            or self.hbonds
+            or self.contacts
+            or self.keep_fragments
+            or self.fragment_links
+            or self.link_fragments
+        )
 
-    def build(self, mol, frozen):
+    def build(self, mol, frozen, seed: int = 0xF00D):
         """The RestraintSet for mol (with the reference geometry) and its frozen set."""
         from racerts.restraints import build_restraints
 
@@ -229,6 +241,9 @@ class RestraintConfig:
             hbonds=self.hbonds,
             contacts=[tuple(item) for item in self.contacts],
             keep_fragments=self.keep_fragments,
+            fragment_links=[tuple(item) for item in self.fragment_links] or None,
+            link_fragments=self.link_fragments,
+            seed=seed,
         )
 
 

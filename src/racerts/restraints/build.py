@@ -1,7 +1,7 @@
 """build_restraints: the restraints of a task from the user and the seed geometry."""
 
 import logging
-from typing import Iterable, Sequence
+from typing import Iterable, Optional, Sequence
 
 from rdkit import Chem
 
@@ -27,6 +27,9 @@ def build_restraints(
     hbonds: bool = False,
     contacts: Iterable[Sequence[int]] = (),
     keep_fragments: bool = False,
+    fragment_links: Optional[Iterable[Sequence[int]]] = None,
+    link_fragments: bool = False,
+    seed: int = 0xF00D,
 ) -> RestraintSet:
     """
     The distance restraints for mol, which carries the reference geometry if a source
@@ -42,6 +45,12 @@ def build_restraints(
             reference geometry (with the neighbours, for the orientation).
         keep_fragments: Keep every fragment without core atoms (e.g. solvent) at the
             core by its closest contact in the reference geometry.
+        fragment_links, link_fragments: For molecules of several fragments without a
+            reference (catmlp's reactant complexes): windows [1.0, 1.3] x the vdW sum
+            for the given links (fragment_links), and with link_fragments for links
+            chosen to join every fragment (user pairs between fragments first, then
+            charged pairs, then the least buried atoms). If the windows cannot be
+            smoothed, the lower factor 0.8 is tried once; user windows never widen.
 
     User restraints win over generated ones for the same pair; generated ones for the
     same pair must agree.
@@ -77,6 +86,11 @@ def build_restraints(
         )
     restraints = generated.merge(user_set).without_pairs_within(frozen.hard)
 
+    if fragment_links is not None or link_fragments:
+        restraints = _with_fragment_links(
+            mol, restraints, user_set, fragment_links, link_fragments, frozen, seed,
+            force_constant,
+        )  # fmt: skip
     if restraints:
         logger.info(
             "Restraints (atoms: window in A): %s",
@@ -85,6 +99,48 @@ def build_restraints(
             ),
         )
     return restraints
+
+
+def _with_fragment_links(
+    mol, restraints, user_set, fragment_links, link_fragments, frozen, seed, k
+):
+    from racerts.embed.bounds import bounds_matrix
+
+    explicit = [
+        sources.check_pair(mol, pair, "Fragment link") for pair in fragment_links or ()
+    ]
+    links = list(explicit)
+    if link_fragments:
+        fragment_of = {
+            i: n for n, fragment in enumerate(Chem.GetMolFrags(mol)) for i in fragment
+        }
+        between = [
+            r.pair for r in user_set if fragment_of[r.first] != fragment_of[r.second]
+        ]
+        candidates = explicit + between + sources.fallback_links(mol, frozen.core, seed)
+        links += [
+            pair for pair in sources.carrier_links(mol, candidates) if pair not in links
+        ]
+    for lower_factor in sources.LINK_LOWER_FACTORS:
+        windows = RestraintSet(
+            DistanceRestraint(
+                *pair,
+                *sources.link_window(mol, pair, lower_factor),
+                force_constant=k,
+                source="link",
+            )  # fmt: skip
+            for pair in {tuple(sorted(p)) for p in links}
+        )
+        candidate = windows.merge(restraints)  # user and seed windows win
+        try:
+            bounds_matrix(mol, windows=candidate)
+        except ValueError:
+            continue
+        return candidate
+    raise ValueError(
+        "The fragment links cannot be embedded with the other restraints, even with "
+        "the widened lower bounds (0.8 x the vdW sum)."
+    )
 
 
 def _consistent(mol, frozen, kept, generated, each=False) -> RestraintSet:

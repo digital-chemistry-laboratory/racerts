@@ -312,6 +312,44 @@ def test_restraints_between_frozen_atoms_are_dropped(sn2_ts, caplog):
     assert len(ensemble) > 0 and "both atoms are frozen" in caplog.text
 
 
+# ---- fragment links (catmlp) ----
+
+
+def test_fragment_links_join_every_fragment():
+    # Acetate, ammonium and a water: the charged pair first, then the water.
+    mol = Chem.AddHs(Chem.MolFromSmiles("CC(=O)[O-].[NH4+].O"))
+    links = sources.carrier_links(mol, sources.fallback_links(mol))
+    fragments = Chem.GetMolFrags(mol)
+    fragment_of = {i: k for k, f in enumerate(fragments) for i in f}
+    assert len(links) == 2
+    assert {fragment_of[a] for a, _ in links} | {fragment_of[b] for _, b in links} == {
+        0,
+        1,
+        2,
+    }
+    charged = [(a, b) for a, b in links if {fragment_of[a], fragment_of[b]} == {0, 1}]
+    assert charged and all(
+        mol.GetAtomWithIdx(i).GetFormalCharge() != 0 for i in charged[0]
+    )
+    with pytest.raises(ValueError, match="do not join every fragment"):
+        sources.carrier_links(mol, [links[0]])
+
+
+def test_ground_state_complexes_are_embedded_together():
+    config = PipelineConfig.from_dict(
+        {"embed": {"n_conformers": 10}, "restraints": {"link_fragments": True}}
+    )
+    ensemble = racerts.generate_gs("CC(=O)[O-].[NH4+]", config=config)
+    labels = ensemble.provenance(ensemble.conf_ids[0])["restraints"]
+    assert len(labels) == 1 and labels[0].startswith("link:")
+    # The fragments stay together; MMFF's Coulomb attraction pulls the salt bridge
+    # below the vdW window, which k = 20 does not prevent.
+    (link,) = [r for r in build_restraints(ensemble.mol, link_fragments=True)]
+    for conf in ensemble.mol.GetConformers():
+        p = conf.GetPositions()
+        assert np.linalg.norm(p[link.first] - p[link.second]) < link.upper + 0.3
+
+
 def test_generated_windows_that_do_not_fit_are_left_out(sn2_ts_water, caplog):
     # Cl2...O6 at 3.75 A does not fit with Cl2...H7 at 2.2 A (O6-H7 is a bond): from
     # the user it raises (test_inconsistent_windows_raise); generated, it is left out.
@@ -348,6 +386,14 @@ def test_user_triplets_become_windows_and_flat_bottom_terms():
     ensemble = racerts.generate_gs("CCCC", config=config)
     for conf in ensemble.mol.GetConformers():
         assert r.violation(conf.GetPositions()) < 0.1
+
+
+def test_a_user_contact_between_fragments_is_the_carrier():
+    mol = Chem.AddHs(Chem.MolFromSmiles("C.C"))
+    restraints = build_restraints(mol, user=[(0, 1, 2.0)], link_fragments=True)
+    (r,) = restraints
+    assert r.pair == (0, 1) and r.source == "user"  # the user window wins
+    assert (r.lower, r.upper) == pytest.approx((1.75, 2.25))
 
 
 def test_parallel_restrained_refinement_reports_physical_energies():

@@ -1,7 +1,9 @@
-"""Where restraints come from: the user and the seed geometry."""
+"""Where restraints come from: the user, the seed geometry, fragment links."""
 
+import random
+from itertools import combinations
 from numbers import Real
-from typing import Iterable, List, Sequence, Tuple
+from typing import Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 from rdkit import Chem
@@ -11,6 +13,9 @@ from racerts.system.spec import split_fragments
 # Hydrogen bonds D-H...A: donor atoms of the hydrogen and acceptor elements.
 HBOND_DONORS = ("N", "O")
 HBOND_ACCEPTORS = ("N", "O", "F", "S", "Cl", "Br", "I")
+# catmlp's windows for fragment links, in units of the sum of the vdW radii.
+LINK_LOWER_FACTORS = (1.0, 0.8)
+LINK_UPPER_FACTOR = 1.3
 
 Triplet = Tuple[int, int, float]
 
@@ -158,4 +163,99 @@ def fragment_contacts(
         links.append((min(a, b), max(a, b)))
         core = core + fragment
         free.remove(fragment)
+    return links
+
+
+def link_window(
+    mol: Chem.Mol, pair: Tuple[int, int], lower_factor: float
+) -> Tuple[float, float]:
+    """catmlp's contact window for a fragment link: [lower_factor, 1.3] x the vdW sum."""
+    table = Chem.GetPeriodicTable()
+    vdw = sum(table.GetRvdw(mol.GetAtomWithIdx(i).GetAtomicNum()) for i in pair)
+    return lower_factor * vdw, LINK_UPPER_FACTOR * vdw
+
+
+def fallback_links(
+    mol: Chem.Mol, active_atoms: Optional[Sequence[int]] = None, seed: int = 0xF00D
+) -> List[Tuple[int, int]]:
+    """
+    Candidate links between fragments (catmlp): first between fragments of opposite
+    charge (their least buried atoms of the fragment's charge sign), then between
+    representatives of every pair of fragments (active atoms first, else heavy atoms,
+    the least buried; ties broken by a seeded random choice).
+    """
+    fragments = Chem.GetMolFrags(mol, asMols=False)
+    if len(fragments) < 2:
+        return []
+    active = set(active_atoms or [])
+    rng = random.Random(seed)
+    distances = Chem.GetDistanceMatrix(mol)
+    heavy = [a.GetIdx() for a in mol.GetAtoms() if a.GetAtomicNum() > 1]
+
+    def burial(idx):
+        return sum(1 for other in heavy if other != idx and distances[idx][other] <= 2)
+
+    def least_buried(candidates):
+        least = min(burial(i) for i in candidates)
+        return rng.choice([i for i in candidates if burial(i) == least])
+
+    charges = [
+        sum(mol.GetAtomWithIdx(i).GetFormalCharge() for i in fragment)
+        for fragment in fragments
+    ]
+    charged = {}
+    for k, (fragment, charge) in enumerate(zip(fragments, charges)):
+        if charge:
+            same_sign = [
+                i
+                for i in fragment
+                if mol.GetAtomWithIdx(i).GetFormalCharge() * charge > 0
+            ]
+            charged[k] = least_buried(same_sign)
+    links = [
+        (charged[a], charged[b])
+        for a, b in combinations(range(len(fragments)), 2)
+        if charges[a] * charges[b] < 0
+    ]
+    representatives = [
+        least_buried(
+            [i for i in fragment if i in active]
+            or [i for i in fragment if i in heavy]
+            or list(fragment)
+        )
+        for fragment in fragments
+    ]
+    links += [pair for pair in combinations(representatives, 2) if pair not in links]
+    return links
+
+
+def carrier_links(
+    mol: Chem.Mol, candidates: Iterable[Sequence[int]]
+) -> List[Tuple[int, int]]:
+    """
+    Links that join all fragments, taken from the candidates in order: a spanning
+    tree over the fragments (catmlp). Raises if the candidates do not join them all.
+    """
+    fragments = Chem.GetMolFrags(mol, asMols=False)
+    if len(fragments) < 2:
+        return []
+    fragment_of = {i: k for k, fragment in enumerate(fragments) for i in fragment}
+    parent = list(range(len(fragments)))
+
+    def find(k):
+        while parent[k] != k:
+            parent[k] = parent[parent[k]]
+            k = parent[k]
+        return k
+
+    links = []
+    for pair in candidates:
+        a, b = sorted(check_pair(mol, pair, "Fragment link"))
+        root_a, root_b = find(fragment_of[a]), find(fragment_of[b])
+        if root_a == root_b:
+            continue
+        parent[root_b] = root_a
+        links.append((a, b))
+    if len({find(k) for k in range(len(fragments))}) != 1:
+        raise ValueError("The fragment links do not join every fragment.")
     return links

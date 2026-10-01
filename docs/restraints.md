@@ -25,6 +25,8 @@ ensemble = racerts.generate_ts("sn2_water.xyz", [0, 1, 2], charge=-1,
 | `hbonds` | false | the hydrogen bonds D–H···A of the input geometry: H···A and D···A at their distances |
 | `contacts` | `[]` | `[i, j]`: the contact as in the input geometry, with i and the neighbours of j, j and the neighbours of i (for the orientation) |
 | `keep_fragments` | false | each fragment without reacting atoms (solvent, counterions) at its closest contact to the core, as in the input geometry |
+| `fragment_links` | `[]` | `[i, j]` between fragments: [1.0, 1.3] × the sum of the vdW radii |
+| `link_fragments` | false | links chosen to join every fragment (user pairs between fragments, then charged pairs, then the least buried atoms) |
 | `half_width`, `force_constant` | 0.25, 20.0 | of the `user`, `hbonds`, `contacts` and `keep_fragments` windows |
 
 Rules:
@@ -33,10 +35,11 @@ Rules:
   warning;
 - windows that need more triangle-smoothing tolerance than the bounds without them raise
   `ValueError` ("inconsistent"): smoothing would otherwise repair them silently, e.g. by
-  stretching a bond.
+  stretching a bond. Fragment links are widened once (lower factor 0.8) before that;
+  user windows never are.
 
 On the command line: `--restraint I J D` (repeatable), `--keep-hbonds`, `--contact I J`,
-`--keep-fragments`, `--restraint-half-width`,
+`--keep-fragments`, `--link-fragments`, `--restraint-half-width`,
 `--restraint-force-constant`.
 
 From Python, `racerts.restraints.RestraintSet` and `DistanceRestraint` (with `stage`

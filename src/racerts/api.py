@@ -50,7 +50,7 @@ def generate(
         if config.restraints or restraints:
             combined = RestraintSet()
             if config.restraints:
-                combined = config.restraints.build(ctx.mol, ctx.frozen)
+                combined = config.restraints.build(ctx.mol, ctx.frozen, config.seed)
             ctx = Context.create(
                 ctx.mol,
                 task,

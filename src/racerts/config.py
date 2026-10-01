@@ -79,11 +79,14 @@ class RefineConfig:
         backend: "mmff" or "uff".
         fallback: Fall back to UFF when MMFF has no parameters.
         force_constant: Force constant (kcal/mol/A^2) that holds the frozen atoms.
+        anchor_free_energies: Report energies without the terms that hold the frozen
+            atoms; legacy racerts includes them.
     """
 
     backend: str = "mmff"
     fallback: bool = True
     force_constant: float = 1e6
+    anchor_free_energies: bool = False
 
     def __post_init__(self):
         _check_types(self, "refine")
@@ -215,7 +218,7 @@ class PipelineConfig:
 
     def build(self, task: Task) -> Pipeline:
         """The default pipeline with these settings for the task."""
-        embed = self.embed
+        embed, refine = self.embed, self.refine
         embedder = default_embedder(
             task,
             self.seed,
@@ -226,9 +229,12 @@ class PipelineConfig:
             sequential_seeds=embed.sequential_seeds,
             num_threads=self.num_threads,
         )
-        optimizer = REFINE_BACKENDS[self.refine.backend](
-            force_constant=self.refine.force_constant, num_threads=self.num_threads
+        options = dict(
+            force_constant=refine.force_constant,
+            num_threads=self.num_threads,
+            anchor_free_energies=refine.anchor_free_energies,
         )
+        optimizer = REFINE_BACKENDS[refine.backend](**options)
         prune = self.prune
         checks = []
         if prune.check_stereo:

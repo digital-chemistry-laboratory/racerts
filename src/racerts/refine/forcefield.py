@@ -22,15 +22,25 @@ class ForceFieldOptimizer(BaseOptimizer):
     fixed extra point at its reference position by a distance constraint
     (force_constant, kcal/mol/A^2); conformers are aligned on the anchors to the
     reference before and after. Minimize is called up to maxIter times per conformer.
+
+    Args:
+        anchor_free_energies: Report the energy of the force field without the anchor
+            terms; legacy racerts includes them (0.02-0.18 kcal/mol on test systems).
     """
 
     def __init__(
-        self, verbose=False, conf_id_ref=-1, force_constant=1000000, num_threads=1
+        self,
+        verbose=False,
+        conf_id_ref=-1,
+        force_constant=1000000,
+        num_threads=1,
+        anchor_free_energies: bool = False,
     ):
         self.verbose = verbose
         self.conf_id_ref = conf_id_ref
         self.force_constant = force_constant
         self.num_threads = num_threads
+        self.anchor_free_energies = anchor_free_energies
         self.maxIter = 100
 
     def _setup(self, mol: Chem.Mol):
@@ -75,7 +85,11 @@ class ForceFieldOptimizer(BaseOptimizer):
                     break
                 local_fail += 1
 
-            mol.GetConformer(conf_id).SetDoubleProp("energy", ff.CalcEnergy())
+            if self.anchor_free_energies and align_indices:
+                energy = self._force_field(mol, conf_id, setup).CalcEnergy()
+            else:
+                energy = ff.CalcEnergy()
+            mol.GetConformer(conf_id).SetDoubleProp("energy", energy)
 
             self.align_mols(
                 mol=mol,

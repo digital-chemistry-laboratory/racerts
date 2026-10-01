@@ -6,10 +6,11 @@ import os
 import numpy as np
 import pytest
 from rdkit import Chem
+from rdkit.Chem import AllChem
 
 import racerts
 from racerts import EmbedConfig, PipelineConfig, TransitionState
-from racerts.refine import BaseOptimizer
+from racerts.refine import BaseOptimizer, MMFFOptimizer
 
 from .conftest import DATA
 
@@ -93,6 +94,31 @@ def _embedded(mol, n=12):
     task = TransitionState([3, 4, 5])
     ctx = racerts.Context.create(mol, task)
     return racerts.Embed(n_conformers=n).run(ctx), ctx
+
+
+def _refined(optimizer, mol):
+    ensemble, ctx = _embedded(mol)
+    optimizer.refine(ensemble.mol, ctx.reference, ctx.frozen.hard)
+    return ensemble, ctx
+
+
+def _mmff_energy(mol, conf_id):
+    props = AllChem.MMFFGetMoleculeProperties(mol)
+    return AllChem.MMFFGetMoleculeForceField(
+        mol, props, confId=conf_id, ignoreInterfragInteractions=False
+    ).CalcEnergy()
+
+
+def test_anchor_free_energies_leave_out_the_anchor_terms(hept_1_ene_ts):
+    def excess(optimizer):
+        ensemble, _ = _refined(optimizer, hept_1_ene_ts)
+        return [
+            conf.GetDoubleProp("energy") - _mmff_energy(ensemble.mol, conf.GetId())
+            for conf in ensemble.mol.GetConformers()
+        ]
+
+    assert max(excess(MMFFOptimizer())) > 1e-3  # legacy: anchor terms included
+    assert max(np.abs(excess(MMFFOptimizer(anchor_free_energies=True)))) < 1e-8
 
 
 def test_refine_without_anchors_moves_the_frozen_atoms(hept_1_ene_ts):

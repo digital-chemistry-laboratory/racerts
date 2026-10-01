@@ -20,6 +20,7 @@ class BaseOptimizer(racerts.refine.BaseOptimizer):
     verbose = False
     force_constant = 1e6
     num_threads = 1
+    anchor_free_energies = False
 
     def _refine(self, mol, reference, anchors):
         return self.tune_ts_conformers(

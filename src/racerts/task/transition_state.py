@@ -1,13 +1,25 @@
 """Transition states: the reacting atoms and their neighbours are kept fixed."""
 
 import logging
-from typing import List, Optional, Sequence, Tuple
+from numbers import Real
+from typing import Dict, List, Optional, Sequence, Tuple, Union
 
+import numpy as np
 from rdkit import Chem
 
 from .base import FrozenSet, check_atom_indices
 
 logger = logging.getLogger(__name__)
+
+
+Window = Union[None, float, Tuple[float, float]]
+
+# Active bonds by default: reacting pairs not bonded in the graph and closer than this
+# factor times the sum of their covalent radii (the forming bonds of the TS).
+FORMING_BOND_FACTOR = 1.6
+# 1,3-pairs at this angle (degrees) or wider are not forming bonds by default.
+MIN_OPEN_ANGLE = 80.0
+MIN_WINDOW_FACTOR = 0.9  # of the covalent bond length: lower window starts are warned
 
 
 class TransitionState:
@@ -18,6 +30,24 @@ class TransitionState:
     their bonded neighbours are kept at the TS geometry, unless frozen_atoms are given.
     In the bounds-matrix embedder, the distances between the reacting atoms and the
     frozen atoms are fixed.
+
+    Active-bond windows (active_window): the lengths of the active bonds are sampled
+    in a window instead of kept at the seed. Then only the neighbours of the reacting
+    atoms that are not reacting are held at the seed geometry; the reacting atoms are
+    placed by distance windows: [lo, hi] for the active bonds, the seed distance +/-
+    neighbor_window to their bonded neighbours (both in embedding and in MMFF/UFF
+    refinement, with force constant window_force_constant).
+
+    Args:
+        active_bonds: The pairs whose length is sampled; default: the bonds that form
+            or break (bond_changes, from from_endpoints), else the reacting pairs that
+            the graph does not bond and that are closer than 1.6 times the sum of
+            their covalent radii in the seed, except 1,3-pairs at an angle of 80
+            degrees or more (e.g. ring atoms; a narrow angle is a three-membered TS).
+        active_window: None (legacy: the seed length); a number d (the seed length +/-
+            d); or (lo, hi) in A, for every active bond.
+        neighbor_window: +/- A for the distances of the reacting atoms to their bonded
+            neighbours, in window mode.
     """
 
     needs_reference = True
@@ -26,16 +56,176 @@ class TransitionState:
         self,
         reacting_atoms: Sequence[int],
         frozen_atoms: Optional[Sequence[int]] = None,
+        active_bonds: Optional[Sequence[Sequence[int]]] = None,
+        active_window: Window = None,
+        neighbor_window: float = 0.10,
+        window_force_constant: float = 10000.0,
     ):
         self.reacting_atoms = list(reacting_atoms)
         self.user_frozen_atoms = list(frozen_atoms) if frozen_atoms else []
         # The bonds that form or break, if known (from_endpoints).
         self.bond_changes: Optional[List[Tuple[int, int]]] = None
+        self.active_bonds = (
+            None
+            if active_bonds is None
+            else [tuple(sorted(map(int, b))) for b in active_bonds]
+        )
+        if active_window is not None:
+            if isinstance(active_window, Real):
+                if active_window <= 0:
+                    raise ValueError("active_window must be positive.")
+            elif len(active_window) != 2 or not 0 < active_window[0] < active_window[1]:
+                raise ValueError(
+                    "active_window must be a number or (lo, hi) with 0 < lo < hi."
+                )
+        if active_window is not None and frozen_atoms:
+            raise ValueError("Give either frozen_atoms or an active_window.")
+        self.active_window = active_window
+        self.neighbor_window = neighbor_window
+        self.window_force_constant = window_force_constant
+
+    @property
+    def windowed(self) -> bool:
+        return self.active_window is not None
 
     def frozen_atoms(self, mol: Chem.Mol) -> FrozenSet:
         check_atom_indices(mol, self.reacting_atoms, "reacting atoms")
+        if self.windowed:
+            reacting = set(self.reacting_atoms)
+            held = get_frozen_atoms(mol, self.reacting_atoms, [])
+            hard = tuple(i for i in held if i not in reacting)
+            # core: the reacting atoms, as in legacy mode (fragments, stereo, the
+            # bounds-matrix pairs, which the windows then replace)
+            return FrozenSet(hard=hard, core=tuple(self.reacting_atoms))
         frozen = get_frozen_atoms(mol, self.reacting_atoms, self.user_frozen_atoms)
         return FrozenSet(hard=tuple(frozen), core=tuple(self.reacting_atoms))
+
+    def active_pairs(self, mol: Chem.Mol) -> List[Tuple[int, int]]:
+        """The active bonds (see active_bonds)."""
+        if self.active_bonds is not None:
+            check_atom_indices(
+                mol, [i for pair in self.active_bonds for i in pair], "active bonds"
+            )
+            outside = [
+                p for p in self.active_bonds if not set(p) <= set(self.reacting_atoms)
+            ]
+            if outside or any(a == b for a, b in self.active_bonds):
+                raise ValueError(
+                    f"Active bonds must join two different reacting atoms, not {outside or self.active_bonds}."
+                )
+            return list(self.active_bonds)
+        if self.bond_changes:
+            return list(self.bond_changes)
+        positions = mol.GetConformer().GetPositions()
+        table = Chem.GetPeriodicTable()
+        reacting = sorted(self.reacting_atoms)
+        pairs = []
+        neighbors = {
+            i: {n.GetIdx() for n in mol.GetAtomWithIdx(i).GetNeighbors()}
+            for i in reacting
+        }
+        for k, a in enumerate(reacting):
+            for b in reacting[k + 1 :]:
+                # Bonded pairs are not forming bonds, nor 1,3-pairs at an open angle
+                # (e.g. ring atoms 2.4 A apart at 120 degrees), whose distance the angle
+                # sets; a 1,3-pair at a narrow angle closes a three-membered TS (a
+                # reductive elimination, a 1,2-shift, an epoxide).
+                if b in neighbors[a] or any(
+                    _angle(positions, a, n, b) >= MIN_OPEN_ANGLE
+                    for n in neighbors[a] & neighbors[b]
+                ):
+                    continue
+                radii = sum(
+                    table.GetRcovalent(mol.GetAtomWithIdx(i).GetAtomicNum())
+                    for i in (a, b)
+                )
+                if (
+                    np.linalg.norm(positions[a] - positions[b])
+                    < FORMING_BOND_FACTOR * radii
+                ):
+                    pairs.append((a, b))
+        return pairs
+
+    def active_windows(
+        self, mol: Chem.Mol
+    ) -> Dict[Tuple[int, int], Tuple[float, float]]:
+        """The window of each active bond (in window mode)."""
+        positions = mol.GetConformer().GetPositions()
+        windows = {}
+        for a, b in self.active_pairs(mol):
+            if isinstance(self.active_window, Real):
+                d = float(np.linalg.norm(positions[a] - positions[b]))
+                windows[(a, b)] = (
+                    max(0.0, d - self.active_window),
+                    d + self.active_window,
+                )
+            else:
+                windows[(a, b)] = tuple(map(float, self.active_window))
+        return windows
+
+    def restraints(self, mol: Chem.Mol):
+        """
+        In window mode, the windows of the active bonds and of the reacting atoms to
+        their neighbours (a RestraintSet); else none.
+        """
+        from racerts.restraints import DistanceRestraint, RestraintSet
+
+        if not self.windowed:
+            return RestraintSet()
+        if not self.active_pairs(mol):
+            raise ValueError(
+                "No active bonds: give active_bonds (the pairs whose length is sampled)."
+            )
+        positions = mol.GetConformer().GetPositions()
+        _warn_low_windows(mol, self.active_windows(mol))
+        k = self.window_force_constant
+        restraints = RestraintSet(
+            DistanceRestraint(a, b, lo, hi, force_constant=k, source="active")
+            for (a, b), (lo, hi) in self.active_windows(mol).items()
+        )
+        active = {pair for pair in self.active_pairs(mol)}
+        for r in self.reacting_atoms:
+            for neighbor in mol.GetAtomWithIdx(r).GetNeighbors():
+                pair = tuple(sorted((r, neighbor.GetIdx())))
+                if pair in active or pair in {x.pair for x in restraints}:
+                    continue
+                d = float(np.linalg.norm(positions[pair[0]] - positions[pair[1]]))
+                restraints.add(
+                    DistanceRestraint.around(
+                        *pair,
+                        d,
+                        self.neighbor_window,
+                        force_constant=k,
+                        source="neighbor",
+                    )
+                )
+        # The other distances of the reacting atoms within the core, e.g. O...O of a
+        # proton transfer at 2.5 A, contradict RDKit's default (vdW) bounds, which the
+        # coordinate map overrides in legacy mode. In window mode they get an
+        # embedding-only window around the seed distance, as wide as the active bonds
+        # and the neighbour windows let them change.
+        spread = 2 * self.neighbor_window + max(
+            max(abs(lo - _length(positions, pair)), abs(hi - _length(positions, pair)))
+            for pair, (lo, hi) in self.active_windows(mol).items()
+        )
+        core = sorted(set(self.reacting_atoms) | set(self.frozen_atoms(mol).hard))
+        taken = {x.pair for x in restraints}
+        for a in self.reacting_atoms:
+            for b in core:
+                pair = tuple(sorted((a, b)))
+                if a == b or pair in taken or mol.GetBondBetweenAtoms(a, b) is not None:
+                    continue
+                restraints.add(
+                    DistanceRestraint.around(
+                        *pair,
+                        _length(positions, pair),
+                        spread,
+                        stage="embed",
+                        source="core",
+                    )  # fmt: skip
+                )
+                taken.add(pair)
+        return restraints
 
     @classmethod
     def from_endpoints(
@@ -60,7 +250,38 @@ class TransitionState:
         return task
 
     def __repr__(self) -> str:
-        return f"TransitionState(reacting_atoms={self.reacting_atoms})"
+        window = "" if not self.windowed else f", active_window={self.active_window}"
+        return f"TransitionState(reacting_atoms={self.reacting_atoms}{window})"
+
+
+def _warn_low_windows(mol, windows) -> None:
+    """Warn about windows that reach below 0.9 times the covalent bond length
+    (distance geometry and the force field would place the atoms there)."""
+    table = Chem.GetPeriodicTable()
+    for (a, b), (lo, _) in windows.items():
+        bond = sum(
+            table.GetRcovalent(mol.GetAtomWithIdx(i).GetAtomicNum()) for i in (a, b)
+        )
+        if lo < MIN_WINDOW_FACTOR * bond:
+            logger.warning(
+                "The window of active bond %d-%d starts at %.2f A, below %.1f times its "
+                "covalent length (%.2f A).",
+                a,
+                b,
+                lo,
+                MIN_WINDOW_FACTOR,
+                bond,
+            )
+
+
+def _angle(positions, a, center, b) -> float:
+    u, v = positions[a] - positions[center], positions[b] - positions[center]
+    cosine = np.dot(u, v) / (np.linalg.norm(u) * np.linalg.norm(v))
+    return float(np.degrees(np.arccos(np.clip(cosine, -1.0, 1.0))))
+
+
+def _length(positions, pair) -> float:
+    return float(np.linalg.norm(positions[pair[0]] - positions[pair[1]]))
 
 
 def formed_or_broken_bonds(

@@ -104,6 +104,8 @@ class Context:
         check_atom_indices(mol, frozen.hard + frozen.core, "frozen atoms")
         restraints = RestraintSet(restraints or ())
         restraints.check_atoms(mol.GetNumAtoms())
+        if hasattr(task, "restraints"):  # e.g. active-bond windows of a TS
+            restraints = _with_task_windows(mol, task, restraints)
         kept = restraints.without_pairs_within(frozen.hard)
         if len(kept) < len(restraints):
             dropped = sorted({r.pair for r in restraints} - {r.pair for r in kept})
@@ -112,3 +114,37 @@ class Context:
                 dropped,
             )
         return cls(mol=mol, task=task, frozen=frozen, seed=seed, restraints=kept)
+
+
+def _with_task_windows(mol, task, restraints):
+    """
+    The task's windows (active bonds of a TS) with the other restraints: a user
+    restraint on one of their pairs raises; generated ones there are left out, and so
+    are hints that do not fit with the windows.
+    """
+    from racerts.restraints.build import _consistent
+
+    windows = task.restraints(mol)
+    if not windows:
+        return restraints
+    held = {r.pair for r in windows}
+    clash = [r for r in restraints if r.pair in held]
+    user = [r.pair for r in clash if r.source == "user"]
+    if user:
+        raise ValueError(
+            f"Restraints {user} are on pairs that the active-bond windows of the task "
+            "hold; change the window (active_window, active_bonds) instead."
+        )
+    if clash:
+        logger.warning(
+            "Restraints %s are left out: the active-bond windows hold these pairs.",
+            [r.label for r in clash],
+        )
+    others = RestraintSet(r for r in restraints if r.pair not in held)
+    hints = RestraintSet(r for r in others if r.source == "hint")
+    kept = windows.merge(r for r in others if r.source != "hint")
+    if hints:
+        frozen = task.frozen_atoms(mol)
+        for hint in _consistent(mol, frozen, list(kept), hints, each=True):
+            kept.add(hint)
+    return kept

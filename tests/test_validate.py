@@ -269,3 +269,24 @@ def test_ring_stereo_without_cip_labels():
         {"embed": {"n_conformers": 4}, "prune": {"check_stereo": True}}
     )
     assert len(racerts.generate_gs("C[C@H]1CC[C@@H](C)CC1", config=config)) >= 1
+
+
+def test_reaction_core_catches_another_saddle(ts_ensemble):
+    # UMA benchmark: free saddle searches from windowed conformers
+    # reached saddles of other steps (a proton on the other partner, 1.0 A off) that
+    # pass ImaginaryModes and Connectivity, which exempts the reacting atoms.
+    from racerts.validate import ReactionCore
+
+    ensemble, ctx = ts_ensemble
+    assert ReactionCore().validate(ctx, ensemble) == {}
+    conf_id = ensemble.conf_ids[1]
+    p = ensemble.mol.GetConformer(conf_id).GetPositions()
+    direction = (p[5] - p[3]) / np.linalg.norm(p[5] - p[3])
+    _move(ensemble, conf_id, 5, 0.8 * direction)
+    reasons = ReactionCore().validate(ctx, ensemble)
+    assert list(reasons) == [conf_id]
+    assert reasons[conf_id].startswith("reacting-atom distances changed by up to 0.8")
+    assert "3-5" in reasons[conf_id]
+    assert ReactionCore(tolerance=0.9).validate(ctx, ensemble) == {}
+    ground = racerts.Context.create(_gs("CCO")[1].mol, racerts.GroundState())
+    assert ReactionCore().validate(ground, ensemble) == {}  # no core: nothing to check

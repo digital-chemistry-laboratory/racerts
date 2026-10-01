@@ -51,3 +51,9 @@ What changes with a window (`TransitionState(..., active_window=...)`):
   on the other side in the conformer.
 - **Provenance:** `active_bond_targets` and `active_bond_lengths` ("i-j": Å) for every
   conformer; `ConformerEnsemble.summary()` gives min, median and max per bond.
+
+After the TS optimization of windowed conformers, check the TS with
+`ReactionCore()` besides the imaginary mode: from stretched or compressed active bonds, a
+free saddle search can end on a saddle of another step (with UMA: a proton already on
+its acceptor, 1.0 Å off the reacting-atom distances of the TS, 12 kcal/mol lower), which
+an imaginary mode and the connectivity outside the reacting atoms do not reveal.

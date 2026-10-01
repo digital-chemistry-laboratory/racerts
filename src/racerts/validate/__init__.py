@@ -6,6 +6,7 @@ from .checks import (
     Connectivity,
     FrozenCore,
     IdentityFilter,
+    ReactionCore,
 )
 from .frequencies import ImaginaryModes
 
@@ -16,6 +17,7 @@ __all__ = [
     "FunctionValidator",
     "IdentityFilter",
     "ImaginaryModes",
+    "ReactionCore",
     "Validate",
     "Validator",
     "validator",

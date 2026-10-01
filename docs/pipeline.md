@@ -180,7 +180,11 @@ Calculators, optimizers and checks from other packages go into the stages unchan
     the conformers that fail it;
   - `FrozenCore(tolerance)`: the frozen atoms are at the reference;
   - `ImaginaryModes(calculator, expected=1)`: finite-difference frequencies, for
-    stationary points.
+    stationary points;
+  - `ReactionCore(tolerance=0.5)`: the distances between the reacting atoms are those
+    of the reference TS within tolerance (Å). After a free saddle search it tells a TS
+    of the reaction from other saddles of the same atoms, which pass the two checks
+    above.
 
 From TS-like conformers to transition states with GFN2-xTB (tblite) and Sella:
 
@@ -188,7 +192,7 @@ From TS-like conformers to transition states with GFN2-xTB (tblite) and Sella:
 from sella import Sella
 from tblite.ase import TBLite
 from racerts.refine import ASEOptimizer
-from racerts.validate import ImaginaryModes
+from racerts.validate import ImaginaryModes, ReactionCore
 
 def gfn2():
     return TBLite(method="GFN2-xTB", verbosity=0)
@@ -202,7 +206,7 @@ pipeline = racerts.Pipeline([
     racerts.Rescore(gfn2, method="GFN2-xTB"),
     racerts.PruneCount(5),
     racerts.Refine(saddle, anchors=False, fallback=False),
-    racerts.Validate(ImaginaryModes(gfn2, expected=1)),
+    racerts.Validate(ImaginaryModes(gfn2, expected=1), ReactionCore()),
 ])
 ensemble = racerts.generate_ts("sn2.xyz", [0, 1, 2], charge=-1, smiles="CCl.[Cl-]",
                                pipeline=pipeline)

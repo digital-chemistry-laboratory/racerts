@@ -132,6 +132,45 @@ class FrozenCore:
         return reasons
 
 
+class ReactionCore:
+    """
+    Whether a conformer is still a TS of the reaction of the reference: no distance
+    between two core atoms of the task (for a TS the reacting atoms) may differ from the
+    reference by more than tolerance (A). Meant after a free saddle search: an imaginary
+    mode and the connectivity outside the reacting atoms do not tell another saddle of
+    the same atoms (e.g. the proton already on its acceptor) from the TS. In the UMA
+    benchmark, TSs of the reaction stayed within 0.12 A of DFT seeds and 0.31 A of a
+    constrained GFN2 guess (aldol); other saddles were 0.75-1.0 A off.
+    """
+
+    name = "reaction_core"
+
+    def __init__(self, tolerance: float = 0.5):
+        self.tolerance = tolerance
+
+    def validate(self, ctx, ensemble: ConformerEnsemble) -> Dict[int, str]:
+        atoms = list(ctx.frozen.core)
+        if len(atoms) < 2 or ctx.reference is None:
+            return {}
+        pairs = [(a, b) for k, a in enumerate(atoms) for b in atoms[k + 1 :]]
+        first, second = (list(x) for x in zip(*pairs))
+        reasons = {}
+        for reference, conf_ids in ctx.by_reference(ensemble):
+            x = reference.GetConformer().GetPositions()
+            expected = np.linalg.norm(x[first] - x[second], axis=1)
+            for conf_id in conf_ids:
+                y = ensemble.mol.GetConformer(conf_id).GetPositions()
+                change = np.abs(np.linalg.norm(y[first] - y[second], axis=1) - expected)
+                worst = int(np.argmax(change))
+                if change[worst] > self.tolerance:
+                    a, b = pairs[worst]
+                    reasons[conf_id] = (
+                        f"reacting-atom distances changed by up to "
+                        f"{change[worst]:.2f} A ({a}-{b})"
+                    )
+        return reasons
+
+
 def _max_deviation(positions: np.ndarray, reference: np.ndarray) -> float:
     """Largest atom deviation after the best superposition (Kabsch, rotations only)."""
     q = reference - reference.mean(axis=0)

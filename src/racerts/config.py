@@ -20,6 +20,7 @@ from racerts.prune import (
 )
 from racerts.prune.cluster import METHODS as CLUSTER_METHODS
 from racerts.refine import REFINE_BACKENDS, Refine
+from racerts.refine.forcefield import DIELECTRIC_MODELS
 from racerts.task import Task
 from racerts.utils.optional import require
 from racerts.validate import Connectivity, Validate
@@ -83,6 +84,8 @@ class RefineConfig:
             legacy racerts stops at the first converged call.
         anchor_free_energies: Report energies without the terms that hold the frozen
             atoms; legacy racerts includes them.
+        dielectric_model: MMFF electrostatics, "constant" or "distance"-dependent.
+        dielectric_constant: MMFF dielectric constant.
     """
 
     backend: str = "mmff"
@@ -90,6 +93,8 @@ class RefineConfig:
     force_constant: float = 1e6
     converge: bool = False
     anchor_free_energies: bool = False
+    dielectric_model: str = "constant"
+    dielectric_constant: float = 1.0
 
     def __post_init__(self):
         _check_types(self, "refine")
@@ -99,6 +104,17 @@ class RefineConfig:
             )
         if self.force_constant <= 0:
             raise ValueError("refine.force_constant must be positive.")
+        if self.dielectric_model not in DIELECTRIC_MODELS:
+            raise ValueError(
+                f"refine.dielectric_model must be one of {sorted(DIELECTRIC_MODELS)}."
+            )
+        if self.dielectric_constant <= 0:
+            raise ValueError("refine.dielectric_constant must be positive.")
+        if self.backend != "mmff" and (
+            self.dielectric_model,
+            self.dielectric_constant,
+        ) != ("constant", 1.0):
+            raise ValueError("The dielectric settings apply to MMFF only.")
 
 
 @dataclass
@@ -238,6 +254,11 @@ class PipelineConfig:
             converge=refine.converge,
             anchor_free_energies=refine.anchor_free_energies,
         )
+        if refine.backend == "mmff":
+            options.update(
+                dielectric_model=refine.dielectric_model,
+                dielectric_constant=refine.dielectric_constant,
+            )
         optimizer = REFINE_BACKENDS[refine.backend](**options)
         prune = self.prune
         checks = []

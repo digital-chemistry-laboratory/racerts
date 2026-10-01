@@ -74,6 +74,7 @@ ensemble = racerts.generate_ts("ts.xyz", [3, 4, 5], config=config)
 | | `force_constant` | 1e6 | kcal/mol/Å² on the frozen atoms |
 | | `converge` | false | minimize until the energy stops dropping; legacy racerts stops early next to the frozen atoms |
 | | `anchor_free_energies` | false | energies without the terms that hold the frozen atoms (they add 0.02–0.18 kcal/mol) |
+| | `dielectric_model`, `dielectric_constant` | `constant`, 1.0 | MMFF electrostatics; e.g. `distance`, 4.0 damps salt bridges in vacuum |
 | `prune` | `energy_threshold` | 20.0 | kcal/mol above the lowest conformer |
 | | `eht_energies` | false | rank by extended Hückel energies (deprecated: use `Rescore`) |
 | | `rmsd_threshold` | 0.125 | Å, heavy atoms |

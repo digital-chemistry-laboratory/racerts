@@ -144,12 +144,56 @@ class UFFOptimizer(ForceFieldOptimizer):
         )
 
 
+DIELECTRIC_MODELS = {"constant": 1, "distance": 2}  # RDKit's numbering
+
+
 class MMFFOptimizer(ForceFieldOptimizer):
+    """
+    MMFF94 refinement (see ForceFieldOptimizer).
+
+    Args:
+        dielectric_model: "constant" or "distance" (distance-dependent).
+        dielectric_constant: The dielectric constant of the electrostatics; e.g.
+            "distance" with 4.0 damps the salt bridges of charged systems in vacuum.
+    """
+
+    def __init__(
+        self,
+        verbose=False,
+        conf_id_ref=-1,
+        force_constant=1000000,
+        num_threads=1,
+        converge: bool = False,
+        anchor_free_energies: bool = False,
+        dielectric_model: str = "constant",
+        dielectric_constant: float = 1.0,
+    ):
+        super().__init__(
+            verbose=verbose,
+            conf_id_ref=conf_id_ref,
+            force_constant=force_constant,
+            num_threads=num_threads,
+            converge=converge,
+            anchor_free_energies=anchor_free_energies,
+        )
+        if dielectric_model not in DIELECTRIC_MODELS:
+            raise ValueError(
+                f"dielectric_model must be one of {sorted(DIELECTRIC_MODELS)}."
+            )
+        if not dielectric_constant > 0:
+            raise ValueError("dielectric_constant must be positive.")
+        self.dielectric_model = dielectric_model
+        self.dielectric_constant = dielectric_constant
+
     def _setup(self, mol):
         mmffVerbosity = 2 if self.verbose else 0
         ff_props = MMFFGetMoleculeProperties(mol, mmffVerbosity=mmffVerbosity)
         if ff_props is None:
             raise ValueError("MMFF parameters are not available for this molecule")
+        # Only set when not the default, so that the legacy call is unchanged.
+        if (self.dielectric_model, self.dielectric_constant) != ("constant", 1.0):
+            ff_props.SetMMFFDielectricModel(DIELECTRIC_MODELS[self.dielectric_model])
+            ff_props.SetMMFFDielectricConstant(self.dielectric_constant)
         return ff_props
 
     def _force_field(self, mol, conf_id, setup):

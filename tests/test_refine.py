@@ -147,6 +147,25 @@ def test_anchor_free_energies_leave_out_the_anchor_terms(hept_1_ene_ts):
     assert max(np.abs(excess(MMFFOptimizer(anchor_free_energies=True)))) < 1e-8
 
 
+def test_mmff_dielectric_settings():
+    # A zwitterion: a distance-dependent dielectric of 4 weakens the salt bridge, so
+    # the energy differs from the default (constant, 1).
+    mol = Chem.AddHs(Chem.MolFromSmiles("[NH3+]CCCCC(=O)[O-]"))
+    AllChem.EmbedMolecule(mol, randomSeed=3)
+
+    def energy(**settings):
+        work = Chem.Mol(mol)
+        MMFFOptimizer(**settings).refine(work)
+        return work.GetConformer().GetDoubleProp("energy")
+
+    assert energy() == pytest.approx(energy(dielectric_constant=1.0))
+    assert energy(dielectric_model="distance", dielectric_constant=4.0) > energy() + 10
+    with pytest.raises(ValueError, match="dielectric_model"):
+        MMFFOptimizer(dielectric_model="water")
+    with pytest.raises(ValueError, match="dielectric_constant"):
+        MMFFOptimizer(dielectric_constant=0)
+
+
 def test_the_uff_fallback_keeps_the_new_settings():
     pipeline = racerts.Pipeline(
         [

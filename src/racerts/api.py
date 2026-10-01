@@ -206,6 +206,7 @@ def swap(
     charge: Optional[int] = None,
     multiplicity: Optional[int] = None,
     verbose: bool = False,
+    restraints: Optional[RestraintSet] = None,
 ) -> ConformerEnsemble:
     """
     Conformers after a swap (racerts.system.swap.Swap): the reference with a group
@@ -240,6 +241,10 @@ def swap(
             coordinate map and the "frozen_first" chirality fallback; swaps take no
             restraints (config.restraints raises).
         charge, multiplicity, verbose: See generate.
+        restraints: Distance restraints of the reference (reference indices), e.g. its
+            hydrogen bonds: those between kept atoms hold in embedding and refinement;
+            the others are left out with a warning and listed in the molecule
+            property "swap_lost_restraints" (JSON).
 
     The conformers are then refined, pruned by energy and duplicates as in the
     default pipeline.
@@ -253,8 +258,12 @@ def swap(
         raise SwapError("A swap needs the reference as a Mol with conformers.")
     if conserve not in CONSERVE:
         raise SwapError(f"conserve must be one of {CONSERVE}, not {conserve!r}.")
-    if conserve == "hard" and (routes is not None or n_conformers != -1):
-        raise SwapError("conserve='hard' samples nothing: no routes or n_conformers.")
+    if conserve == "hard" and (
+        routes is not None or n_conformers != -1 or restraints is not None
+    ):
+        raise SwapError(
+            "conserve='hard' samples nothing: no routes, n_conformers or restraints."
+        )
     routes = DEFAULT_SWAP_ROUTES if routes is None else routes
     unknown = set(routes) - set(SWAP_ROUTES)
     if unknown or not routes:
@@ -275,7 +284,7 @@ def swap(
     if "rigid" not in routes and (n_rigid_conformers, n_rotations) != (3, 12):
         raise SwapError("n_rigid_conformers and n_rotations need the rigid route.")
     with verbose_logging(verbose):
-        result = apply_swap(mol, change, seed=config.seed)
+        result = apply_swap(mol, change, seed=config.seed, restraints=restraints)
         index_map = result.index_map  # replaced atoms pass their role on
         try:  # an atom of the task that leaves without replacement
             base = task.remap(index_map) if task is not None else None
@@ -326,6 +335,7 @@ def swap(
             seed=config.seed,
             charge=charge,
             multiplicity=multiplicity,
+            restraints=result.restraints,
         )
         parts = []
         if "dg" in routes:
@@ -364,6 +374,10 @@ def swap(
         stages = [s for s in config.build(new_task).stages if s.name != "embed"]
         ensemble = Pipeline(stages).run(ctx, ensemble)
         _record_index_map(ensemble.mol, index_map)
+        if restraints is not None:
+            ensemble.mol.SetProp(
+                "swap_lost_restraints", json.dumps(result.lost_contacts)
+            )
         _warn_residual_clash(ensemble, held, reference=result)
     return ensemble
 

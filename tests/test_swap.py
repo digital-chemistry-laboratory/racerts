@@ -1269,3 +1269,53 @@ def test_e_z_survives_when_a_stereo_atom_leaves():
     reference = Chem.MolFromSmiles("F/C(Cl)=C/CC")
     result = apply_swap(reference, Swap("[*:1]Br", remove_atoms=[2], attach_map={1: 5}))
     assert identity(result.mol) == canonical("F/C=C/CCBr")
+
+
+# Restraints through a swap (remapped, or reported as lost).
+
+
+def test_restraints_are_remapped_and_lost_ones_reported(caplog):
+    from racerts.restraints import DistanceRestraint, RestraintSet
+
+    mol = embedded("OCCCCO")  # O0-H6 ... O5: an intramolecular hydrogen bond
+    methylene_h = next(
+        n.GetIdx()
+        for n in mol.GetAtomWithIdx(2).GetNeighbors()
+        if n.GetAtomicNum() == 1
+    )
+    other_h = next(
+        n.GetIdx()
+        for n in mol.GetAtomWithIdx(3).GetNeighbors()
+        if n.GetAtomicNum() == 1
+    )
+    restraints = RestraintSet(
+        [
+            DistanceRestraint.around(6, 5, 2.0, label="hbond"),
+            DistanceRestraint.around(methylene_h, 0, 2.6, label="gone"),
+            DistanceRestraint.around(other_h, 0, 3.0, label="kept"),
+        ]
+    )
+    change = Swap("[*]CC", remove_atoms=[methylene_h], mode="renumber")
+    result = apply_swap(mol, change, restraints=restraints)
+    assert result.lost_contacts == ["gone"]
+    kept = {r.label: r.pair for r in result.restraints}
+    assert kept["hbond"] == tuple(sorted((result.ref_to_new[6], result.ref_to_new[5])))
+    assert kept["kept"] == tuple(
+        sorted((result.ref_to_new[other_h], result.ref_to_new[0]))
+    )
+
+    with caplog.at_level("WARNING"):
+        ensemble = racerts.swap(mol, change, restraints=restraints, n_conformers=10)
+    assert "gone" in caplog.text
+    assert json.loads(ensemble.mol.GetProp("swap_lost_restraints")) == ["gone"]
+    h, o = result.ref_to_new[6], result.ref_to_new[5]
+    lengths = [
+        np.linalg.norm(p[h] - p[o])
+        for p in (
+            ensemble.mol.GetConformer(c).GetPositions() for c in ensemble.conf_ids
+        )
+    ]
+    # the hydrogen bond held (window 1.75-2.25 A, k 20: 2.3-2.6 A; without: 4.3-5.8)
+    assert max(lengths) < 3.0
+    with pytest.raises(ValueError, match="samples nothing"):
+        racerts.swap(mol, change, restraints=restraints, conserve="hard")

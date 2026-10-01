@@ -118,6 +118,8 @@ class SwapResult:
         replaced: Removed atom (reference index) -> the new atom that took its bond
             to a kept atom; it takes the removed atom's role in a task (see
             index_map).
+        restraints, lost_contacts: The restraints given to apply_swap between kept
+            atoms, in new indices, and the labels of the others.
     """
 
     mol: Chem.Mol
@@ -132,6 +134,8 @@ class SwapResult:
     fragment: Optional[Chem.Mol] = None
     fragment_map: Dict[int, int] = field(default_factory=dict)
     replaced: Dict[int, int] = field(default_factory=dict)
+    restraints: Optional[object] = None
+    lost_contacts: List[str] = field(default_factory=list)
 
     @property
     def index_map(self) -> Dict[int, int]:
@@ -149,10 +153,15 @@ class _Attachment:
     partner: Optional[int]  # reference index of the removed atom bound to kept
 
 
-def apply_swap(mol: Chem.Mol, swap: Swap, seed: int = 0xF00D) -> SwapResult:
+def apply_swap(
+    mol: Chem.Mol, swap: Swap, seed: int = 0xF00D, restraints=None
+) -> SwapResult:
     """
     The molecule with the swap applied (mol is not changed). seed: of the fragment
-    geometry that is grafted.
+    geometry that is grafted. restraints (a RestraintSet of the reference, e.g. its
+    hydrogen bonds): those between kept atoms carry over (SwapResult.restraints), the
+    others are reported (lost_contacts); a contact to an atom that a fragment atom
+    replaces does not carry over, its distance would not fit.
 
     Raises:
         ValueError: For a selector that does not match exactly once, a fragment that
@@ -226,7 +235,25 @@ def apply_swap(mol: Chem.Mol, swap: Swap, seed: int = 0xF00D) -> SwapResult:
         replaced={
             a.partner: frag_to_new[a.root] for a in attachments if a.partner is not None
         },
+        **_carry_restraints(restraints, ref_to_new),
     )
+
+
+def _carry_restraints(restraints, ref_to_new) -> dict:
+    if restraints is None:
+        return {}
+    from racerts.restraints import RestraintSet
+
+    restraints = RestraintSet(restraints)
+    kept = restraints.remap(ref_to_new)
+    lost = [
+        r.label
+        for r in restraints
+        if not (r.first in ref_to_new and r.second in ref_to_new)
+    ]
+    if lost:
+        logger.warning("Restraints %s lose an atom in the swap and are left out.", lost)
+    return {"restraints": kept, "lost_contacts": lost}
 
 
 def _fragment(swap: Swap) -> Tuple[Chem.Mol, Dict[int, int]]:

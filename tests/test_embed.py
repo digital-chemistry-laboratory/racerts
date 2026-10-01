@@ -76,6 +76,74 @@ def test_distance_matrix_row_by_row_is_identical():
     )
 
 
+def _positions(mol):
+    return [conf.GetPositions() for conf in mol.GetConformers()]
+
+
+def _embed(embedder, mol, n):
+    """Embed n conformers of the TS of ex.xyz into a copy of its graph."""
+    frozen = racerts.TransitionState([3, 4, 5]).frozen_atoms(mol)
+    graph = Chem.Mol(mol)
+    graph.RemoveAllConformers()
+    embedder.embed(graph, mol, frozen, n)
+    return graph
+
+
+def _duplicates(mol):
+    positions = _positions(mol)
+    return [
+        (i, j)
+        for i in range(len(positions))
+        for j in range(i)
+        if np.allclose(positions[i], positions[j])
+    ]
+
+
+def test_legacy_embedding_repeats_its_first_three_conformers(hept_1_ene_ts):
+    legacy = _embed(racerts.embed.CmapEmbedder(), hept_1_ene_ts, 8)
+    assert _duplicates(legacy) == [(3, 0), (4, 1), (5, 2)]
+
+    sequential = racerts.embed.CmapEmbedder(sequential_seeds=True)
+    assert _duplicates(_embed(sequential, hept_1_ene_ts, 8)) == []
+
+
+def test_sequential_seeds_are_one_seed_stream(hept_1_ene_ts):
+    # Conformer i gets start + i, whether it is embedded in the check of the first
+    # three or with the rest.
+    embedded = _embed(
+        racerts.embed.CmapEmbedder(sequential_seeds=True), hept_1_ene_ts, 8
+    )
+    later = Chem.Mol(hept_1_ene_ts)
+    later.RemoveAllConformers()
+    params = AllChem.EmbedParameters()
+    params.randomSeed = dg.stream_start(12) + 3
+    params.enableSequentialRandomSeeds = True
+    params.useRandomCoords = True
+    params.embedFragmentsSeparately = False
+    frozen = racerts.TransitionState([3, 4, 5]).frozen_atoms(hept_1_ene_ts)
+    params.SetCoordMap(
+        {i: hept_1_ene_ts.GetConformer().GetAtomPosition(i) for i in frozen.hard}
+    )
+    AllChem.EmbedMultipleConfs(later, 5, params)
+    assert np.allclose(np.array(_positions(embedded)[3:]), np.array(_positions(later)))
+
+
+def test_neighbouring_seeds_give_different_streams(hept_1_ene_ts):
+    def run(seed):
+        embedder = racerts.embed.CmapEmbedder(randomSeed=seed, sequential_seeds=True)
+        return _positions(_embed(embedder, hept_1_ene_ts, 6))
+
+    one, two = run(1), run(2)
+    shared = [
+        (i, j)
+        for i, a in enumerate(one)
+        for j, b in enumerate(two)
+        if np.allclose(a, b)
+    ]
+    assert shared == []
+    assert dg.stream_start(1) != dg.stream_start(2) and dg.stream_start(1) >= 0
+
+
 def test_embed_needs_named_references(hept_1_ene_ts):
     ctx = racerts.Context.create(hept_1_ene_ts, racerts.TransitionState([3, 4, 5]))
     with pytest.raises(ValueError, match="at least one"):

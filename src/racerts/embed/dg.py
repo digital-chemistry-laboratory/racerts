@@ -3,6 +3,7 @@
 import logging
 from typing import Optional
 
+import numpy as np
 from rdkit import Chem
 from rdkit.Chem import AllChem
 from rdkit.Chem.AllChem import EmbedMultipleConfs  # type: ignore
@@ -27,6 +28,12 @@ class DistanceGeometryEmbedder(BaseEmbedder):
     chiral tags (or without enforcing chirality), with a warning. Otherwise the other
     n - 3 are added. The ground-state defaults turn it off: stereocentres of the input
     are then never given up.
+
+    With sequential_seeds, conformer i is embedded with the seed start + i
+    (enableSequentialRandomSeeds) across all calls of one embedding, where start is
+    derived from randomSeed (stream_start), so that the streams of different seeds do
+    not overlap. Legacy racerts restarts the seed for the second call, so its first 3
+    conformers are embedded twice.
     """
 
     def __init__(
@@ -39,6 +46,7 @@ class DistanceGeometryEmbedder(BaseEmbedder):
         useRandomCoords: bool = True,
         etkdg: bool = False,
         chirality_fallback: bool = True,
+        sequential_seeds: bool = False,
         **kwargs,
     ):
         self.verbose = verbose
@@ -49,6 +57,7 @@ class DistanceGeometryEmbedder(BaseEmbedder):
         self.useRandomCoords = useRandomCoords
         self.etkdg = etkdg
         self.chirality_fallback = chirality_fallback
+        self.sequential_seeds = sequential_seeds
         self.num_threads = kwargs.get("num_threads", 1)
 
     def _configure(
@@ -86,8 +95,19 @@ class DistanceGeometryEmbedder(BaseEmbedder):
         )
         params.useRandomCoords = self.useRandomCoords
 
+        requested = 0  # conformers requested so far, the offset of sequential seeds
+
+        def embed_more(count):
+            nonlocal requested
+            if self.sequential_seeds:
+                params.enableSequentialRandomSeeds = True
+                if self.randomSeed >= 0:
+                    params.randomSeed = stream_start(self.randomSeed) + requested
+            requested += count
+            return EmbedMultipleConfs(mol, count, params)
+
         chiral_check = min(n, 3)
-        result = EmbedMultipleConfs(mol, chiral_check, params)
+        result = embed_more(chiral_check)
         error_counts = params.GetFailureCounts()
         fallback = None
         if self.chirality_fallback:
@@ -102,7 +122,7 @@ class DistanceGeometryEmbedder(BaseEmbedder):
             )
             for atom in mol.GetAtoms():
                 atom.SetChiralTag(Chem.ChiralType.CHI_UNSPECIFIED)
-            result = EmbedMultipleConfs(mol, n, params)
+            result = embed_more(n)
         elif fallback == "no_enforce":
             logger.warning(
                 "Most of the first %d conformers failed on chirality; embedding "
@@ -110,11 +130,11 @@ class DistanceGeometryEmbedder(BaseEmbedder):
                 chiral_check,
             )
             params.enforceChirality = False
-            result = EmbedMultipleConfs(mol, n, params)
+            result = embed_more(n)
         elif chiral_check < n:
             rest_confs = n - chiral_check
             params.clearConfs = False
-            result = EmbedMultipleConfs(mol, rest_confs, params)
+            result = embed_more(rest_confs)
 
         if mol.GetNumConformers() == 0:
             if self.useRandomCoords:
@@ -128,12 +148,26 @@ class DistanceGeometryEmbedder(BaseEmbedder):
                     "be used."
                 )
                 params.useRandomCoords = True
-                result = EmbedMultipleConfs(mol, n, params)
+                result = embed_more(n)
 
         error_counts = params.GetFailureCounts()
         logger.debug("Embedding failure counts: %s", list(error_counts))
 
         return result, error_counts
+
+
+# Room for this many conformers after the start of a seed stream (RDKit seeds are
+# 31-bit integers).
+_STREAM_LENGTH = 2**24
+
+
+def stream_start(seed: int) -> int:
+    """
+    The RDKit seed of the first conformer of a sequential-seed embedding with the
+    user seed seed: spread over the seed range, so that seeds 1, 2, ... do not give
+    shifted copies of the same stream (as seed + i would).
+    """
+    return int(np.random.default_rng(seed).integers(0, 2**31 - 1 - _STREAM_LENGTH))
 
 
 def chirality_fallback(

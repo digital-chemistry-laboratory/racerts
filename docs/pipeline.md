@@ -66,6 +66,7 @@ ensemble = racerts.generate_ts("ts.xyz", [3, 4, 5], config=config)
 | | `conf_factor` | 80 | |
 | | `etkdg` | None | ETKDGv3 instead of plain distance geometry; None: only without frozen atoms |
 | | `use_random_coords` | true | |
+| | `sequential_seeds` | false | one seed per conformer, in a stream that starts at a value derived from `seed` (different seeds do not overlap); legacy racerts embeds its first 3 conformers twice |
 | `refine` | `backend` | `mmff` | `mmff` or `uff` |
 | | `fallback` | true | UFF if MMFF has no parameters |
 | | `force_constant` | 1e6 | kcal/mol/Å² on the frozen atoms |

@@ -34,6 +34,9 @@ class EmbedConfig:
         etkdg: Use ETKDGv3 instead of plain distance geometry. None: plain distance
             geometry when atoms are frozen (as in legacy racerts), ETKDGv3 otherwise.
         use_random_coords: Start embedding from random coordinates.
+        sequential_seeds: One seed stream for all conformers (a seed per conformer,
+            from a start derived from seed); legacy racerts embeds its first 3
+            conformers twice.
     """
 
     mode: str = "cmap"
@@ -41,6 +44,7 @@ class EmbedConfig:
     conf_factor: int = DEFAULT_CONF_FACTOR
     etkdg: Optional[bool] = None
     use_random_coords: bool = True
+    sequential_seeds: bool = False
 
     def __post_init__(self):
         _check_types(self, "embed")
@@ -189,12 +193,14 @@ class PipelineConfig:
 
     def build(self, task: Task) -> Pipeline:
         """The default pipeline with these settings for the task."""
+        embed = self.embed
         embedder = default_embedder(
             task,
             self.seed,
-            mode=self.embed.mode,
-            etkdg=self.embed.etkdg,
-            useRandomCoords=self.embed.use_random_coords,
+            mode=embed.mode,
+            etkdg=embed.etkdg,
+            useRandomCoords=embed.use_random_coords,
+            sequential_seeds=embed.sequential_seeds,
             num_threads=self.num_threads,
         )
         optimizer = REFINE_BACKENDS[self.refine.backend](

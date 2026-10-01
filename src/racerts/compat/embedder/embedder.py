@@ -29,6 +29,7 @@ class BaseEmbedder(racerts.embed.BaseEmbedder):
     verbose = False
     etkdg = False
     chirality_fallback = True
+    sequential_seeds = False
 
     def embed(self, mol, reference, frozen, n):
         return self.embed_TS(

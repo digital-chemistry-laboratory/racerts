@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_CONF_FACTOR = 80
 EMBED_MODES = {"cmap": CmapEmbedder, "bounds": BoundsMatrixEmbedder}
-COUNT_POLICIES = ("legacy", "fragments", "catmlp")
+COUNT_POLICIES = ("legacy", "fragments", "per_bond")
 
 CountPolicy = Union[str, Callable[[Chem.Mol, Optional[FrozenSet]], int]]
 
@@ -34,7 +34,7 @@ def conformer_count(
     - "legacy": n_rot * conf_factor + 30 (legacy racerts);
     - "fragments": (n_rot + rigid-body freedom of the fragments that move relative to
       the frozen core, e.g. solvent molecules) * conf_factor + 30;
-    - "catmlp": max(7, 10 * n_rot), as catmlp;
+    - "per_bond": max(7, 10 * n_rot);
     - a callable policy(mol, frozen) that returns the count.
     """
     if number_of_conformers != -1:
@@ -47,7 +47,7 @@ def conformer_count(
     if policy == "fragments":
         core = frozen.core if frozen else ()
         return (n_rot + rigid_body_dof(mol, core)) * conf_factor + 30
-    if policy == "catmlp":
+    if policy == "per_bond":
         return max(7, 10 * n_rot)
     raise ValueError(
         f"Unknown conformer count policy {policy!r}; use one of {COUNT_POLICIES} or a "

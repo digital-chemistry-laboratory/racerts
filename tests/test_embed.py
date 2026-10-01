@@ -223,8 +223,8 @@ def test_conformer_count_policies():
     assert conformer_count(mol, conf_factor=10, policy="fragments") == (
         (n_rot + 6 + 3) * 10 + 30
     )
-    assert conformer_count(mol, policy="catmlp") == max(7, 10 * n_rot)
-    assert conformer_count(Chem.MolFromSmiles("C"), policy="catmlp") == 7
+    assert conformer_count(mol, policy="per_bond") == max(7, 10 * n_rot)
+    assert conformer_count(Chem.MolFromSmiles("C"), policy="per_bond") == 7
     assert conformer_count(mol, policy=lambda mol, frozen: 5) == 5
     with pytest.raises(ValueError, match="policy"):
         conformer_count(mol, policy="many")

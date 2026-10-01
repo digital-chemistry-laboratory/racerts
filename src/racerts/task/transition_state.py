@@ -68,7 +68,7 @@ def formed_or_broken_bonds(
 ) -> List[Tuple[int, int]]:
     """
     The bonds (i, j), i < j, present in one of two atom-aligned molecules but not in
-    the other, sorted (catmlp formed_or_broken_bonds).
+    the other, sorted.
     """
     if reactant.GetNumAtoms() != product.GetNumAtoms() or any(
         a.GetAtomicNum() != b.GetAtomicNum()

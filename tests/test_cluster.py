@@ -1,4 +1,4 @@
-"""Clustering of conformers and family selection (ported from catmlp)."""
+"""Clustering of conformers and family selection."""
 
 import numpy as np
 import pytest

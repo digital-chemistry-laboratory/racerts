@@ -1,4 +1,4 @@
-"""Molecular graphs from a geometry and an explicit-hydrogen SMILES (as catmlp)."""
+"""Molecular graphs from a geometry and an explicit-hydrogen SMILES."""
 
 from typing import Any, Optional, Sequence
 
@@ -10,7 +10,7 @@ from rdkit.Chem import AllChem, rdDetermineBonds
 def mol_from_explicit_h_smiles(smiles: str) -> Chem.Mol:
     """
     Parse a SMILES keeping its explicit hydrogens, with no implicit hydrogens allowed
-    on any atom: a missing neighbour then stays a radical, as in catmlp's graphs.
+    on any atom: a missing neighbour then stays a radical.
 
     Raises:
         ValueError: If the SMILES cannot be parsed.
@@ -55,7 +55,7 @@ def mol_from_geometry(
     multiplicity: Optional[int] = None,
 ) -> Chem.Mol:
     """
-    The molecule of an explicit-hydrogen SMILES on a geometry (catmlp ase_to_rdkit):
+    The molecule of an explicit-hydrogen SMILES on a geometry:
     the connectivity is perceived from the distances, and the SMILES' bond orders,
     charges and radicals are assigned onto it. The atoms keep the order of the
     geometry.
@@ -133,5 +133,5 @@ def mol_from_geometry(
 
 
 def radical_multiplicity(mol: Chem.Mol) -> int:
-    """1 + the radical electrons of mol (catmlp's multiplicity of a graph)."""
+    """The multiplicity of the graph: 1 + the radical electrons of mol."""
     return 1 + sum(atom.GetNumRadicalElectrons() for atom in mol.GetAtoms())

@@ -66,8 +66,6 @@ def test_calc_rmsd_gives_rdkits_best_rms():
         assert abs(pruner.calc_rmsd(mol, mol, i, j) - best) < 1e-6
 
 
-# Ported from catmlp (test_conformer_pruning, test_conformer_selection at e1547eb).
-
 import math  # noqa: E402
 
 import pytest  # noqa: E402

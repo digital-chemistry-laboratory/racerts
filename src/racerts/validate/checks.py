@@ -18,9 +18,8 @@ class Connectivity:
     Whether each conformer still is the molecule of the graph: the bonds perceived
     from its geometry (RDKit's DetermineConnectivity, by covalent radii) are those of
     the graph, and the stereocentres and double bonds that the graph specifies have the
-    same configuration (unspecified stereo is a wildcard). This is catmlp's identity
-    check (geometry_matches_smiles), by atom index since the conformers share the
-    graph.
+    same configuration (unspecified stereo is a wildcard). The check goes by atom
+    index, since the conformers share the graph.
 
     Args:
         exempt: Atoms whose bonds among each other and whose stereo are not checked;
@@ -142,7 +141,7 @@ def _max_deviation(positions: np.ndarray, reference: np.ndarray) -> float:
 class IdentityFilter(Validate):
     """
     Drops conformers that are no longer the molecule of the graph (see Connectivity);
-    raises if none is left. catmlp's filter_conformers_by_connectivity.
+    raises if none is left.
     """
 
     name = "identity_filter"

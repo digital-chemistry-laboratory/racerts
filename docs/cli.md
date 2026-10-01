@@ -24,7 +24,7 @@ $ racerts gs "OC(=O)[C@@H]1CCCN1C(C)=C" [options]
 | `--config` | [PipelineConfig](pipeline.md#settings) as JSON or YAML; the options below override it |
 | `--legacy` | the settings of legacy racerts where the defaults changed (the config file and the options below override them) |
 | `-n`, `--n-conformers`, `--conf-factor` | conformers to embed |
-| `--count-policy` | how the default number is counted: `legacy`, `fragments`, `catmlp` |
+| `--count-policy` | how the default number is counted: `legacy`, `fragments`, `per_bond` |
 | `--embed` | `cmap` or `bounds` |
 | `--etkdg`, `--no-etkdg` | ETKDGv3 instead of plain distance geometry (default: only for gs) |
 | `--sequential-seeds`, `--no-sequential-seeds` | one seed per conformer |

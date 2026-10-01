@@ -25,9 +25,8 @@ class RMSDPruner(BasePruner):
     racerts.geometry: over the heavy atoms (all atoms with include_hs), the smallest
     over the symmetry maps of the graph, after superposition (align=False: in the frame
     that the conformers share, e.g. of a frozen core). The RMSD is computed only for
-    pairs whose energies differ by at most energy_threshold (kcal/mol; catmlp's default
-    0.1 is in eV) and whose principal moments of inertia differ by at most
-    rot_fraction_threshold.
+    pairs whose energies differ by at most energy_threshold (kcal/mol) and whose
+    principal moments of inertia differ by at most rot_fraction_threshold.
     """
 
     def __init__(self, threshold=0.125, verbose=False, **kwargs):

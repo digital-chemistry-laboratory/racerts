@@ -144,7 +144,7 @@ class ConformerEnsemble:
         identity: What must agree at every atom index: "graph" (elements, isotopes,
             formal charges, radical electrons and bonds) or "elements" (elements and
             isotopes only, e.g. for conformers of the same system under another
-            graph, as catmlp merges TS guesses).
+            graph, such as TS guesses).
 
         Energies from different methods cannot be ranked together, so ensembles with
         different energy_method values are not merged.
@@ -178,7 +178,7 @@ class ConformerEnsemble:
         atom_order: Optional[Sequence[int]] = None,
     ) -> "ConformerEnsemble":
         """
-        Conformers of template from external geometries (catmlp import_conformers):
+        Conformers of template from external geometries:
         ASE Atoms or arrays of positions (A, one row per atom, hydrogens included).
 
         atom_order[i] is the index in the frames of template atom i (default: the

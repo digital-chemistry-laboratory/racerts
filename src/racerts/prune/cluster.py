@@ -28,10 +28,9 @@ class ClusterPruner(BasePruner):
         threshold: The distance (A) below which conformers are grouped: for "butina"
             the neighbourhood radius, for "hierarchical" the cut height of the tree,
             for "leader" the radius around each leader.
-        method: "butina" (RDKit's Butina clustering, catmlp's cluster_conformers),
+        method: "butina" (RDKit's Butina clustering),
             "hierarchical" (scipy linkage), or "leader" (in order of energy,
-            a conformer joins the first leader within threshold or becomes a leader;
-            catmlp's endpoint-pair diversity).
+            a conformer joins the first leader within threshold or becomes a leader).
         kernel: The distance, an RMSD of racerts.geometry after superposition:
             "aligned" (a fixed atom correspondence; for bondless TS carriers) or
             "symmetric" (the smallest over the symmetry maps of the graph, as
@@ -190,7 +189,7 @@ def _by_energy(mol: Chem.Mol) -> List[int]:
 
 class FamilySelector:
     """
-    Keeps up to n_max conformers spread over structural families (catmlp): the
+    Keeps up to n_max conformers spread over structural families: the
     clusters of clusterer (default ClusterPruner(): Butina at 1.5 A), ordered by
     their lowest member, are filled round-robin (the best of each family, then the
     second best, ...). The result is ordered by energy. Every conformer needs an

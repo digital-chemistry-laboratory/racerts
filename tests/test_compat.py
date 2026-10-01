@@ -128,7 +128,7 @@ def test_the_api_of_racerts_0_1_7_is_kept():
 
 @pytest.mark.ase
 def test_patching_the_legacy_ase_atoms_builder(hept_1_ene_ts, monkeypatch):
-    # catmlp replaces racerts.optimizer.ase.rdkit_conformer_to_ase_atoms.
+    # Callers may replace racerts.optimizer.ase.rdkit_conformer_to_ase_atoms.
     pytest.importorskip("ase")
     from ase.calculators.lj import LennardJones
 

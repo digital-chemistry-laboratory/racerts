@@ -122,10 +122,6 @@ def test_copy_is_independent(ethanol):
     assert ethanol.energy(0) == 2.0
 
 
-# Ported from catmlp (test_conformer_selection, test_conformer_merge,
-# test_external_conformers at e1547eb), for the racerts API.
-
-
 @pytest.mark.parametrize("renumber", [False, True])
 def test_filter_keeps_the_requested_order(ethanol, renumber):
     ethanol.add_provenance(2, seed=12)

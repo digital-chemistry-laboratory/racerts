@@ -67,7 +67,7 @@ ensemble = racerts.generate_ts("ts.xyz", [3, 4, 5], config=config)
 | | `conf_factor` | 80 | |
 | | `etkdg` | None | ETKDGv3 instead of plain distance geometry; None: only without frozen atoms |
 | | `use_random_coords` | true | |
-| | `count_policy` | `legacy` | how -1 is counted: `legacy`; `fragments` (adds 3 or 6 rigid-body degrees of freedom per fragment without frozen atoms, e.g. a solvent molecule); `catmlp` (max(7, 10 × rotatable bonds)) |
+| | `count_policy` | `legacy` | how -1 is counted: `legacy`; `fragments` (adds 3 or 6 rigid-body degrees of freedom per fragment without frozen atoms, e.g. a solvent molecule); `per_bond` (max(7, 10 × rotatable bonds)) |
 | | `sequential_seeds` | false | one seed per conformer, in a stream that starts at a value derived from `seed` (different seeds do not overlap); legacy racerts embeds its first 3 conformers twice |
 | | `chirality_fallback` | `legacy` | when the frozen atoms make the chirality checks fail: `legacy` (drop all chiral tags, or stop enforcing chirality; free stereocentres can invert) or `frozen_first` (drop the tags of the frozen atoms first; afterwards the frozen atoms take the configuration of the reference, and conformers with inverted stereo are removed) |
 | `refine` | `backend` | `mmff` | `mmff` or `uff` |
@@ -157,13 +157,12 @@ The pipeline logs every stage with its number of conformers and run time (logger
 
 ## Plug-in points
 
-Calculators, optimizers and checks from other packages go into the stages unchanged,
-e.g. those of catmlp and catmlptools (which racerts does not depend on):
+Calculators, optimizers and checks from other packages go into the stages unchanged:
 
 - **Calculators:** `ASEOptimizer(calculator=...)` and `Rescore(calculator)` take an ASE
   calculator or a callable that returns one (a factory: one calculator per worker
   process, or per conformer without workers). Wrapping calculators work as they are,
-  e.g. a bias potential such as catmlptools' `AFIRCalculator`.
+  e.g. a bias potential such as AFIR.
 - **Optimizers:** `ASEOptimizer(optimizer_cls=..., optimizer_kwargs=...)` takes any class
   with the ASE optimizer interface, e.g. `sella.Sella` with `{"order": 1}` for saddle
   points. Every conformer records `converged`, `n_steps` and `wall_time` in its

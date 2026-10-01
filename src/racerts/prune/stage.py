@@ -67,9 +67,8 @@ class PruneCluster(_Prune):
 
 class PruneCount:
     """
-    Keeps the n_max conformers of lowest energy, ordered by energy (catmlp
-    prune_to_max_conformers); with renumber, their ids become 0, 1, ... in that
-    order. Every conformer needs a finite energy.
+    Keeps the n_max conformers of lowest energy, ordered by energy; with renumber,
+    their ids become 0, 1, ... in that order. Every conformer needs a finite energy.
     """
 
     name = "prune_count"

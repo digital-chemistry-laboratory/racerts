@@ -3,7 +3,7 @@ racerts.optimizer.ase of legacy racerts: ASEOptimizer with the legacy method
 tune_ts_conformers, and the names this module had.
 
 ASEOptimizer builds the ASE Atoms with rdkit_conformer_to_ase_atoms of this module,
-looked up at call time, so code that replaces it here (as catmlp does) keeps working.
+looked up at call time, so code that replaces it here keeps working.
 """
 
 from dataclasses import dataclass

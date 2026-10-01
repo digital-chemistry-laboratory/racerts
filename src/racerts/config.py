@@ -39,7 +39,7 @@ class EmbedConfig:
         use_random_coords: Start embedding from random coordinates.
         count_policy: How n_conformers=-1 is counted: "legacy", "fragments" (adds the
             rigid-body freedom of fragments that move relative to the frozen core) or
-            "catmlp" (max(7, 10 * rotatable bonds)).
+            "per_bond" (max(7, 10 * rotatable bonds)).
         sequential_seeds: One seed stream for all conformers (a seed per conformer,
             from a start derived from seed); legacy racerts embeds its first 3
             conformers twice.

@@ -131,8 +131,8 @@ def _subcommand_parser() -> argparse.ArgumentParser:
             "--count-policy",
             choices=list(COUNT_POLICIES),
             help="How the default number of conformers is counted: legacy, fragments "
-            "(adds the rigid-body freedom of fragments without frozen atoms) or catmlp "
-            f"(default {defaults.embed.count_policy}).",
+            "(adds the rigid-body freedom of fragments without frozen atoms) or per_bond "
+            f"(10 per rotatable bond, at least 7; default {defaults.embed.count_policy}).",
         )
         command.add_argument(
             "--sequential-seeds",

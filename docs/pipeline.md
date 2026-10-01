@@ -2,7 +2,8 @@
 
 racerts splits a conformer search into a **task** (what stays fixed), a **pipeline**
 of stages (what is done), and a **context** that carries the molecule, the task and the
-settings through the stages. The defaults reproduce legacy racerts exactly.
+settings through the stages. The defaults reproduce legacy racerts exactly;
+`PipelineConfig.legacy()` does so whatever the defaults.
 
 ```python
 import racerts
@@ -82,6 +83,11 @@ ensemble = racerts.generate_ts("ts.xyz", [3, 4, 5], config=config)
 | | `method` | `rmsd` | `rmsd` (duplicates, as legacy racerts) or `cluster` (one conformer per cluster) |
 | | `cluster_method`, `cluster_threshold` | `butina`, 1.5 | `butina`, `hierarchical` or `leader`; Å, heavy-atom RMSD after superposition |
 | | `include_hs`, `filter_energies`, `filter_rotations`, `rmsd_energy_threshold`, `rot_fraction_threshold`, `max_matches` | | see [pruner](modules/pruner.md) |
+
+`PipelineConfig.legacy(**settings)` gives the settings of legacy racerts whatever the
+defaults, updated by the settings given (`racerts ts --legacy`, and
+`PipelineConfig.from_file(path, legacy=True)` for files). `ConformerGenerator` and the
+legacy command line always use them.
 
 ## Pipelines and stages
 

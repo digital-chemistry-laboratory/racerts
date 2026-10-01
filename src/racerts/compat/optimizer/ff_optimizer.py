@@ -33,14 +33,38 @@ class BaseOptimizer(racerts.refine.BaseOptimizer):
         """Optimize the conformers of mol in place (here, as in legacy racerts: no-op)."""
 
 
-class MMFFOptimizer(BaseOptimizer, racerts.refine.MMFFOptimizer):
+class _LegacyDefaults(racerts.refine.ForceFieldOptimizer):
+    """The settings of legacy racerts as defaults, whatever those of racerts.refine."""
+
+    def __init__(
+        self,
+        verbose=False,
+        conf_id_ref=-1,
+        force_constant=1000000,
+        num_threads=1,
+        converge=False,
+        anchor_free_energies=False,
+        **kwargs,
+    ):
+        super().__init__(
+            verbose=verbose,
+            conf_id_ref=conf_id_ref,
+            force_constant=force_constant,
+            num_threads=num_threads,
+            converge=converge,
+            anchor_free_energies=anchor_free_energies,
+            **kwargs,
+        )
+
+
+class MMFFOptimizer(BaseOptimizer, _LegacyDefaults, racerts.refine.MMFFOptimizer):
     def tune_ts_conformers(self, mol, reference, align_indices):
         return racerts.refine.MMFFOptimizer._refine(
             self, mol, reference, align_indices or []
         )
 
 
-class UFFOptimizer(BaseOptimizer, racerts.refine.UFFOptimizer):
+class UFFOptimizer(BaseOptimizer, _LegacyDefaults, racerts.refine.UFFOptimizer):
     def tune_ts_conformers(self, mol, reference, align_indices):
         return racerts.refine.UFFOptimizer._refine(
             self, mol, reference, align_indices or []

@@ -420,3 +420,20 @@ def test_random_seed_minus_one_as_in_legacy_racerts(tmp_path):
     out = tmp_path / "random.xyz"
     main([EX, "-atoms", "3", "4", "5", "-n", "3", "--seed", "-1", "-o", str(out)])
     assert out.exists()
+
+
+def test_legacy_classes_keep_the_legacy_settings():
+    # Whatever the defaults of racerts.embed and racerts.refine (D19).
+    from racerts.embedder import BoundsMatrixEmbedder, CmapEmbedder
+    from racerts.optimizer import MMFFOptimizer as LegacyMMFF
+    from racerts.optimizer import UFFOptimizer as LegacyUFF
+
+    for embedder in (CmapEmbedder(), BoundsMatrixEmbedder()):
+        assert embedder.sequential_seeds is False
+        assert embedder.chirality_fallback is True
+    for optimizer in (LegacyMMFF(), LegacyUFF()):
+        assert optimizer.converge is False
+        assert optimizer.anchor_free_energies is False
+    # The new settings can still be chosen.
+    assert CmapEmbedder(sequential_seeds=True).sequential_seeds is True
+    assert LegacyMMFF(dielectric_model="distance").dielectric_model == "distance"

@@ -9,6 +9,7 @@ from racerts import (
     EmbedConfig,
     GroundState,
     PipelineConfig,
+    RefineConfig,
     TransitionState,
 )
 from racerts.embed import BoundsMatrixEmbedder, CmapEmbedder
@@ -143,6 +144,32 @@ def test_ground_states_have_no_chirality_fallback():
     assert fallback(GroundState()) is False
     assert fallback(TransitionState([0])) == "legacy"
     assert fallback(Constrained([0])) == "legacy"
+
+
+def test_the_legacy_preset(tmp_path):
+    legacy = PipelineConfig.legacy()
+    assert legacy.embed.count_policy == "legacy"
+    assert legacy.embed.sequential_seeds is False
+    assert legacy.embed.chirality_fallback == "legacy"
+    assert legacy.refine.converge is False
+    assert legacy.refine.anchor_free_energies is False
+    assert legacy.prune.check_stereo is False
+
+    # Settings given update the legacy ones, as dicts or as sections.
+    config = PipelineConfig.legacy(seed=3, embed={"n_conformers": 5})
+    assert (config.seed, config.embed.n_conformers) == (3, 5)
+    assert config.embed.sequential_seeds is False
+    # A section object is used as it is.
+    config = PipelineConfig.legacy(refine=RefineConfig(backend="uff", converge=True))
+    assert config.refine.backend == "uff" and config.refine.converge is True
+    assert config.embed.sequential_seeds is False  # the others stay legacy
+
+    # A config file with legacy=True: what the file leaves out is legacy.
+    path = tmp_path / "config.json"
+    path.write_text('{"embed": {"n_conformers": 5}, "refine": {"converge": true}}')
+    config = PipelineConfig.from_file(str(path), legacy=True)
+    assert config.embed.n_conformers == 5 and config.refine.converge is True
+    assert config.embed.sequential_seeds is False
 
 
 def test_new_settings_reach_the_components():

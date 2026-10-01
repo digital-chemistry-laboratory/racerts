@@ -206,6 +206,29 @@ class PipelineConfig:
                     f"{key} must be a mapping, not {type(value).__name__}."
                 )
 
+    @classmethod
+    def legacy(cls, **settings) -> "PipelineConfig":
+        """
+        The settings of legacy racerts, whatever the defaults: the pipeline gives the
+        results of ConformerGenerator().generate_conformers. settings as in
+        PipelineConfig (e.g. seed); sections given as dicts update the legacy ones,
+        sections given as EmbedConfig etc. are used as they are.
+        """
+        sections = {
+            "embed": dict(
+                count_policy="legacy",
+                sequential_seeds=False,
+                chirality_fallback="legacy",
+            ),
+            "refine": dict(converge=False, anchor_free_energies=False),
+            "prune": dict(check_stereo=False),
+        }
+        for key, legacy in sections.items():
+            given = settings.get(key, {})
+            if isinstance(given, dict):
+                settings[key] = {**legacy, **given}
+        return cls(**settings)
+
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
 
@@ -229,11 +252,18 @@ class PipelineConfig:
                 handle.write("\n")
 
     @classmethod
-    def from_file(cls, path: str) -> "PipelineConfig":
-        """Read JSON, or YAML for .yaml/.yml (needs PyYAML)."""
+    def from_file(cls, path: str, legacy: bool = False) -> "PipelineConfig":
+        """
+        Read JSON, or YAML for .yaml/.yml (needs PyYAML). Settings missing from the
+        file have their defaults, or with legacy those of PipelineConfig.legacy().
+        """
         with open(path) as handle:
             data = _load_yaml(handle) if _is_yaml(path) else json.load(handle)
-        return cls.from_dict(data or {})
+        data = data or {}
+        if legacy:
+            _check_keys(data, cls, "config")
+            return cls.legacy(**data)
+        return cls.from_dict(data)
 
     def build(self, task: Task) -> Pipeline:
         """The default pipeline with these settings for the task."""

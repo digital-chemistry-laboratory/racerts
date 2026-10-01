@@ -207,7 +207,9 @@ class ConformerGenerator(object):
             mol=new_mol,
             reacting_atoms=reacting_atoms,
             frozen_atoms=frozen_atoms,
-            n=conformer_count(new_mol, number_of_conformers, conf_factor),
+            n=conformer_count(
+                new_mol, number_of_conformers, conf_factor, policy="legacy"
+            ),
             verbose=self._verbose,
         )
 

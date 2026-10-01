@@ -100,6 +100,12 @@ def _subcommand_parser() -> argparse.ArgumentParser:
             help="PipelineConfig as JSON or YAML; options below override it.",
         )
         command.add_argument(
+            "--legacy",
+            action="store_true",
+            help="The settings of legacy racerts where the defaults changed since "
+            "(--config and the options below override them).",
+        )
+        command.add_argument(
             "-n",
             "--n-conformers",
             type=int,
@@ -222,8 +228,14 @@ def _subcommand_parser() -> argparse.ArgumentParser:
 
 
 def _config_from_args(args) -> PipelineConfig:
-    """The config file (or the defaults) with the options given on the command line."""
-    config = PipelineConfig.from_file(args.config) if args.config else PipelineConfig()
+    """
+    The defaults (or those of legacy racerts), updated by the config file and by the
+    options given on the command line.
+    """
+    if args.config:
+        config = PipelineConfig.from_file(args.config, legacy=args.legacy)
+    else:
+        config = PipelineConfig.legacy() if args.legacy else PipelineConfig()
     dielectric = {}
     if args.dielectric:
         model, constant = args.dielectric

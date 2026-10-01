@@ -46,13 +46,45 @@ class BaseEmbedder(racerts.embed.BaseEmbedder):
         raise NotImplementedError(f"{type(self).__name__} does not implement embed_TS.")
 
 
-class BoundsMatrixEmbedder(BaseEmbedder, racerts.embed.BoundsMatrixEmbedder):
+class _LegacyDefaults(racerts.embed.DistanceGeometryEmbedder):
+    """The settings of legacy racerts as defaults, whatever those of racerts.embed."""
+
+    def __init__(
+        self,
+        verbose=False,
+        randomSeed=12,
+        pruneRmsThresh=-1,
+        remove_all_conformers=True,
+        ETversion=2,
+        useRandomCoords=True,
+        etkdg=False,
+        chirality_fallback=True,
+        sequential_seeds=False,
+        **kwargs,
+    ):
+        super().__init__(
+            verbose=verbose,
+            randomSeed=randomSeed,
+            pruneRmsThresh=pruneRmsThresh,
+            remove_all_conformers=remove_all_conformers,
+            ETversion=ETversion,
+            useRandomCoords=useRandomCoords,
+            etkdg=etkdg,
+            chirality_fallback=chirality_fallback,
+            sequential_seeds=sequential_seeds,
+            **kwargs,
+        )
+
+
+class BoundsMatrixEmbedder(
+    BaseEmbedder, _LegacyDefaults, racerts.embed.BoundsMatrixEmbedder
+):
     def embed_TS(self, mol_ts, mol, reacting_atoms, frozen_atoms, n=10, verbose=False):
         frozen = FrozenSet(hard=tuple(frozen_atoms), core=tuple(reacting_atoms))
         return racerts.embed.BoundsMatrixEmbedder.embed(self, mol, mol_ts, frozen, n)
 
 
-class CmapEmbedder(BaseEmbedder, racerts.embed.CmapEmbedder):
+class CmapEmbedder(BaseEmbedder, _LegacyDefaults, racerts.embed.CmapEmbedder):
     def embed_TS(self, mol_ts, mol, reacting_atoms, frozen_atoms, n=10, verbose=False):
         frozen = FrozenSet(hard=tuple(frozen_atoms), core=tuple(reacting_atoms))
         return racerts.embed.CmapEmbedder.embed(self, mol, mol_ts, frozen, n)

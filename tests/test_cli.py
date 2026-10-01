@@ -127,5 +127,7 @@ def test_ts_options_for_the_new_settings(tmp_path, monkeypatch):
     assert config.prune.include_hs is True
     assert config.prune.check_stereo is True
 
+    assert config_of("--legacy") == PipelineConfig.legacy()
+    assert config_of("--legacy", "--converge").refine.converge is True
     with pytest.raises(ValueError, match="not a number"):
         run_subcommand(["ts", EX, "-r", "3", "--dielectric", "distance", "four"])

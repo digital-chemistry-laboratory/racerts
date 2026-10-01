@@ -1,8 +1,11 @@
 # Migrating from legacy racerts
 
 racerts gives the same ensembles as legacy racerts (0.1.7 and its fixes) with the same inputs:
-`ConformerGenerator().generate_conformers(...)`, `racerts.generate_ts(...)`,
-`racerts file.xyz ...` and `racerts ts file.xyz ...` write identical files.
+`ConformerGenerator().generate_conformers(...)` and `racerts file.xyz ...` always,
+`racerts.generate_ts(..., config=PipelineConfig.legacy())` and
+`racerts ts --legacy file.xyz ...` too; they write identical files. The legacy classes
+(`racerts.embedder.CmapEmbedder`, `racerts.optimizer.MMFFOptimizer`, ...) keep the legacy
+settings when the defaults of `racerts.embed` and `racerts.refine` change.
 
 ## What stays
 

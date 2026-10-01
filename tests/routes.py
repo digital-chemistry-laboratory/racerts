@@ -93,13 +93,13 @@ def ex_generate_ts():
         EX,
         [3, 4, 5],
         smiles="CCCCCC=C",
-        config=racerts.PipelineConfig(embed=racerts.EmbedConfig(n_conformers=50)),
+        config=racerts.PipelineConfig.legacy(embed={"n_conformers": 50}),
     )
 
 
 def ex_generate_ts_bounds_uff():
-    config = racerts.PipelineConfig.from_dict(
-        {"embed": {"mode": "bounds", "n_conformers": 50}, "refine": {"backend": "uff"}}
+    config = racerts.PipelineConfig.legacy(
+        embed={"mode": "bounds", "n_conformers": 50}, refine={"backend": "uff"}
     )
     return racerts.generate_ts(EX, [3, 4, 5], smiles=["CCCCCC=C"], config=config)
 
@@ -110,25 +110,28 @@ def sn2_generate_ts():
         [0, 1, 2],
         charge=-1,
         smiles=["CCl", "[Cl-:3]"],
+        config=racerts.PipelineConfig.legacy(),
     )
 
 
 def boronic_acid_generate_ts():
-    config = racerts.PipelineConfig(embed=racerts.EmbedConfig(n_conformers=20))
+    config = racerts.PipelineConfig.legacy(embed={"n_conformers": 20})
     return racerts.generate_ts(
         os.path.join(BASELINE, "boronic_acid.xyz"), [0, 1, 2], config=config
     )
 
 
 def ex_ase_pipeline():
-    # Stages built by hand: their defaults are those of legacy racerts.
+    # Stages built by hand, with the legacy embedding settings.
     from ase.calculators.lj import LennardJones
 
+    from racerts.embed import CmapEmbedder
     from racerts.refine import ASEOptimizer
 
+    embedder = CmapEmbedder(chirality_fallback="legacy", sequential_seeds=False)
     pipeline = racerts.Pipeline(
         [
-            racerts.Embed(n_conformers=10),
+            racerts.Embed(embedder, n_conformers=10),
             racerts.Refine(
                 ASEOptimizer(calculator=LennardJones(), fmax=0.1, max_steps=10)
             ),
@@ -153,7 +156,7 @@ CURRENT = {
 COMMANDS = {
     "legacy": [EX, "-atoms", "3", "4", "5", "-smiles", "CCCCCC=C", "-n", "50"],
     "run": ["run", EX, "-atoms", "3", "4", "5", "-smiles", "CCCCCC=C", "-n", "50"],
-    "ts": ["ts", EX, "-r", "3", "4", "5", "-s", "CCCCCC=C", "-n", "50"],
+    "ts": ["ts", EX, "-r", "3", "4", "5", "-s", "CCCCCC=C", "-n", "50", "--legacy"],
 }
 
 

@@ -3,8 +3,8 @@
 The `racerts` CLI mirrors the core functionality of the Python API. It has two
 subcommands, `racerts ts` and `racerts gs`, and keeps the legacy racerts form
 `racerts filename.xyz [options]` (also `racerts run filename.xyz [options]`), which is
-described in the rest of this page. With the same settings, `racerts ts` and the legacy form
-write the same ensemble.
+described in the rest of this page. The legacy form always uses the settings of legacy
+racerts; `racerts ts --legacy` writes the same ensemble.
 
 ## racerts ts / racerts gs
 
@@ -22,6 +22,7 @@ $ racerts gs "OC(=O)[C@@H]1CCCN1C(C)=C" [options]
 | `-c`, `--charge` | total charge (ts: default 0; gs: from the SMILES) |
 | `--multiplicity` | spin multiplicity (default: the lowest for the electrons) |
 | `--config` | [PipelineConfig](pipeline.md#settings) as JSON or YAML; the options below override it |
+| `--legacy` | the settings of legacy racerts where the defaults changed (the config file and the options below override them) |
 | `-n`, `--n-conformers`, `--conf-factor` | conformers to embed |
 | `--count-policy` | how the default number is counted: `legacy`, `fragments`, `catmlp` |
 | `--embed` | `cmap` or `bounds` |

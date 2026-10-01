@@ -187,6 +187,8 @@ SWAP_ROUTES = ("dg", "rigid")
 # In a benchmark at equal TS-search budget, the rigid poses crowded out better
 # starting points (SN2 +4.8 kcal/mol in 2 of 3 seeds), so they are opt-in.
 DEFAULT_SWAP_ROUTES = ("dg",)
+RESIDUAL_CLASH_FACTOR = 0.8  # of the vdW sum, heavy atoms beyond three bonds
+HYDROGEN_CLASH_FACTOR = 0.5  # of the vdW sum, pairs with a hydrogen
 CORE_DISTANCE_WARNING = 3  # bonds between an attachment and the frozen atoms
 
 
@@ -306,6 +308,7 @@ def swap(
             _record_index_map(grafted.mol, index_map)
             for conf_id in grafted.conf_ids:  # each is the graft on that reference
                 grafted.add_provenance(conf_id, route="graft", reference=conf_id)
+            _warn_residual_clash(grafted, held, grafted.conf_ids, result)
             return grafted
 
         soft = []
@@ -361,6 +364,7 @@ def swap(
         stages = [s for s in config.build(new_task).stages if s.name != "embed"]
         ensemble = Pipeline(stages).run(ctx, ensemble)
         _record_index_map(ensemble.mol, index_map)
+        _warn_residual_clash(ensemble, held, reference=result)
     return ensemble
 
 
@@ -386,3 +390,60 @@ def _warn_near_core(result, held) -> None:
         )
         result.warnings.append(message)
         logger.warning(message)
+
+
+def _warn_residual_clash(
+    ensemble: ConformerEnsemble, held=(), conf_ids=None, reference=None
+) -> None:
+    """
+    Warn if atoms more than three bonds apart clash in the conformers conf_ids
+    (default: the lowest one): heavy atoms closer than RESIDUAL_CLASH_FACTOR times
+    their vdW sum, pairs with a hydrogen closer than HYDROGEN_CLASH_FACTOR times it.
+    Not checked: pairs of held atoms (they keep the reference distance, e.g. a forming
+    bond). Pairs of kept atoms that are that close in the conformer's own reference
+    (reference: a SwapResult; e.g. a coordination that the graph lacks) count as a
+    clash only if they come more than 0.2 A closer.
+    """
+    if not len(ensemble):
+        return
+    mol = ensemble.mol
+    if conf_ids is None:
+        energies = ensemble.energies()
+        found = energies.size and np.isfinite(energies).any()
+        conf_ids = [ensemble.best() if found else ensemble.conf_ids[0]]
+    table = Chem.GetPeriodicTable()
+    numbers = np.array([a.GetAtomicNum() for a in mol.GetAtoms()])
+    radii = np.array([table.GetRvdw(int(z)) for z in numbers])
+    factor = np.where(
+        (numbers[:, None] == 1) | (numbers[None, :] == 1),
+        HYDROGEN_CLASH_FACTOR,
+        RESIDUAL_CLASH_FACTOR,
+    )
+    limit = factor * (radii[:, None] + radii[None, :])
+    check = np.triu(Chem.GetDistanceMatrix(mol) > 3, k=1)
+    held = sorted(set(held))
+    if held:
+        check[np.ix_(held, held)] = False
+    kept = np.array(reference.conserved) if reference is not None else None
+    for conf_id in conf_ids:
+        positions = mol.GetConformer(conf_id).GetPositions()
+        distances = np.linalg.norm(positions[:, None] - positions[None, :], axis=-1)
+        bound = limit
+        if kept is not None:  # the reference this conformer comes from
+            first = reference.mol.GetConformers()[0].GetId()
+            ref_id = ensemble.provenance(conf_id).get("reference", first)
+            x = reference.mol.GetConformer(ref_id).GetPositions()[kept]
+            ref = np.linalg.norm(x[:, None] - x[None, :], axis=-1)
+            bound = limit.copy()
+            own = bound[np.ix_(kept, kept)]
+            bound[np.ix_(kept, kept)] = np.where(ref < own, ref - 0.2, own)
+        clashes = np.argwhere(check & (distances < bound))
+        if len(clashes):
+            i, j = clashes[0]
+            logger.warning(
+                "Conformer %d has a clash: atoms %d and %d are closer than %.2f A.",
+                conf_id,
+                i,
+                j,
+                bound[i, j],
+            )

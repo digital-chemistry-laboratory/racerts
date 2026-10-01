@@ -640,6 +640,17 @@ def test_swap_rejects_settings_it_does_not_use(methylbiphenyl):
         racerts.swap(methylbiphenyl, BUTYL_SWAP, hard=[999])
 
 
+def test_hard_grafts_are_checked_for_clashes(methylbiphenyl, caplog):
+    # An ortho-tolyl for the methyl: the rigid graft runs into the other ring.
+    with caplog.at_level("WARNING"):
+        racerts.swap(
+            methylbiphenyl,
+            Swap("[*:1]c1ccccc1C", old_fragment="[CH3][c:1]"),
+            conserve="hard",
+        )
+    assert "clash" in caplog.text
+
+
 def test_soft_atoms_dropped_by_an_optimizer_are_reported(caplog):
     from racerts.refine.base import BaseOptimizer
 
@@ -670,6 +681,55 @@ def test_swap_rejects_rigid_settings_without_the_route(methylbiphenyl):
         racerts.swap(methylbiphenyl, BUTYL_SWAP, n_rotations=6, n_conformers=2)
     with pytest.raises(ValueError, match="Invalid hard"):
         racerts.swap(methylbiphenyl, BUTYL_SWAP, hard=[1.5], n_conformers=2)
+
+
+def test_contacts_of_the_reference_are_no_clashes(caplog):
+    # Benchmark Pd_carbofluorination: an O...Pd contact of 2.08 A that the graph
+    # lacks (two fragments) is part of the reference, not a clash of the swap.
+    from rdkit.Geometry import Point3D
+
+    mol = Chem.RWMol(Chem.AddHs(Chem.MolFromSmiles("CCCCO.O")))
+    AllChem.EmbedMolecule(mol, randomSeed=3)
+    conf = mol.GetConformer()
+    water = 5  # the O of the water, placed 1.5 A from C0
+    target = conf.GetAtomPosition(0)
+    shift = target - conf.GetAtomPosition(water) + Point3D(1.5, 0, 0)
+    for i in [water, *(n.GetIdx() for n in mol.GetAtomWithIdx(water).GetNeighbors())]:
+        conf.SetAtomPosition(i, conf.GetAtomPosition(i) + shift)
+    h = next(
+        n.GetIdx()
+        for n in mol.GetAtomWithIdx(4).GetNeighbors()
+        if n.GetAtomicNum() == 1
+    )
+    with caplog.at_level("WARNING"):
+        racerts.swap(mol.GetMol(), Swap("[*]C", remove_atoms=[h]), conserve="hard")
+    assert "clash" not in caplog.text
+
+
+def test_clashes_are_judged_against_each_reference(caplog):
+    # A water 1.5 A beyond C0 in reference conformer 1 only (away from the swap at the
+    # other end): not a clash of conformer 1, which has it in its own reference.
+    mol = Chem.RWMol(Chem.AddHs(Chem.MolFromSmiles("CCCCO.O")))
+    AllChem.EmbedMultipleConfs(mol, 2, randomSeed=3)
+    water = 5
+    for conf_id, offset in ((0, 8.0), (1, 1.5)):
+        conf = mol.GetConformer(conf_id)
+        x = conf.GetPositions()
+        away = x[0] - x[:5].mean(axis=0)
+        shift = x[0] + offset * away / np.linalg.norm(away) - x[water]
+        for i in [
+            water,
+            *(n.GetIdx() for n in mol.GetAtomWithIdx(water).GetNeighbors()),
+        ]:
+            conf.SetAtomPosition(i, (x[i] + shift).tolist())
+    h = next(
+        n.GetIdx()
+        for n in mol.GetAtomWithIdx(4).GetNeighbors()
+        if n.GetAtomicNum() == 1
+    )
+    with caplog.at_level("WARNING"):
+        racerts.swap(mol.GetMol(), Swap("[*]C", remove_atoms=[h]), conserve="hard")
+    assert "clash" not in caplog.text
 
 
 def test_e_z_survives_when_a_stereo_atom_leaves():

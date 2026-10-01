@@ -81,10 +81,21 @@ class ForceFieldOptimizer(BaseOptimizer):
     def _force_field(self, mol: Chem.Mol, conf_id: int, setup):
         raise NotImplementedError
 
+    def _add_restraint(self, ff, restraint) -> None:
+        """A flat-bottom distance term (RDKit: 1/2 k (d - bound)^2)."""
+        raise NotImplementedError
+
     def _refine(
-        self, mol: Chem.Mol, reference: Optional[Chem.Mol], anchors: Sequence[int]
+        self,
+        mol: Chem.Mol,
+        reference: Optional[Chem.Mol],
+        anchors: Sequence[int],
+        restraints: Sequence = (),
     ) -> int:
-        """Returns the number of Minimize calls that did not converge."""
+        """
+        Returns the number of Minimize calls that did not converge. With restraints,
+        the reported energies leave out their terms and those of the anchors.
+        """
         align_indices = list(anchors)
         coordinates_ref = None
         if align_indices:
@@ -107,11 +118,13 @@ class ForceFieldOptimizer(BaseOptimizer):
                 point = coordinates_ref[idx]
                 ep_idx = ff.AddExtraPoint(*point, fixed=True) - 1
                 ff.AddDistanceConstraint(ep_idx, idx, 0, 0, self.force_constant)
+            for restraint in restraints:
+                self._add_restraint(ff, restraint)
 
             ff.Initialize()
             local_fail = minimize(ff, self.maxIter, converge=self.converge)
 
-            if self.anchor_free_energies and align_indices:
+            if restraints or (self.anchor_free_energies and align_indices):
                 energy = self._force_field(mol, conf_id, setup).CalcEnergy()
             else:
                 energy = ff.CalcEnergy()
@@ -141,6 +154,11 @@ class UFFOptimizer(ForceFieldOptimizer):
     def _force_field(self, mol, conf_id, setup):
         return UFFGetMoleculeForceField(
             mol, confId=conf_id, ignoreInterfragInteractions=False
+        )
+
+    def _add_restraint(self, ff, r):
+        ff.UFFAddDistanceConstraint(
+            r.first, r.second, False, r.lower, r.upper, r.force_constant
         )
 
 
@@ -202,4 +220,9 @@ class MMFFOptimizer(ForceFieldOptimizer):
             setup,
             confId=conf_id,
             ignoreInterfragInteractions=False,
+        )
+
+    def _add_restraint(self, ff, r):
+        ff.MMFFAddDistanceConstraint(
+            r.first, r.second, False, r.lower, r.upper, r.force_constant
         )

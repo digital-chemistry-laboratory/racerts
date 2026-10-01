@@ -1,7 +1,11 @@
 """Distance restraints: model, sources, embedding windows, flat-bottom refinement."""
 
+import logging
+
 import numpy as np
 import pytest
+from rdkit import Chem
+from rdkit.Chem import AllChem
 
 import racerts
 import racerts.embed.dg as dg
@@ -152,3 +156,75 @@ def test_legacy_embedders_cannot_take_restraints(sn2_ts_water):
     )
     with pytest.raises(ValueError, match="takes no restraints"):
         racerts.Embed(LegacyCmap(), n_conformers=3).run(ctx)
+
+
+# ---- refinement ----
+
+
+def _butanediol(n=20):
+    mol = Chem.AddHs(Chem.MolFromSmiles("OCCCCO"))
+    AllChem.EmbedMultipleConfs(mol, n, randomSeed=5)
+    return mol
+
+
+@pytest.mark.parametrize(
+    "optimizer_cls", [racerts.refine.MMFFOptimizer, racerts.refine.UFFOptimizer]
+)
+def test_flat_bottom_terms_pull_conformers_into_the_window(optimizer_cls):
+    window = RestraintSet([DistanceRestraint(0, 5, 2.6, 3.0)])
+
+    def refined(restraints):
+        mol = _butanediol()
+        optimizer_cls().refine(mol, restraints=list(restraints))
+        return [window.violations(c.GetPositions())[0] for c in mol.GetConformers()]
+
+    # UFF has no electrostatics: a few conformers stay in other minima.
+    assert np.mean(np.array(refined(window)) < 0.1) >= 0.8
+    assert np.mean(np.array(refined(RestraintSet())) < 0.1) < 0.5
+
+
+def test_reported_energies_leave_out_the_restraints():
+    mol = _butanediol(5)
+    racerts.refine.MMFFOptimizer().refine(
+        mol, restraints=[DistanceRestraint(0, 5, 2.6, 3.0, force_constant=100.0)]
+    )
+    props = AllChem.MMFFGetMoleculeProperties(mol)
+    for conf in mol.GetConformers():
+        ff = AllChem.MMFFGetMoleculeForceField(
+            mol, props, confId=conf.GetId(), ignoreInterfragInteractions=False
+        )
+        assert conf.GetDoubleProp("energy") == pytest.approx(ff.CalcEnergy(), abs=1e-8)
+
+
+@pytest.mark.ase
+def test_ase_refinement_runs_without_the_restraints(caplog):
+    pytest.importorskip("ase")
+    from ase.calculators.lj import LennardJones
+
+    from racerts.refine import ASEOptimizer
+
+    mol = _butanediol(2)
+    with caplog.at_level(logging.INFO):
+        ASEOptimizer(LennardJones(), max_steps=2).refine(
+            mol, restraints=[DistanceRestraint(0, 5, 2.6, 3.0)]
+        )
+    assert "refines without the 1 restraints" in caplog.text
+
+
+# ---- ported from catmlp test_embedding_constraints (e1547eb) ----
+
+
+def test_parallel_restrained_refinement_reports_physical_energies():
+    mol = Chem.AddHs(Chem.MolFromSmiles("CCCC"))
+    ids = list(AllChem.EmbedMultipleConfs(mol, numConfs=3, randomSeed=61453))
+    restraint = DistanceRestraint(0, 3, 2.7, 2.9, force_constant=1000.0)
+    racerts.refine.MMFFOptimizer(num_threads=2, converge=True).refine(
+        mol, restraints=[restraint]
+    )
+    props = AllChem.MMFFGetMoleculeProperties(mol)
+    for conf_id in ids:
+        conf = mol.GetConformer(conf_id)
+        p = conf.GetPositions()
+        assert np.linalg.norm(p[0] - p[3]) < 2.93
+        ff = AllChem.MMFFGetMoleculeForceField(mol, props, confId=conf_id)
+        assert conf.GetDoubleProp("energy") == pytest.approx(ff.CalcEnergy(), abs=1e-8)

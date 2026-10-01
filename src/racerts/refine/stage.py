@@ -84,14 +84,15 @@ class Refine:
         optimizer = self.optimizer if self.optimizer is not None else MMFFOptimizer()
         anchors = ctx.frozen.hard if self.anchors else ()
         groups = ctx.by_reference(ensemble)
+        restraints = ctx.restraints.for_stage("refine")
 
         def refine(opt):
             if len(groups) == 1:
-                return opt.refine(ensemble.mol, groups[0][0], anchors)
+                return opt.refine(ensemble.mol, groups[0][0], anchors, restraints)
             # Several references (Embed(references=...)): each group against its own.
             for reference, conf_ids in groups:
                 part = ensemble.filter(conf_ids)
-                opt.refine(part.mol, reference, anchors)
+                opt.refine(part.mol, reference, anchors, restraints)
                 _write_back(ensemble, part, conf_ids)
 
         energy_method = refine_with_fallback(

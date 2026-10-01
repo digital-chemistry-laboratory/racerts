@@ -1,11 +1,14 @@
 """The optimizer interface."""
 
 import inspect
+import logging
 from abc import ABC, abstractmethod
 from typing import List, Optional, Sequence
 
 from rdkit import Chem
 from rdkit.Chem.AllChem import AlignMol  # type: ignore
+
+logger = logging.getLogger(__name__)
 
 
 class BaseOptimizer(ABC):
@@ -21,10 +24,23 @@ class BaseOptimizer(ABC):
         mol: Chem.Mol,
         reference: Optional[Chem.Mol] = None,
         anchors: Sequence[int] = (),
+        restraints: Sequence = (),
     ):
-        """Refine all conformers; the anchors stay at their reference positions."""
+        """
+        Refine all conformers; the anchors stay at their reference positions.
+        restraints (DistanceRestraint) go to optimizers whose _refine takes them
+        (MMFF, UFF); others refine without them, which is logged.
+        """
         if anchors and reference is None:
             raise ValueError("Anchor atoms need a reference geometry.")
+        if restraints:
+            if accepts_restraints(self._refine):
+                return self._refine(mol, reference, anchors, restraints=restraints)
+            logger.info(
+                "%s refines without the %d restraints (they guided the embedding).",
+                type(self).__name__,
+                len(restraints),
+            )
         return self._refine(mol, reference, anchors)
 
     @abstractmethod

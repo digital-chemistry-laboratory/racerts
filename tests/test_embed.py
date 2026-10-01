@@ -144,6 +144,63 @@ def test_neighbouring_seeds_give_different_streams(hept_1_ene_ts):
     assert dg.stream_start(1) != dg.stream_start(2) and dg.stream_start(1) >= 0
 
 
+@pytest.fixture
+def pentanediol_with_a_wrong_tag():
+    """
+    (2R,4R)-pentane-2,4-diol geometry with the graph of (2S,4R), C2 (atom 1) held with
+    its neighbours: its tag cannot be met. C4 (atom 4) is free.
+    """
+    geometry = Chem.AddHs(Chem.MolFromSmiles("C[C@@H](O)C[C@@H](C)O"))
+    AllChem.EmbedMolecule(geometry, randomSeed=5)
+    AllChem.MMFFOptimizeMolecule(geometry)
+    mol = Chem.AddHs(Chem.MolFromSmiles("C[C@H](O)C[C@@H](C)O"))
+    mol.AddConformer(geometry.GetConformer(), assignId=True)
+    held = [1] + [n.GetIdx() for n in mol.GetAtomWithIdx(1).GetNeighbors()]
+    return mol, Constrained(hard=held)
+
+
+def _cip_codes(mol, atom):
+    """The CIP label of atom in every conformer, from the geometry alone."""
+    codes = ""
+    for conf in mol.GetConformers():
+        one = Chem.Mol(mol)
+        one.RemoveAllConformers()
+        one.AddConformer(Chem.Conformer(conf), assignId=True)
+        for a in one.GetAtoms():
+            a.SetChiralTag(Chem.ChiralType.CHI_UNSPECIFIED)
+        Chem.AssignStereochemistryFrom3D(one)
+        codes += one.GetAtomWithIdx(atom).GetPropsAsDict().get("_CIPCode", "?")
+    return codes
+
+
+def test_frozen_first_keeps_the_free_stereocentres(
+    pentanediol_with_a_wrong_tag, caplog
+):
+    mol, task = pentanediol_with_a_wrong_tag
+
+    def run(fallback):
+        config = PipelineConfig(
+            embed=EmbedConfig(n_conformers=10, chirality_fallback=fallback)
+        )
+        with caplog.at_level(logging.WARNING):
+            return racerts.generate(mol, task, config=config)
+
+    # The legacy fallback drops every chiral tag, so the free C4 comes out S in some
+    # conformers.
+    legacy = run("legacy")
+    assert "embedding without chiral tags" in caplog.text
+    assert "S" in _cip_codes(legacy.mol, 4)
+
+    # frozen_first drops only the tag of the held C2, whose configuration (R) comes
+    # from the reference.
+    caplog.clear()
+    ensemble = run("frozen_first")
+    assert "without the chiral tags of the frozen atoms [1]" in caplog.text
+    assert "embedding without chiral tags" not in caplog.text
+    assert set(_cip_codes(ensemble.mol, 4)) == {"R"}
+    assert set(_cip_codes(ensemble.mol, 1)) == {"R"}
+
+
 def test_conformer_count_policies():
     from rdkit.Chem import Descriptors
 
@@ -171,6 +228,36 @@ def test_conformer_count_policies():
     assert conformer_count(mol, policy=lambda mol, frozen: 5) == 5
     with pytest.raises(ValueError, match="policy"):
         conformer_count(mol, policy="many")
+
+
+def test_frozen_first_removes_conformers_with_inverted_stereo(
+    butanol, monkeypatch, caplog
+):
+    # Pretend the chirality checks fail at the first minimization. No frozen atom has
+    # a tag, so all tags are dropped (as in legacy racerts): the free C2 comes out
+    # inverted in some conformers, which frozen_first then removes.
+    monkeypatch.setattr(dg, "chirality_fallback", lambda *args: "strip_tags")
+    task = Constrained(hard=[3, 4, 12, 13])  # the ethyl CH2 and CH3 carbons, 2 H
+    assert butanol.GetAtomWithIdx(1).GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED
+
+    def run(fallback):
+        config = PipelineConfig(
+            embed=EmbedConfig(n_conformers=20, chirality_fallback=fallback)
+        )
+        with caplog.at_level(logging.WARNING):
+            return racerts.generate(butanol, task, config=config)
+
+    legacy = run("legacy")
+    codes = _cip_codes(legacy.mol, 1)
+    assert "R" in codes and "S" in codes  # inverted and not
+
+    caplog.clear()
+    ensemble = run("frozen_first")
+    assert "whose stereo is inverted after the chirality fallback" in caplog.text
+    assert _chiral_tags(ensemble.mol) == _chiral_tags(butanol)  # tags kept
+    reference = _cip_codes(butanol, 1)
+    assert set(_cip_codes(ensemble.mol, 1)) == set(reference)
+    assert 0 < len(ensemble) < 20
 
 
 def test_embed_needs_named_references(hept_1_ene_ts):

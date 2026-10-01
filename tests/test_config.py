@@ -141,8 +141,8 @@ def test_ground_states_have_no_chirality_fallback():
         return PipelineConfig().build(task).stages[0].embedder.chirality_fallback
 
     assert fallback(GroundState()) is False
-    assert fallback(TransitionState([0])) is True
-    assert fallback(Constrained([0])) is True
+    assert fallback(TransitionState([0])) == "legacy"
+    assert fallback(Constrained([0])) == "legacy"
 
 
 def test_cluster_pruning_setting():

@@ -56,23 +56,30 @@ def conformer_count(
 
 
 def default_embedder(
-    task, seed: int, mode: str = "cmap", etkdg: Optional[bool] = None, **settings
+    task,
+    seed: int,
+    mode: str = "cmap",
+    etkdg: Optional[bool] = None,
+    chirality_fallback: Union[bool, str] = "legacy",
+    **settings,
 ) -> DistanceGeometryEmbedder:
     """
     The embedder for a task. When atoms are held at a reference, as in legacy racerts:
-    plain distance geometry with the legacy chirality fallback. Otherwise (ground states)
+    plain distance geometry with a chirality fallback. Otherwise (ground states)
     ETKDGv3 without the fallback, so the stereocentres of the input are kept.
 
     Args:
         mode: "cmap" (CmapEmbedder) or "bounds" (BoundsMatrixEmbedder).
         etkdg: Overrides the choice between ETKDGv3 and plain distance geometry.
+        chirality_fallback: The fallback for tasks with atoms held at a reference
+            ("legacy" or "frozen_first", see DistanceGeometryEmbedder).
         settings: Further arguments of the embedder, e.g. num_threads.
     """
     fixed = task.needs_reference
     return EMBED_MODES[mode](
         randomSeed=seed,
         etkdg=(not fixed) if etkdg is None else etkdg,
-        chirality_fallback=fixed,
+        chirality_fallback=chirality_fallback if fixed else False,
         **settings,
     )
 

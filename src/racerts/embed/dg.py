@@ -1,7 +1,7 @@
 """Distance-geometry embedders: coordinate map (CmapEmbedder) or bounds matrix."""
 
 import logging
-from typing import Optional
+from typing import Optional, Union
 
 import numpy as np
 from rdkit import Chem
@@ -9,6 +9,7 @@ from rdkit.Chem import AllChem
 from rdkit.Chem.AllChem import EmbedMultipleConfs  # type: ignore
 from rdkit.Chem.rdDistGeom import EmbedFailureCauses
 
+from racerts.system.stereo import StereoCheck, reference_tags
 from racerts.task import FrozenSet
 
 from .base import BaseEmbedder
@@ -22,12 +23,20 @@ class DistanceGeometryEmbedder(BaseEmbedder):
     Embedding with RDKit's EmbedMultipleConfs. Plain distance geometry by default;
     etkdg=True uses ETKDGv3 (with the same settings otherwise).
 
-    With chirality_fallback (legacy racerts, for TS embedding, where the fixed atoms can
-    contradict a chiral tag), the first min(n, 3) conformers check for chirality
-    problems: if most of them fail on chirality, n conformers are embedded without
-    chiral tags (or without enforcing chirality), with a warning. Otherwise the other
-    n - 3 are added. The ground-state defaults turn it off: stereocentres of the input
-    are then never given up.
+    The first min(n, 3) conformers check for chirality problems (the fixed atoms of a
+    TS can contradict a chiral tag); then the other n - 3 are added. If most of the
+    first ones fail on chirality, chirality_fallback decides:
+    - True or "legacy" (legacy racerts): n conformers are embedded without any chiral
+      tags, or without enforcing chirality, with a warning; free stereocentres can
+      then come out inverted.
+    - "frozen_first": where legacy racerts drops all chiral tags (the first
+      minimization fails), only the tags of the frozen atoms are dropped first (the
+      reference fixes their configuration) and the check is repeated; the legacy
+      fallback follows only if it still fails. After any fallback, the graph keeps
+      its chiral tags, and conformers whose specified stereo (outside the core atoms,
+      e.g. the reacting atoms) is inverted are removed, with a warning.
+    - False: no fallback (the ground-state default: stereocentres of the input are
+      never given up).
 
     With sequential_seeds, conformer i is embedded with the seed start + i
     (enableSequentialRandomSeeds) across all calls of one embedding, where start is
@@ -45,10 +54,15 @@ class DistanceGeometryEmbedder(BaseEmbedder):
         ETversion: int = 2,
         useRandomCoords: bool = True,
         etkdg: bool = False,
-        chirality_fallback: bool = True,
+        chirality_fallback: Union[bool, str] = True,
         sequential_seeds: bool = False,
         **kwargs,
     ):
+        if chirality_fallback not in CHIRALITY_FALLBACKS:
+            raise ValueError(
+                f"chirality_fallback must be one of {CHIRALITY_FALLBACKS}, not "
+                f"{chirality_fallback!r}."
+            )
         self.verbose = verbose
         self.randomSeed = randomSeed
         self.pruneRmsThresh = pruneRmsThresh
@@ -96,6 +110,7 @@ class DistanceGeometryEmbedder(BaseEmbedder):
         params.useRandomCoords = self.useRandomCoords
 
         requested = 0  # conformers requested so far, the offset of sequential seeds
+        original = Chem.Mol(mol)  # the graph with its chiral tags
 
         def embed_more(count):
             nonlocal requested
@@ -108,12 +123,29 @@ class DistanceGeometryEmbedder(BaseEmbedder):
 
         chiral_check = min(n, 3)
         result = embed_more(chiral_check)
-        error_counts = params.GetFailureCounts()
-        fallback = None
-        if self.chirality_fallback:
-            fallback = chirality_fallback(
-                len(result), error_counts, chiral_check, params.maxIterations
-            )
+        fallback = self._chirality_problem(result, params, chiral_check)
+        # After a fallback, remove the conformers with inverted stereo at the end.
+        guard = fallback is not None and self.chirality_fallback == "frozen_first"
+        if fallback == "strip_tags" and self.chirality_fallback == "frozen_first":
+            tagged = [
+                i
+                for i in frozen.hard
+                if mol.GetAtomWithIdx(i).GetChiralTag()
+                != Chem.ChiralType.CHI_UNSPECIFIED
+            ]
+            if tagged:
+                logger.warning(
+                    "Most of the first %d conformers failed on chirality; embedding "
+                    "without the chiral tags of the frozen atoms %s (the reference "
+                    "fixes their configuration).",
+                    chiral_check,
+                    tagged,
+                )
+                for i in tagged:
+                    mol.GetAtomWithIdx(i).SetChiralTag(Chem.ChiralType.CHI_UNSPECIFIED)
+                mol.RemoveAllConformers()
+                result = embed_more(chiral_check)
+                fallback = self._chirality_problem(result, params, chiral_check)
         if fallback == "strip_tags":
             logger.warning(
                 "Most of the first %d conformers failed on chirality; embedding "
@@ -150,11 +182,68 @@ class DistanceGeometryEmbedder(BaseEmbedder):
                 params.useRandomCoords = True
                 result = embed_more(n)
 
+        if guard:
+            self._remove_inverted(mol, original, reference, frozen)
         error_counts = params.GetFailureCounts()
         logger.debug("Embedding failure counts: %s", list(error_counts))
 
         return result, error_counts
 
+    @staticmethod
+    def _remove_inverted(
+        mol: Chem.Mol, original: Chem.Mol, reference: Chem.Mol, frozen: FrozenSet
+    ) -> None:
+        """
+        Restore the chiral tags of original, except that the frozen atoms get the
+        configuration of the reference (where its geometry defines one), and remove
+        the conformers whose stereo differs from these tags.
+        """
+        for atom, before in zip(mol.GetAtoms(), original.GetAtoms()):
+            atom.SetChiralTag(before.GetChiralTag())
+        tagged = [
+            i
+            for i in frozen.hard
+            if original.GetAtomWithIdx(i).GetChiralTag()
+            != Chem.ChiralType.CHI_UNSPECIFIED
+        ]
+        if tagged and reference is not None:
+            from_reference = reference_tags(mol, reference, tagged)
+            changed = [
+                i
+                for i in tagged
+                if from_reference[i] != original.GetAtomWithIdx(i).GetChiralTag()
+            ]
+            if changed:
+                logger.warning(
+                    "The chiral tags of the frozen atoms %s contradict the reference "
+                    "geometry; their configuration is taken from the reference.",
+                    changed,
+                )
+            for i in changed:
+                mol.GetAtomWithIdx(i).SetChiralTag(from_reference[i])
+        check = StereoCheck(mol, exempt=frozen.core)
+        inverted = [c.GetId() for c in mol.GetConformers() if check.mismatch(c)]
+        if inverted:
+            logger.warning(
+                "Removing %d of %d conformers whose stereo is inverted after the "
+                "chirality fallback: %s",
+                len(inverted),
+                mol.GetNumConformers(),
+                inverted,
+            )
+        for conf_id in inverted:
+            mol.RemoveConformer(conf_id)
+
+    def _chirality_problem(self, result, params, chiral_check: int) -> Optional[str]:
+        """The legacy fallback that the first conformers call for (None: none)."""
+        if not self.chirality_fallback:
+            return None
+        return chirality_fallback(
+            len(result), params.GetFailureCounts(), chiral_check, params.maxIterations
+        )
+
+
+CHIRALITY_FALLBACKS = (True, False, "legacy", "frozen_first")
 
 # Room for this many conformers after the start of a seed stream (RDKit seeds are
 # 31-bit integers).

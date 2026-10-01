@@ -82,6 +82,14 @@ def stereo_mismatch(
     return StereoCheck(graph, exempt).mismatch(conf)
 
 
+def reference_tags(mol: Chem.Mol, reference: Chem.Mol, atoms: Collection[int]) -> dict:
+    """The chiral tags that the reference geometry gives the atoms of mol."""
+    probe = Chem.Mol(mol, True)
+    probe.AddConformer(Chem.Conformer(reference.GetConformer()), assignId=True)
+    Chem.AssignAtomChiralTagsFromStructure(probe, replaceExistingTags=True)
+    return {i: probe.GetAtomWithIdx(i).GetChiralTag() for i in atoms}
+
+
 def _bond_labels(mol: Chem.Mol) -> Dict[int, str]:
     """The E/Z labels of the double bonds with stereo, as RDKit assigns them."""
     mol = Chem.Mol(mol)

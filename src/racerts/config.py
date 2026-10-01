@@ -41,6 +41,9 @@ class EmbedConfig:
         sequential_seeds: One seed stream for all conformers (a seed per conformer,
             from a start derived from seed); legacy racerts embeds its first 3
             conformers twice.
+        chirality_fallback: When chirality checks fail with atoms held at a reference:
+            "legacy" (drop all chiral tags, or stop enforcing chirality) or
+            "frozen_first" (drop the tags of the frozen atoms first).
     """
 
     mode: str = "cmap"
@@ -50,6 +53,7 @@ class EmbedConfig:
     use_random_coords: bool = True
     count_policy: str = "legacy"
     sequential_seeds: bool = False
+    chirality_fallback: str = "legacy"
 
     def __post_init__(self):
         _check_types(self, "embed")
@@ -57,6 +61,10 @@ class EmbedConfig:
             raise ValueError(f"embed.mode must be one of {sorted(EMBED_MODES)}.")
         if self.count_policy not in COUNT_POLICIES:
             raise ValueError(f"embed.count_policy must be one of {COUNT_POLICIES}.")
+        if self.chirality_fallback not in ("legacy", "frozen_first"):
+            raise ValueError(
+                "embed.chirality_fallback must be 'legacy' or 'frozen_first'."
+            )
         if self.n_conformers != -1 and self.n_conformers < 1:
             raise ValueError("embed.n_conformers must be -1 (default count) or > 0.")
         if self.conf_factor < 0:
@@ -206,6 +214,7 @@ class PipelineConfig:
             self.seed,
             mode=embed.mode,
             etkdg=embed.etkdg,
+            chirality_fallback=embed.chirality_fallback,
             useRandomCoords=embed.use_random_coords,
             sequential_seeds=embed.sequential_seeds,
             num_threads=self.num_threads,

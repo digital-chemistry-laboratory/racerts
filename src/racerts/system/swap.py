@@ -37,8 +37,7 @@ class Swap:
     """
     What to replace, and by what. One selector:
 
-    - site: the map number of a terminal H or dummy atom that leaves (catmlp's
-      form); the fragment binds to its neighbour.
+    - site: the map number of a terminal H or dummy atom that leaves; the fragment binds to its neighbour.
     - remove_atoms: the atoms that leave (their hydrogens leave with them); the
       fragment binds where bonds were cut. [] with attach_map adds a fragment.
     - center, substructure: the substructure-th group bound to center (groups are
@@ -965,3 +964,88 @@ def rotation_between(source: np.ndarray, target: np.ndarray) -> np.ndarray:
         [[0, -cross[2], cross[1]], [cross[2], 0, -cross[0]], [-cross[1], cross[0], 0]]
     )
     return np.eye(3) + skew + skew @ skew / (1 + cosine)
+
+
+def label_hydrogen(mol: Chem.Mol, anchor: int, label: int) -> Chem.Mol:
+    """
+    A copy of mol whose only hydrogen on anchor carries the map number label (a site
+    for Swap(site=label)). An anchor with several hydrogens raises: prochiral sites are
+    chosen by the caller (catmlp).
+    """
+    if isinstance(label, bool) or not isinstance(label, int):
+        raise TypeError("Site labels are positive integers.")
+    if label <= 0:
+        raise SwapError("Site labels are positive integers.")
+    if isinstance(anchor, bool) or not 0 <= anchor < mol.GetNumAtoms():
+        raise IndexError(f"No atom {anchor} (the molecule has {mol.GetNumAtoms()}).")
+    if any(atom.GetAtomMapNum() == label for atom in mol.GetAtoms()):
+        raise SwapError(f"Map number {label} is already used.")
+    hydrogens = [
+        a for a in mol.GetAtomWithIdx(anchor).GetNeighbors() if a.GetAtomicNum() == 1
+    ]
+    if len(hydrogens) != 1:
+        raise SwapError(
+            f"Atom {anchor} has {len(hydrogens)} explicit hydrogens, not exactly one."
+        )
+    if hydrogens[0].GetAtomMapNum():
+        raise SwapError(f"The hydrogen of atom {anchor} already has an atom map.")
+    result = Chem.Mol(mol)
+    result.GetAtomWithIdx(hydrogens[0].GetIdx()).SetAtomMapNum(label)
+    return result
+
+
+def substitute_groups(
+    mol: Chem.Mol, substitutions: Mapping[int, str], random_seed: int = 0xF00D
+) -> Chem.Mol:
+    """
+    each labelled terminal H or dummy (map number -> "[*]R")
+    becomes the group R, grafted rigidly on every conformer; "[H]" caps a site with a
+    hydrogen at the sum of the covalent radii along its bond. Kept atoms keep their
+    indices and coordinates; the group's first atom takes the label. Properties of the
+    molecule and its conformers are cleared (results do not carry over); without
+    substitutions, an unchanged copy.
+    """
+    result = Chem.Mol(mol)
+    if not substitutions:
+        return result
+    for label, smiles in substitutions.items():
+        if isinstance(label, bool) or not isinstance(label, int) or label <= 0:
+            raise SwapError("Site labels are positive integers.")
+        if smiles == "[H]":
+            result = _cap(result, label)
+            continue
+        result = apply_swap(result, Swap(smiles, site=label), seed=random_seed).mol
+    for carrier in [result, *result.GetConformers()]:
+        for key in list(
+            carrier.GetPropNames(includePrivate=True, includeComputed=False)
+        ):
+            carrier.ClearProp(key)
+    return result
+
+
+def _cap(mol: Chem.Mol, label: int) -> Chem.Mol:
+    """The site with map number label as a hydrogen, at the covalent distance."""
+    sites = [a for a in mol.GetAtoms() if a.GetAtomMapNum() == label]
+    if len(sites) != 1 or sites[0].GetDegree() != 1:
+        raise SwapError(f"Expected exactly one attachment with map number {label}.")
+    site, anchor = sites[0].GetIdx(), sites[0].GetNeighbors()[0].GetIdx()
+    capped = Chem.RWMol(mol)
+    hydrogen = Chem.Atom(1)
+    hydrogen.SetAtomMapNum(label)
+    capped.ReplaceAtom(site, hydrogen)
+    table = Chem.GetPeriodicTable()
+    length = table.GetRcovalent(1) + table.GetRcovalent(
+        mol.GetAtomWithIdx(anchor).GetAtomicNum()
+    )
+    for conf in capped.GetConformers():
+        positions = conf.GetPositions()
+        direction = positions[site] - positions[anchor]
+        norm = np.linalg.norm(direction)
+        if not np.isfinite(norm) or norm < 1e-8:
+            raise SwapError("The attachment has coincident or invalid coordinates.")
+        conf.SetAtomPosition(
+            site, (positions[anchor] + length * direction / norm).tolist()
+        )
+    result = capped.GetMol()
+    Chem.SanitizeMol(result)
+    return result

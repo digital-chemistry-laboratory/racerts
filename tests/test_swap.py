@@ -8,7 +8,7 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 
 from racerts.system.stereo import StereoCheck
-from racerts.system.swap import Swap, apply_swap
+from racerts.system.swap import Swap, apply_swap, label_hydrogen, substitute_groups
 
 
 def embedded(smiles, n=1, seed=0):
@@ -173,9 +173,186 @@ def test_ambiguous_and_invalid_selectors(methylbiphenyl):
         apply_swap(mol, Swap("[*:1]C", remove_atoms=[1]))  # three cut bonds
 
 
+# Ported from catmlp (tests/test_templates.py, draft d9381f1): substitute_groups and
+# label_hydrogen; the graph-level tests (substitute_graph) stay in catmlp.
+
+
+def quinoline():
+    # The mapped c is quinoline C6.
+    mol = embedded("[cH:6]1ccc2ncccc2c1", seed=42)
+    anchor = next(a.GetIdx() for a in mol.GetAtoms() if a.GetAtomMapNum() == 6)
+    mol.GetAtomWithIdx(anchor).SetAtomMapNum(0)
+    return label_hydrogen(mol, anchor, 100), anchor
+
+
+def test_quinoline_to_methyl_preserves_core_and_clears_results():
+    mol, anchor = quinoline()
+    source = mol.GetConformer().GetPositions().copy()
+    mol.GetConformer().SetDoubleProp("energy", -100)
+    mol.SetProp("acceptance", "passed")
+    grafted = substitute_groups(mol, {100: "[*]C"})
+    assert identity(grafted) == identity(Chem.MolFromSmiles("c1(C)ccc2ncccc2c1"))
+    core = [a.GetIdx() for a in mol.GetAtoms() if a.GetAtomMapNum() != 100]
+    np.testing.assert_array_equal(
+        grafted.GetConformer().GetPositions()[core], source[core]
+    )
+    assert grafted.GetNumAtoms() == mol.GetNumAtoms() + 3
+    assert not grafted.GetConformer().HasProp("energy")
+    assert not grafted.HasProp("acceptance")
+    assert mol.GetConformer().GetDoubleProp("energy") == -100
+    assert mol.GetAtomWithIdx(anchor).GetAtomicNum() == 6
+
+
+@pytest.mark.parametrize("fragment", ["[*][C@H](F)Cl", "F[C@@H](Cl)[*]", "[*]/C=C/Cl"])
+def test_substituent_stereochemistry_is_preserved(fragment):
+    parent = Chem.MolFromSmiles("Br[*:100]")
+    actual = substitute_groups(parent, {100: fragment})
+    expected = Chem.MolFromSmiles(fragment.replace("[*]", "Br"))
+    assert identity(actual) == identity(expected)
+
+
+def test_existing_stereocenter_is_not_inverted():
+    parent = embedded("N[C@@H](C)C(=O)O", seed=42)
+    labeled = label_hydrogen(parent, 1, 100)
+    grafted = substitute_groups(labeled, {100: "[*]F"})
+    assert identity(grafted) == identity(Chem.MolFromSmiles("N[C@@](C)(C(=O)O)F"))
+
+
+@pytest.mark.parametrize("fragment", ["[*][C@H](F)Cl", "F[C@@H](Cl)[*]", "[*]/C=C/Cl"])
+def test_grafted_coordinates_agree_with_substituent_stereo(fragment):
+    parent = label_hydrogen(embedded("BrC(F)Cl", seed=42), 1, 100)
+    grafted = substitute_groups(parent, {100: fragment})
+    # The stereo the graph specifies is that of the geometry (the anchor, a new
+    # stereocentre, is unspecified).
+    check = StereoCheck(grafted)
+    assert check and check.mismatch(grafted.GetConformer()) is None
+    if "@" in fragment:  # the mirror image fails
+        mirror = Chem.Conformer(grafted.GetConformer())
+        for i, p in enumerate(mirror.GetPositions()):
+            mirror.SetAtomPosition(i, (-p[0], p[1], p[2]))
+        assert "inverted" in check.mismatch(mirror)
+
+
+@pytest.mark.parametrize(
+    "fragment", ["C", "[*]C.[Cl-]", "[*:1]C[*:2]", "[*]=C", "[*][CH2]"]
+)
+def test_bad_fragments_fail_without_mutating_parent(fragment):
+    mol, _ = quinoline()
+    before = mol.ToBinary()
+    with pytest.raises(ValueError):
+        substitute_groups(mol, {100: fragment})
+    assert mol.ToBinary() == before
+
+
 def _stereo_agrees(mol):
     check = StereoCheck(mol)
     return all(check.mismatch(conf) is None for conf in mol.GetConformers())
+
+
+@pytest.mark.parametrize("extra_site", [False, True])
+def test_quinoline_methyl_transfer_preserves_core_and_invalidates_results(extra_site):
+    mol = label_hydrogen(embedded("c1ccc2ncccc2c1", seed=42), 0, 100)
+    substitutions = {100: "[*]C"}
+    if extra_site:
+        mol = label_hydrogen(mol, 1, 101)
+        substitutions[101] = "[*]F"
+    source = mol.GetConformer().GetPositions()
+    mol.GetConformer().SetDoubleProp("energy", -100)
+    mol.GetConformer().SetProp("hessian", "stale")
+    second = Chem.Conformer(mol.GetConformer())
+    second.SetId(7)
+    for index, position in enumerate(source + 2):
+        second.SetAtomPosition(index, position)
+    mol.AddConformer(second, assignId=False)
+    mol.SetProp("acceptance", "passed")
+    before = mol.ToBinary(Chem.PropertyPickleOptions.AllProps)
+    grafted = substitute_groups(mol, substitutions)
+    expected = "c1(C)c(F)cc2ncccc2c1" if extra_site else "c1(C)ccc2ncccc2c1"
+    assert identity(grafted) == canonical(expected)
+    core = [
+        a.GetIdx() for a in mol.GetAtoms() if a.GetAtomMapNum() not in substitutions
+    ]
+    assert [c.GetId() for c in grafted.GetConformers()] == [0, 7]
+    for conformer, reference in zip(grafted.GetConformers(), (source, source + 2)):
+        np.testing.assert_array_equal(conformer.GetPositions()[core], reference[core])
+        assert not conformer.GetPropsAsDict(includePrivate=True)
+    assert grafted.GetNumAtoms() == mol.GetNumAtoms() + 3
+    assert not grafted.HasProp("acceptance")
+    assert mol.ToBinary(Chem.PropertyPickleOptions.AllProps) == before
+
+
+def test_dummy_cap_then_enlarge_and_empty_copy():
+    template = Chem.MolFromSmiles("c1ccccc1[*:100]")
+    parent = substitute_groups(template, {100: "[H]"})
+    variant = substitute_groups(parent, {100: "[*]CC"})
+    assert identity(variant) == "CCc1ccccc1"
+    assert variant.GetNumConformers() == 0
+    parent.SetProp("keep", "unchanged")
+    copied = substitute_groups(parent, {})
+    assert copied is not parent and copied.GetProp("keep") == "unchanged"
+
+
+@pytest.mark.parametrize(
+    "fragment", ["[*][C@H](F)Cl", "F[C@@H](Cl)[*]", "[*]/C=C/Cl", "[*]/C=C\\Cl"]
+)
+def test_graft_stereo_is_verified_from_coordinates(fragment):
+    parent = label_hydrogen(embedded("Br", seed=42), 0, 100)
+    grafted = substitute_groups(parent, {100: fragment})
+    assert identity(grafted) == canonical(fragment.replace("[*]", "Br"))
+    assert StereoCheck(grafted) and _stereo_agrees(grafted)
+
+
+def test_existing_stereocenter_and_attachment_distance_are_preserved():
+    parent = label_hydrogen(embedded("N[C@@H](C)C(=O)O", seed=42), 1, 100)
+    grafted = substitute_groups(parent, {100: "[*]F"})
+    assert identity(grafted) == canonical("N[C@@](C)(C(=O)O)F")
+    assert _stereo_agrees(grafted)
+    capped = substitute_groups(parent, {100: "[H]"})
+    site = next(a.GetIdx() for a in capped.GetAtoms() if a.GetAtomMapNum() == 100)
+    xyz = capped.GetConformer().GetPositions()
+    radii = Chem.GetPeriodicTable()
+    assert np.linalg.norm(xyz[site] - xyz[1]) == pytest.approx(
+        radii.GetRcovalent(6) + radii.GetRcovalent(1)
+    )
+
+
+@pytest.mark.parametrize(
+    "fragment", ["C", "[*]C.[Cl-]", "[*]C[*]", "[*]=C", "[*][CH2]"]
+)
+def test_invalid_fragments_leave_parent_unchanged(fragment):
+    parent = label_hydrogen(embedded("Br", seed=42), 0, 100)
+    before = parent.ToBinary(Chem.PropertyPickleOptions.AllProps)
+    with pytest.raises(ValueError):
+        substitute_groups(parent, {100: fragment})
+    assert parent.ToBinary(Chem.PropertyPickleOptions.AllProps) == before
+
+
+def test_ambiguous_sites_and_invalid_indices_are_not_guessed():
+    parent = embedded("C", seed=42)
+    with pytest.raises(ValueError, match="exactly one"):
+        label_hydrogen(parent, 0, 100)
+    with pytest.raises(IndexError):
+        label_hydrogen(parent, -1, 100)
+    with pytest.raises(TypeError):
+        label_hydrogen(parent, 0, True)
+    with pytest.raises(ValueError, match="exactly one atom with map number 100"):
+        substitute_groups(parent, {100: "[*]C"})
+    marked = label_hydrogen(embedded("Br", seed=42), 0, 100)
+    with pytest.raises(ValueError, match="already has an atom map"):
+        label_hydrogen(marked, 0, 101)
+    coincident = Chem.MolFromSmiles("F[*:100]")
+    coincident.AddConformer(Chem.Conformer(2))
+    with pytest.raises(ValueError, match="coincident"):
+        substitute_groups(coincident, {100: "[H]"})
+
+
+def test_charged_graft():
+    # catmlp: a charged group changes the charge of what follows (here the context).
+    mol, _ = quinoline()
+    grafted = substitute_groups(mol, {100: "[*][N+](C)(C)C"})
+    assert Chem.GetFormalCharge(grafted) == 1
+    ctx = racerts.Context.create(grafted, racerts.GroundState())
+    assert ctx.mol.GetIntProp("charge") == 1
 
 
 # Metal complexes: dative bonds (the graphs).
@@ -823,6 +1000,17 @@ def test_no_spurious_e_z_between_stereo_double_bonds():
             apply_swap(mol, Swap("[*]/C=C/F", remove_atoms=[h])).mol
         )
         assert geometry == [graph]
+
+
+def test_a_dummy_site_gets_the_covalent_bond_length():
+    template = Chem.AddHs(Chem.MolFromSmiles("[*:1]c1ccccc1"))
+    AllChem.EmbedMolecule(template, randomSeed=1)
+    grafted = substitute_groups(template, {1: "[*]C"})
+    root = next(a.GetIdx() for a in grafted.GetAtoms() if a.GetAtomMapNum() == 1)
+    positions = grafted.GetConformer().GetPositions()
+    assert np.linalg.norm(positions[root] - positions[1]) == pytest.approx(
+        2 * Chem.GetPeriodicTable().GetRcovalent(6)
+    )
 
 
 def test_valence_check_spares_metals_and_heavy_atom_templates():

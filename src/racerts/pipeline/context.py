@@ -2,7 +2,7 @@
 
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import Optional
+from typing import List, Optional, Tuple
 
 from rdkit import Chem
 
@@ -16,7 +16,9 @@ class Context:
     """
     Attributes:
         mol: The molecular graph with its charge and multiplicity as properties; its
-            conformer (if any) is the reference geometry.
+            conformer (if any) is the reference geometry. With several conformers
+            (several references, see Embed(references=...)), the first is the
+            reference unless a conformer's provenance names another.
         task: What is kept fixed.
         frozen: The FrozenSet of the task for mol.
         seed: The random seed; embedders that stages create use it as their RDKit
@@ -32,6 +34,34 @@ class Context:
     def reference(self) -> Optional[Chem.Mol]:
         """The molecule with the reference geometry, if there is one."""
         return self.mol if self.mol.GetNumConformers() > 0 else None
+
+    def reference_mol(self, conf_id: int) -> Chem.Mol:
+        """The molecule with only its conformer conf_id, as a reference geometry."""
+        mol = Chem.Mol(self.mol)
+        conf = Chem.Conformer(self.mol.GetConformer(conf_id))
+        mol.RemoveAllConformers()
+        mol.AddConformer(conf)
+        return mol
+
+    def by_reference(self, ensemble) -> List[Tuple[Optional[Chem.Mol], List[int]]]:
+        """
+        (reference, conformer ids) pairs: the conformers embedded from each reference
+        (provenance "reference", see Embed(references=...)), or all conformers with
+        the reference.
+        """
+        conf_ids = ensemble.conf_ids
+        if self.mol.GetNumConformers() <= 1:
+            return [(self.reference, conf_ids)]
+        groups = {}
+        for conf_id in conf_ids:
+            reference = ensemble.provenance(conf_id).get("reference")
+            groups.setdefault(reference, []).append(conf_id)
+        if list(groups) == [None]:
+            return [(self.reference, conf_ids)]
+        return [
+            (self.reference if ref is None else self.reference_mol(ref), ids)
+            for ref, ids in groups.items()
+        ]
 
     def graph(self) -> Chem.Mol:
         """A copy of the molecular graph without conformers, e.g. to embed into."""

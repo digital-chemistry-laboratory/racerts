@@ -1,7 +1,7 @@
 """The Embed stage."""
 
 import logging
-from typing import Optional
+from typing import Optional, Sequence, Union
 
 from rdkit import Chem
 from rdkit.Chem import Descriptors
@@ -72,6 +72,11 @@ class Embed:
         n_conformers: Number of conformers to embed; -1 for the default count
             (rotatable bonds * conf_factor + 30).
         conf_factor: Conformers per rotatable bond for the default count.
+        references: With several reference geometries (conformers of the context's
+            molecule, e.g. TSs from a TS search): "all", or a list of their conformer
+            ids. The count is embedded for each; the provenance records "reference"
+            (its conformer id), and Refine then refines each conformer against its
+            reference. Default: the first conformer only.
 
     Embed starts an ensemble; it raises if it gets one. An embedder passed in keeps its
     own settings, including its seed.
@@ -84,10 +89,14 @@ class Embed:
         embedder: Optional[BaseEmbedder] = None,
         n_conformers: int = -1,
         conf_factor: int = DEFAULT_CONF_FACTOR,
+        references: Union[None, str, Sequence[int]] = None,
     ):
+        if isinstance(references, str) and references != "all":
+            raise ValueError("references must be None, 'all' or conformer ids.")
         self.embedder = embedder
         self.n_conformers = n_conformers
         self.conf_factor = conf_factor
+        self.references = references
 
     def run(
         self, ctx, ensemble: Optional[ConformerEnsemble] = None
@@ -100,19 +109,62 @@ class Embed:
         embedder = self.embedder
         if embedder is None:
             embedder = default_embedder(ctx.task, ctx.seed)
-        mol = ctx.graph()
-        n = conformer_count(mol, self.n_conformers, self.conf_factor)
-        logger.info("Embedding %d conformers with %s.", n, type(embedder).__name__)
-        embedder.embed(mol, ctx.reference, ctx.frozen, n)
-        if mol.GetNumConformers() == 0:
-            raise no_conformers_error(ctx.frozen)
-
-        embedded = ConformerEnsemble(mol)
+        n = conformer_count(
+            ctx.graph(),
+            self.n_conformers,
+            self.conf_factor,
+        )
         provenance = {
             "embedder": type(embedder).__name__,
             "seed": getattr(embedder, "randomSeed", None),
         }
         if getattr(embedder, "etkdg", None) is not None:
             provenance["etkdg"] = embedder.etkdg
-        embedded.add_provenance(**provenance)
-        return embedded
+
+        references = self._references(ctx)
+        if references is None:
+            logger.info("Embedding %d conformers with %s.", n, type(embedder).__name__)
+            embedded = self._embed(embedder, ctx, ctx.reference, n)
+            embedded.add_provenance(**provenance)
+            return embedded
+
+        ensemble = None
+        for ref_id in references:
+            logger.info(
+                "Embedding %d conformers with %s from reference %d.",
+                n,
+                type(embedder).__name__,
+                ref_id,
+            )
+            part = self._embed(embedder, ctx, ctx.reference_mol(ref_id), n, check=False)
+            part.add_provenance(**provenance, reference=ref_id)
+            ensemble = part if ensemble is None else ensemble.merge(part)
+        if len(ensemble) == 0:
+            raise no_conformers_error(ctx.frozen)
+        return ensemble
+
+    def _references(self, ctx) -> Optional[list]:
+        if self.references is None:
+            return None
+        if ctx.reference is None:
+            raise ValueError("Embed(references=...) needs reference geometries.")
+        available = [conf.GetId() for conf in ctx.mol.GetConformers()]
+        if self.references == "all":
+            return available
+        if not self.references:
+            raise ValueError("references must name at least one conformer.")
+        unknown = set(self.references) - set(available)
+        if unknown:
+            raise ValueError(
+                f"No reference conformers with ids {sorted(unknown)} "
+                f"(available: {available})."
+            )
+        return list(self.references)
+
+    @staticmethod
+    def _embed(embedder, ctx, reference, n, check=True) -> ConformerEnsemble:
+        mol = ctx.graph()
+        embedder.embed(mol, reference, ctx.frozen, n)
+        if check and mol.GetNumConformers() == 0:
+            raise no_conformers_error(ctx.frozen)
+        return ConformerEnsemble(mol)

@@ -74,3 +74,9 @@ def test_distance_matrix_row_by_row_is_identical():
     assert np.array_equal(
         distance_matrix(coordinates), distance_matrix(coordinates, max_elements=0)
     )
+
+
+def test_embed_needs_named_references(hept_1_ene_ts):
+    ctx = racerts.Context.create(hept_1_ene_ts, racerts.TransitionState([3, 4, 5]))
+    with pytest.raises(ValueError, match="at least one"):
+        racerts.Embed(references=[]).run(ctx)

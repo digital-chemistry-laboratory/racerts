@@ -88,3 +88,49 @@ def test_tasks_with_a_reference_need_a_geometry():
     with pytest.raises(ValueError, match="needs a reference geometry"):
         Context.create(graph, TransitionState([3, 4, 5]))
     assert Context.create(graph, GroundState()).reference is None
+
+
+def _two_references(mol):
+    """mol with a second reference geometry: the first one rotated and shifted."""
+    import numpy as np
+
+    positions = mol.GetConformer().GetPositions()
+    c, s = np.cos(1.0), np.sin(1.0)
+    rotated = positions @ np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]]).T + [5, 0, 0]
+    two = Chem.Mol(mol)
+    conf = Chem.Conformer(mol.GetNumAtoms())
+    for i, p in enumerate(rotated):
+        conf.SetAtomPosition(i, p.tolist())
+    conf.SetId(7)
+    two.AddConformer(conf)
+    return two
+
+
+def test_several_references(hept_1_ene_ts):
+    import numpy as np
+
+    mol = _two_references(hept_1_ene_ts)
+    task = racerts.TransitionState([3, 4, 5])
+    pipeline = racerts.Pipeline(
+        [racerts.Embed(n_conformers=3, references="all"), racerts.Refine()]
+    )
+    ctx = racerts.Context.create(mol, task)
+    ensemble = pipeline.run(ctx)
+
+    references = [ensemble.provenance(i)["reference"] for i in ensemble.conf_ids]
+    assert references == [0, 0, 0, 7, 7, 7]
+    # Each conformer is refined onto its own reference: the frozen atoms are there.
+    frozen = list(ctx.frozen.hard)
+    for conf_id, reference in zip(ensemble.conf_ids, references):
+        target = mol.GetConformer(reference).GetPositions()[frozen]
+        found = ensemble.mol.GetConformer(conf_id).GetPositions()[frozen]
+        assert np.abs(found - target).max() < 1e-3
+
+    one = racerts.Embed(n_conformers=3, references=[7]).run(ctx)
+    assert len(one) == 3 and {one.provenance(i)["reference"] for i in one.conf_ids} == {
+        7
+    }
+    with pytest.raises(ValueError, match="No reference conformers with ids"):
+        racerts.Embed(n_conformers=3, references=[3]).run(ctx)
+    with pytest.raises(ValueError, match="'all'"):
+        racerts.Embed(references="first")

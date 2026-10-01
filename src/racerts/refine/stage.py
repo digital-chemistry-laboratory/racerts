@@ -4,6 +4,7 @@ import logging
 from typing import Callable, Optional, Type
 
 from racerts.pipeline import ConformerEnsemble
+from racerts.pipeline.ensemble import PROVENANCE
 
 from .base import BaseOptimizer
 from .forcefield import MMFFOptimizer, UFFOptimizer
@@ -77,10 +78,41 @@ class Refine:
     def run(self, ctx, ensemble: ConformerEnsemble) -> ConformerEnsemble:
         optimizer = self.optimizer if self.optimizer is not None else MMFFOptimizer()
         anchors = ctx.frozen.hard if self.anchors else ()
+        groups = ctx.by_reference(ensemble)
+
+        def refine(opt):
+            if len(groups) == 1:
+                return opt.refine(ensemble.mol, groups[0][0], anchors)
+            # Several references (Embed(references=...)): each group against its own.
+            for reference, conf_ids in groups:
+                part = ensemble.filter(conf_ids)
+                opt.refine(part.mol, reference, anchors)
+                _write_back(ensemble, part, conf_ids)
+
         energy_method = refine_with_fallback(
             optimizer,
-            lambda opt: opt.refine(ensemble.mol, ctx.reference, anchors),
+            refine,
             fallback=UFFOptimizer if self.fallback else None,
         )
         ensemble.mol.SetProp("energy_method", energy_method)
         return ensemble
+
+
+def _write_back(ensemble: ConformerEnsemble, part: ConformerEnsemble, conf_ids) -> None:
+    """Positions, energies and provenance of the conformers of part into ensemble;
+    conformers that part lost are removed."""
+    kept = set(part.conf_ids)
+    for conf_id in conf_ids:
+        target = ensemble.mol.GetConformer(conf_id)
+        if conf_id not in kept:
+            ensemble.mol.RemoveConformer(conf_id)
+            continue
+        source = part.mol.GetConformer(conf_id)
+        for atom, position in enumerate(source.GetPositions()):
+            target.SetAtomPosition(atom, position.tolist())
+        for key in ("energy", PROVENANCE):
+            target.ClearProp(key)
+        if source.HasProp("energy"):
+            target.SetDoubleProp("energy", source.GetDoubleProp("energy"))
+        if source.HasProp(PROVENANCE):
+            target.SetProp(PROVENANCE, source.GetProp(PROVENANCE))

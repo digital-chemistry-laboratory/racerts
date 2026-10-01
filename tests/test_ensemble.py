@@ -256,6 +256,23 @@ def test_from_frames_with_ase_atoms():
             ConformerEnsemble.from_frames(Chem.MolFromSmiles(smiles), [])
 
 
+def test_imported_mirror_images_are_caught_by_validation():
+    import racerts
+    from racerts.validate import IdentityFilter
+
+    template = Chem.MolFromSmiles("F[C@](Cl)(Br)I")
+    xyz = np.array([[1, 1, 1], [0, 0, 0], [1, -1, -1], [-1, 1, -1], [-1, -1, 1]], float)
+    xyz *= np.array([1.35, 0, 1.77, 1.94, 2.14])[:, None] / np.sqrt(3)
+    # A structure and its mirror image: import takes both, validation keeps one.
+    ensemble = ConformerEnsemble.from_frames(template, [xyz, -xyz])
+    ctx = racerts.Context.create(ensemble.mol, racerts.GroundState())
+    kept = IdentityFilter().run(ctx, ensemble.copy())
+    assert len(kept) == 1
+    mirror = 1 - kept.conf_ids[0]
+    with pytest.raises(RuntimeError, match="No conformer passed"):
+        IdentityFilter().run(ctx, ensemble.filter([mirror]))
+
+
 def test_write_sdf(ethanol, tmp_path):
     ethanol.add_provenance(0, seed=12)
     path = str(tmp_path / "ensemble.sdf")

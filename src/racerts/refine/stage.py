@@ -40,12 +40,17 @@ def refine_with_fallback(
             type(optimizer).__name__,
             e,
         )
+        failed = optimizer
         optimizer = fallback(
-            verbose=optimizer.verbose,
-            conf_id_ref=optimizer.conf_id_ref,
-            force_constant=optimizer.force_constant,
-            num_threads=optimizer.num_threads if num_threads is None else num_threads,
+            verbose=failed.verbose,
+            conf_id_ref=failed.conf_id_ref,
+            force_constant=failed.force_constant,
+            num_threads=failed.num_threads if num_threads is None else num_threads,
         )
+        # Set afterwards: legacy UFF subclasses take only the arguments above.
+        for setting in ("converge", "anchor_free_energies"):
+            if hasattr(failed, setting):
+                setattr(optimizer, setting, getattr(failed, setting))
         run(optimizer)
     return type(optimizer).__name__
 

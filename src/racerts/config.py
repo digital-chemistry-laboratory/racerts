@@ -79,6 +79,8 @@ class RefineConfig:
         backend: "mmff" or "uff".
         fallback: Fall back to UFF when MMFF has no parameters.
         force_constant: Force constant (kcal/mol/A^2) that holds the frozen atoms.
+        converge: Restart minimizations that stop early next to the frozen atoms;
+            legacy racerts stops at the first converged call.
         anchor_free_energies: Report energies without the terms that hold the frozen
             atoms; legacy racerts includes them.
     """
@@ -86,6 +88,7 @@ class RefineConfig:
     backend: str = "mmff"
     fallback: bool = True
     force_constant: float = 1e6
+    converge: bool = False
     anchor_free_energies: bool = False
 
     def __post_init__(self):
@@ -232,6 +235,7 @@ class PipelineConfig:
         options = dict(
             force_constant=refine.force_constant,
             num_threads=self.num_threads,
+            converge=refine.converge,
             anchor_free_energies=refine.anchor_free_energies,
         )
         optimizer = REFINE_BACKENDS[refine.backend](**options)

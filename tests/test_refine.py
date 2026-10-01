@@ -102,6 +102,32 @@ def _refined(optimizer, mol):
     return ensemble, ctx
 
 
+def _gain_of_a_second_pass(ensemble, ctx):
+    """How much a second legacy MMFF pass lowers each energy (kcal/mol)."""
+    again = ensemble.copy()
+    MMFFOptimizer(anchor_free_energies=True).refine(
+        again.mol, ctx.reference, ctx.frozen.hard
+    )
+    return ensemble.energies() - again.energies()
+
+
+def test_converged_refinement_reaches_the_minimum(hept_1_ene_ts):
+    # Legacy racerts stops the minimization next to the stiff anchors early: a second
+    # pass still lowers the energies by kcal/mol.
+    legacy, ctx = _refined(MMFFOptimizer(anchor_free_energies=True), hept_1_ene_ts)
+    assert np.max(_gain_of_a_second_pass(legacy, ctx)) > 1.0
+
+    converged, ctx = _refined(
+        MMFFOptimizer(converge=True, anchor_free_energies=True), hept_1_ene_ts
+    )
+    assert np.max(np.abs(_gain_of_a_second_pass(converged, ctx))) < 1e-2
+    # The frozen atoms stay at the reference.
+    frozen = list(ctx.frozen.hard)
+    reference = ctx.reference.GetConformer().GetPositions()[frozen]
+    for conf in converged.mol.GetConformers():
+        assert np.abs(conf.GetPositions()[frozen] - reference).max() < 1e-3
+
+
 def _mmff_energy(mol, conf_id):
     props = AllChem.MMFFGetMoleculeProperties(mol)
     return AllChem.MMFFGetMoleculeForceField(
@@ -119,6 +145,23 @@ def test_anchor_free_energies_leave_out_the_anchor_terms(hept_1_ene_ts):
 
     assert max(excess(MMFFOptimizer())) > 1e-3  # legacy: anchor terms included
     assert max(np.abs(excess(MMFFOptimizer(anchor_free_energies=True)))) < 1e-8
+
+
+def test_the_uff_fallback_keeps_the_new_settings():
+    pipeline = racerts.Pipeline(
+        [
+            racerts.Embed(n_conformers=3),
+            racerts.Refine(MMFFOptimizer(converge=True, anchor_free_energies=True)),
+        ]
+    )
+    ensemble = racerts.generate_ts(BORONIC_ACID, [0, 1, 2], pipeline=pipeline)
+    assert ensemble.energy_method == "UFFOptimizer"
+
+    for conf in ensemble.mol.GetConformers():
+        uff = AllChem.UFFGetMoleculeForceField(
+            ensemble.mol, confId=conf.GetId(), ignoreInterfragInteractions=False
+        )
+        assert conf.GetDoubleProp("energy") == pytest.approx(uff.CalcEnergy(), abs=1e-8)
 
 
 def test_refine_without_anchors_moves_the_frozen_atoms(hept_1_ene_ts):

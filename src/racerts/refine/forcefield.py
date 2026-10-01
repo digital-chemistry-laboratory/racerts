@@ -15,6 +15,33 @@ from .base import BaseOptimizer
 
 logger = logging.getLogger(__name__)
 
+ENERGY_TOLERANCE = 1e-4  # kcal/mol
+
+
+def minimize(ff, max_rounds: int, converge: bool = False) -> int:
+    """
+    Minimize ff; returns the number of Minimize calls that did not converge.
+
+    Legacy racerts calls Minimize until one call converges. Next to stiff anchor terms,
+    a BFGS run can report convergence long before the free atoms reach a minimum; with
+    converge, a converged call is restarted (with a fresh Hessian estimate) as long as
+    it still lowers the energy by more than ENERGY_TOLERANCE.
+    """
+    failures = 0
+    energy = ff.CalcEnergy()
+    for _ in range(max_rounds):
+        done = ff.Minimize() == 0
+        if not converge:
+            if done:
+                break
+            failures += 1
+            continue
+        previous, energy = energy, ff.CalcEnergy()
+        if done and previous - energy < ENERGY_TOLERANCE:
+            break
+        failures += not done
+    return failures
+
 
 class ForceFieldOptimizer(BaseOptimizer):
     """
@@ -24,6 +51,8 @@ class ForceFieldOptimizer(BaseOptimizer):
     reference before and after. Minimize is called up to maxIter times per conformer.
 
     Args:
+        converge: Restart minimizations that stop early next to the anchors (see
+            minimize); legacy racerts stops at the first converged call.
         anchor_free_energies: Report the energy of the force field without the anchor
             terms; legacy racerts includes them (0.02-0.18 kcal/mol on test systems).
     """
@@ -34,12 +63,14 @@ class ForceFieldOptimizer(BaseOptimizer):
         conf_id_ref=-1,
         force_constant=1000000,
         num_threads=1,
+        converge: bool = False,
         anchor_free_energies: bool = False,
     ):
         self.verbose = verbose
         self.conf_id_ref = conf_id_ref
         self.force_constant = force_constant
         self.num_threads = num_threads
+        self.converge = converge
         self.anchor_free_energies = anchor_free_energies
         self.maxIter = 100
 
@@ -78,12 +109,7 @@ class ForceFieldOptimizer(BaseOptimizer):
                 ff.AddDistanceConstraint(ep_idx, idx, 0, 0, self.force_constant)
 
             ff.Initialize()
-
-            local_fail = 0
-            for _ in range(self.maxIter):
-                if ff.Minimize() == 0:
-                    break
-                local_fail += 1
+            local_fail = minimize(ff, self.maxIter, converge=self.converge)
 
             if self.anchor_free_energies and align_indices:
                 energy = self._force_field(mol, conf_id, setup).CalcEnergy()

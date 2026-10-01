@@ -110,7 +110,8 @@ class SwapResult:
             replaces a bond, grafted rigidly).
         positioned: The new atoms with coordinates: all if placed, else none.
         warnings: Diagnostics, also logged.
-        fragment: The fragment with its hydrogens and dummies.
+        fragment: The fragment with its hydrogens and dummies (for further poses,
+            see racerts.embed.rigid_attach).
         fragment_map: Fragment index -> new index of its atoms (not the dummies).
         replaced: Removed atom (reference index) -> the new atom that took its bond
             to a kept atom; it takes the removed atom's role in a task (see

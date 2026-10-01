@@ -10,6 +10,7 @@ from rdkit import Chem
 
 from racerts.config import PipelineConfig
 from racerts.embed import Embed
+from racerts.embed.rigid_attach import rigid_attach
 from racerts.embed.stage import default_embedder
 from racerts.pipeline import ConformerEnsemble, Context, Pipeline
 from racerts.restraints import RestraintSet
@@ -182,7 +183,9 @@ def generate_gs(
 
 
 CONSERVE = ("hard", "soft", "free")
-SWAP_ROUTES = ("dg",)
+SWAP_ROUTES = ("dg", "rigid")
+# In a benchmark at equal TS-search budget, the rigid poses crowded out better
+# starting points (SN2 +4.8 kcal/mol in 2 of 3 seeds), so they are opt-in.
 DEFAULT_SWAP_ROUTES = ("dg",)
 CORE_DISTANCE_WARNING = 3  # bonds between an attachment and the frozen atoms
 
@@ -195,6 +198,8 @@ def swap(
     n_conformers: int = -1,
     routes: Optional[Sequence[str]] = None,
     hard: Sequence[int] = (),
+    n_rigid_conformers: int = 3,
+    n_rotations: int = 12,
     config: Optional[PipelineConfig] = None,
     charge: Optional[int] = None,
     multiplicity: Optional[int] = None,
@@ -221,11 +226,14 @@ def swap(
             - "free": only the hard atoms of the task are held (full resampling).
         n_conformers: Distance-geometry conformers per reference (-1: the count of
             config.embed).
-        routes: "dg" (distance geometry with the kept atoms mapped), the default.
-            Each conformer records its route in the provenance.
+        routes: "dg" (distance geometry with the kept atoms mapped) and "rigid"
+            (fragment conformers turned about the attachment bond; single
+            attachments that replace a bond only); default "dg". Each conformer
+            records its route in the provenance.
         hard: Further atoms (reference indices) to hold fixed: kept ones, or removed
             ones whose replacement then stays at their position (e.g. the donor atoms
             of a ligand swap, SwapResult.positioned).
+        n_rigid_conformers, n_rotations: Poses of the rigid route per reference.
         config: Settings of the embedding, refinement and pruning; embedding uses the
             coordinate map and the "frozen_first" chirality fallback; swaps take no
             restraints (config.restraints raises).
@@ -262,6 +270,8 @@ def swap(
     ]
     if invalid:
         raise SwapError(f"Invalid hard atoms {invalid}.")
+    if "rigid" not in routes and (n_rigid_conformers, n_rotations) != (3, 12):
+        raise SwapError("n_rigid_conformers and n_rotations need the rigid route.")
     with verbose_logging(verbose):
         result = apply_swap(mol, change, seed=config.seed)
         index_map = result.index_map  # replaced atoms pass their role on
@@ -336,6 +346,15 @@ def swap(
             ).run(ctx)
             embedded.add_provenance(route="dg")
             parts.append(embedded)
+        if "rigid" in routes:
+            if result.placed:
+                parts.append(
+                    rigid_attach(result, n_rigid_conformers, n_rotations, config.seed)
+                )
+            else:
+                logger.info("No rigid route: it needs a single attachment.")
+        if not parts:
+            raise SwapError("No route applies to this swap; use routes=['dg'].")
         ensemble = parts[0]
         for part in parts[1:]:
             ensemble = ensemble.merge(part)

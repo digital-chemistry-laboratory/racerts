@@ -355,6 +355,8 @@ def test_soft_atoms_need_the_coordinate_map_embedder():
 
 
 # racerts.swap: sampling after the swap.
+
+from racerts.embed.rigid_attach import rigid_attach  # noqa: E402
 from racerts.prune import aligned_rmsd  # noqa: E402
 
 BUTYL_SWAP = Swap("[*:1]CCCC", old_fragment="[CH3][c:1]")
@@ -395,8 +397,10 @@ def test_swap_soft_samples_the_chain_around_the_kept_skeleton(methylbiphenyl):
         racerts.swap(mol, BUTYL_SWAP, n_conformers=4).provenance(c)["route"]
         for c in racerts.swap(mol, BUTYL_SWAP, n_conformers=4).conf_ids
     } == {"dg"}  # the default route
-    ensemble = racerts.swap(mol, BUTYL_SWAP, n_conformers=30)
+    ensemble = racerts.swap(mol, BUTYL_SWAP, n_conformers=30, routes=["dg", "rigid"])
     assert identity(ensemble.mol) == BUTYL
+    routes = {ensemble.provenance(c)["route"] for c in ensemble.conf_ids}
+    assert routes == {"dg", "rigid"}
     reference_torsion = _ring_torsion(mol)
     butyl = [
         a.GetIdx()
@@ -514,6 +518,28 @@ def test_swap_errors(methylbiphenyl, sn2_ts):
             Swap("[*:1]<-P(C)(C)C", remove_atoms=[], attach_map={1: 1}),
             conserve="hard",
         )
+
+
+def test_rigid_attach_poses(methylbiphenyl):
+    result = apply_swap(methylbiphenyl, BUTYL_SWAP)
+    poses = rigid_attach(result, n_fragment_conformers=2, n_rotations=6)
+    assert 0 < len(poses) <= 12
+    kept = result.conserved
+    reference = result.mol.GetConformer().GetPositions()
+    anchor, root = result.attachments[0]
+    seen = set()
+    for conf_id in poses.conf_ids:
+        positions = poses.mol.GetConformer(conf_id).GetPositions()
+        np.testing.assert_allclose(positions[kept], reference[kept])
+        assert np.linalg.norm(positions[root] - positions[anchor]) == pytest.approx(
+            np.linalg.norm(reference[root] - reference[anchor])
+        )
+        provenance = poses.provenance(conf_id)
+        assert provenance["route"] == "rigid" and provenance["reference"] == 0
+        seen.add(tuple(provenance["pose"]))
+    assert len(seen) == len(poses)
+    # A strict clash filter leaves fewer poses.
+    assert len(rigid_attach(result, 2, 6, clash_factor=1.2)) < len(poses)
 
 
 def test_a_replaced_atom_passes_its_role_on(sn2_ts):
@@ -637,6 +663,13 @@ def test_hard_mode_takes_charge_and_multiplicity(methylbiphenyl):
     )
     index_map = json.loads(hard.mol.GetProp("swap_index_map"))
     assert index_map["1"] == 1
+
+
+def test_swap_rejects_rigid_settings_without_the_route(methylbiphenyl):
+    with pytest.raises(ValueError, match="rigid route"):
+        racerts.swap(methylbiphenyl, BUTYL_SWAP, n_rotations=6, n_conformers=2)
+    with pytest.raises(ValueError, match="Invalid hard"):
+        racerts.swap(methylbiphenyl, BUTYL_SWAP, hard=[1.5], n_conformers=2)
 
 
 def test_e_z_survives_when_a_stereo_atom_leaves():

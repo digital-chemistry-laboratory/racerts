@@ -1,6 +1,10 @@
 """
 Swaps: replace a group of a molecule by a new fragment (graph surgery), keeping the
 geometry of the other atoms (as catmlp's substitutions do).
+
+apply_swap returns the new graph with every conformer of the reference: the kept atoms
+at their coordinates and, for a single attachment, the fragment grafted rigidly along
+the removed bond (as catmlp).
 """
 
 import logging
@@ -8,7 +12,8 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
-from rdkit import Chem
+from rdkit import Chem, rdBase
+from rdkit.Chem import AllChem
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +99,8 @@ class Swap:
 class SwapResult:
     """
     Attributes:
-        mol: The new molecule.
+        mol: The new molecule with every conformer of the reference (same IDs): kept
+            atoms at their coordinates, new atoms grafted (placed) or at the origin.
         conserved: New indices of the kept atoms, in reference order.
         new_atoms: New indices of the fragment atoms.
         junction: Kept atoms at an attachment and their kept neighbours.
@@ -102,6 +108,7 @@ class SwapResult:
         attachments: (kept atom, fragment atom) of each attachment bond, new indices.
         placed: Whether the new atoms have coordinates (a single attachment that
             replaces a bond, grafted rigidly).
+        positioned: The new atoms with coordinates: all if placed, else none.
         warnings: Diagnostics, also logged.
         fragment: The fragment with its hydrogens and dummies.
         fragment_map: Fragment index -> new index of its atoms (not the dummies).
@@ -118,6 +125,7 @@ class SwapResult:
     attachments: List[Tuple[int, int]]
     placed: bool
     warnings: List[str] = field(default_factory=list)
+    positioned: List[int] = field(default_factory=list)
     fragment: Optional[Chem.Mol] = None
     fragment_map: Dict[int, int] = field(default_factory=dict)
     replaced: Dict[int, int] = field(default_factory=dict)
@@ -138,9 +146,10 @@ class _Attachment:
     partner: Optional[int]  # reference index of the removed atom bound to kept
 
 
-def apply_swap(mol: Chem.Mol, swap: Swap) -> SwapResult:
+def apply_swap(mol: Chem.Mol, swap: Swap, seed: int = 0xF00D) -> SwapResult:
     """
-    The molecule with the swap applied (mol is not changed).
+    The molecule with the swap applied (mol is not changed). seed: of the fragment
+    geometry that is grafted.
 
     Raises:
         ValueError: For a selector that does not match exactly once, a fragment that
@@ -158,6 +167,11 @@ def apply_swap(mol: Chem.Mol, swap: Swap) -> SwapResult:
     )
 
     placed = False
+    if mol.GetNumConformers():
+        placed = len(attachments) == 1 and attachments[0].partner is not None
+        _coordinates(
+            mol, result, fragment, attachments, frag_to_new, ref_to_new, placed, seed
+        )
 
     conserved = [ref_to_new[i] for i in sorted(ref_to_new)]
     new_atoms = sorted(frag_to_new.values())
@@ -187,6 +201,7 @@ def apply_swap(mol: Chem.Mol, swap: Swap) -> SwapResult:
         attachments=[(ref_to_new[a.kept], frag_to_new[a.root]) for a in attachments],
         placed=placed,
         warnings=warnings,
+        positioned=new_atoms if placed else [],
         fragment=fragment,
         fragment_map=frag_to_new,
         replaced={
@@ -603,3 +618,71 @@ def _odd(order: Sequence[int]) -> bool:
         order[a] > order[b] for a in range(len(order)) for b in range(a + 1, len(order))
     )
     return bool(inversions % 2)
+
+
+def _coordinates(
+    mol, result, fragment, attachments, frag_to_new, ref_to_new, placed, seed
+):
+    """Every reference conformer, with the fragment grafted if placed."""
+    xyz = None
+    if placed:
+        embedded = Chem.Mol(fragment)
+        with rdBase.BlockLogs():  # UFF typer messages for the dummies
+            if AllChem.EmbedMolecule(embedded, randomSeed=seed) < 0:
+                raise SwapError("Could not embed the fragment.")
+        xyz = embedded.GetConformer().GetPositions()
+        a = attachments[0]
+    for conf in mol.GetConformers():
+        positions = conf.GetPositions()
+        new_positions = np.zeros((result.GetNumAtoms(), 3))
+        for i, k in ref_to_new.items():
+            new_positions[k] = positions[i]
+        if placed:
+            anchor = positions[a.kept]
+            direction = positions[a.partner] - anchor
+            norm = np.linalg.norm(direction)
+            if not np.isfinite(norm) or norm < 1e-8:
+                raise SwapError("The attachment has coincident or invalid coordinates.")
+            direction /= norm
+            length = _bond_length(mol, fragment, a, norm)
+            rotation = rotation_between(xyz[a.root] - xyz[a.dummy], direction)
+            grafted = (xyz - xyz[a.root]) @ rotation.T + anchor + length * direction
+            for j, k in frag_to_new.items():
+                new_positions[k] = grafted[j]
+        new_conf = Chem.Conformer(result.GetNumAtoms())
+        for k, p in enumerate(new_positions):
+            new_conf.SetAtomPosition(k, p.tolist())
+        new_conf.SetId(conf.GetId())
+        new_conf.Set3D(conf.Is3D())
+        result.AddConformer(new_conf, assignId=False)
+
+
+def _bond_length(mol, fragment, attachment, removed_length: float) -> float:
+    """
+    The length of the new bond: the removed one scaled by covalent radii, so that a
+    bond stretched in the reference (e.g. a leaving group of a TS) stays stretched;
+    for a dummy that leaves (a template site), the sum of the covalent radii.
+    """
+    table = Chem.GetPeriodicTable()
+    kept = table.GetRcovalent(mol.GetAtomWithIdx(attachment.kept).GetAtomicNum())
+    root = table.GetRcovalent(fragment.GetAtomWithIdx(attachment.root).GetAtomicNum())
+    partner = mol.GetAtomWithIdx(attachment.partner).GetAtomicNum()
+    if partner == 0:
+        return kept + root
+    return removed_length * (kept + root) / (kept + table.GetRcovalent(partner))
+
+
+def rotation_between(source: np.ndarray, target: np.ndarray) -> np.ndarray:
+    """The proper rotation taking the direction source onto target (catmlp)."""
+    source = source / np.linalg.norm(source)
+    target = target / np.linalg.norm(target)
+    cosine = float(np.clip(source @ target, -1, 1))
+    if cosine < -1 + 1e-12:  # antiparallel: a half turn about a perpendicular axis
+        axis = np.cross(source, np.eye(3)[np.argmin(np.abs(source))])
+        axis /= np.linalg.norm(axis)
+        return 2 * np.outer(axis, axis) - np.eye(3)
+    cross = np.cross(source, target)
+    skew = np.array(
+        [[0, -cross[2], cross[1]], [cross[2], 0, -cross[0]], [-cross[1], cross[0], 0]]
+    )
+    return np.eye(3) + skew + skew @ skew / (1 + cosine)

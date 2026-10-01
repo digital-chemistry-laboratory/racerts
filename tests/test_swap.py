@@ -1,5 +1,6 @@
 """Swaps: graph surgery (apply_swap) and catmlp's substitutions."""
 
+import numpy as np
 import pytest
 from rdkit import Chem
 from rdkit.Chem import AllChem
@@ -37,6 +38,68 @@ def methylbiphenyl():
 BUTYL = canonical("CCCCc1ccccc1-c1ccccc1")
 
 
+def test_methyl_to_butyl(methylbiphenyl):
+    mol = methylbiphenyl
+    result = apply_swap(mol, Swap("[*:1]CCCC", old_fragment="[CH3][c:1]"))
+    assert identity(result.mol) == BUTYL
+    # 25 - CH3 (4) = 21 kept atoms; C4H9 = 13 new atoms; C16H18.
+    assert len(result.conserved) == 21 and len(result.new_atoms) == 13
+    assert result.mol.GetNumAtoms() == 34
+    assert result.attachments == [(1, 0)]  # the butyl C1 takes the slot of the methyl C
+    # append: the kept atoms keep their indices, and their coordinates.
+    assert all(i == k for i, k in result.ref_to_new.items())
+    kept = sorted(result.ref_to_new)
+    np.testing.assert_array_equal(
+        result.mol.GetConformer().GetPositions()[kept],
+        mol.GetConformer().GetPositions()[kept],
+    )
+    # junction: the ipso C and its kept neighbours.
+    assert result.junction == sorted(
+        [
+            1,
+            *[
+                n.GetIdx()
+                for n in mol.GetAtomWithIdx(1).GetNeighbors()
+                if n.GetIdx() != 0
+            ],
+        ]
+    )
+    assert result.placed
+    # C for C: the bond length of the reference (scaled by covalent radii otherwise).
+    positions = mol.GetConformer().GetPositions()
+    length = np.linalg.norm(result.mol.GetConformer().GetPositions()[0] - positions[1])
+    assert length == pytest.approx(np.linalg.norm(positions[0] - positions[1]))
+    assert not result.warnings
+
+
+def test_selectors_are_equivalent(methylbiphenyl):
+    mol = methylbiphenyl
+    methyl_h = [
+        n.GetIdx()
+        for n in mol.GetAtomWithIdx(0).GetNeighbors()
+        if n.GetAtomicNum() == 1
+    ]
+    groups_of_ipso = sorted(
+        (n.GetIdx() for n in mol.GetAtomWithIdx(1).GetNeighbors()),
+    )
+    swaps = [
+        Swap("[*:1]CCCC", old_fragment="[CH3][c:1]"),
+        Swap("[*:1]CCCC", remove_atoms=[0]),  # its hydrogens leave with it
+        Swap("[*:1]CCCC", remove_atoms=[0, *methyl_h]),
+        Swap("[*:1]CCCC", center=1, substructure=0),  # the group of atom 0
+        Swap("[*]CCCC", remove_atoms=[0], attach_map={1: 1}),
+    ]
+    assert groups_of_ipso[0] == 0
+    results = [apply_swap(mol, swap) for swap in swaps]
+    for result in results:
+        assert identity(result.mol) == BUTYL
+        assert result.ref_to_new == results[0].ref_to_new
+        np.testing.assert_allclose(
+            result.mol.GetConformer().GetPositions(),
+            results[0].mol.GetConformer().GetPositions(),
+        )
+
+
 def test_renumber_puts_the_kept_atoms_first(methylbiphenyl):
     result = apply_swap(
         methylbiphenyl, Swap("[*:1]CCCC", remove_atoms=[0], mode="renumber")
@@ -47,6 +110,27 @@ def test_renumber_puts_the_kept_atoms_first(methylbiphenyl):
     assert result.ref_to_new[1] == 0 and result.attachments == [(0, 21)]
 
 
+def test_every_conformer_is_transferred_with_its_id():
+    mol = embedded("CCO", n=3)
+    for conf, new_id in zip(list(mol.GetConformers()), (4, 9, 2)):
+        conf.SetId(new_id)
+        conf.SetDoubleProp("energy", -1.0)
+    oh = next(
+        a.GetIdx()
+        for a in mol.GetAtoms()
+        if a.GetAtomicNum() == 1 and a.GetNeighbors()[0].GetAtomicNum() == 8
+    )
+    result = apply_swap(mol, Swap("[*]C", remove_atoms=[oh]))
+    assert identity(result.mol) == "CCOC"
+    assert [c.GetId() for c in result.mol.GetConformers()] == [4, 9, 2]
+    assert not result.mol.GetConformer(4).HasProp("energy")
+    for conf_id in (4, 9, 2):
+        before = mol.GetConformer(conf_id).GetPositions()
+        after = result.mol.GetConformer(conf_id).GetPositions()
+        kept = sorted(result.ref_to_new)
+        np.testing.assert_array_equal(after[kept], before[kept])
+
+
 def test_reverse_swap_restores_the_graph(methylbiphenyl):
     forward = apply_swap(methylbiphenyl, Swap("[*:1]CCCC", old_fragment="[CH3][c:1]"))
     back = apply_swap(forward.mol, Swap("[*:1]C", old_fragment="[CH2;!R]([CH2])[c:1]"))
@@ -55,6 +139,16 @@ def test_reverse_swap_restores_the_graph(methylbiphenyl):
     assert back.mol.GetNumAtoms() == methylbiphenyl.GetNumAtoms()
     kept = sorted(back.ref_to_new)
     assert [back.ref_to_new[i] for i in kept] == sorted(back.ref_to_new.values())
+
+
+def test_identity_swap_keeps_the_geometry(methylbiphenyl):
+    result = apply_swap(methylbiphenyl, Swap("[*:1]C", old_fragment="[CH3][c:1]"))
+    assert identity(result.mol) == identity(methylbiphenyl)
+    before = methylbiphenyl.GetConformer().GetPositions()
+    after = result.mol.GetConformer().GetPositions()
+    kept = sorted(result.ref_to_new)
+    assert np.abs(after[kept] - before[kept]).max() < 1e-3
+    assert np.linalg.norm(after[0] - before[0]) < 0.05  # the methyl C (1.52 vs 1.51 A)
 
 
 def test_ambiguous_and_invalid_selectors(methylbiphenyl):
@@ -180,6 +274,21 @@ def test_a_dative_bond_type_keeps_the_donor_stereo():
         ),
     )
     assert identity(written.mol) == identity(typed.mol)
+
+
+def test_the_graft_keeps_a_stretched_bond(sn2_ts):
+    # Cl -> Br as leaving group: the TS bond stays stretched (2.15 A for C-Cl in the
+    # seed), scaled by the covalent radii, not the covalent C-Br length.
+    from racerts.system import build_mol
+
+    ts = build_mol(sn2_ts, -1, [0, 1, 2], input_smiles=["CCl", "[Cl-]"])
+    result = apply_swap(ts, Swap("[*]Br", remove_atoms=[1]))
+    table = Chem.GetPeriodicTable()
+    r = {z: table.GetRcovalent(z) for z in (6, 17, 35)}
+    positions = result.mol.GetConformer().GetPositions()
+    assert np.linalg.norm(positions[1] - positions[0]) == pytest.approx(
+        2.15 * (r[6] + r[35]) / (r[6] + r[17])
+    )
 
 
 def test_e_z_survives_when_a_stereo_atom_leaves():

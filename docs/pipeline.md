@@ -75,13 +75,15 @@ ensemble = racerts.generate_ts("ts.xyz", [3, 4, 5], config=config)
 | `prune` | `energy_threshold` | 20.0 | kcal/mol above the lowest conformer |
 | | `eht_energies` | false | rank by extended Hückel energies (deprecated: use `Rescore`) |
 | | `rmsd_threshold` | 0.125 | Å, heavy atoms |
+| | `check_stereo` | false | after refinement, drop conformers whose specified stereo (outside the core atoms of the task, e.g. the reacting atoms) differs from the graph; needs `frozen_first` when the embedding falls back (the legacy fallback drops the tags) |
 | | `method` | `rmsd` | `rmsd` (duplicates, as legacy racerts) or `cluster` (one conformer per cluster) |
 | | `cluster_method`, `cluster_threshold` | `butina`, 1.5 | `butina`, `hierarchical` or `leader`; Å, heavy-atom RMSD after superposition |
 | | `include_hs`, `filter_energies`, `filter_rotations`, `rmsd_energy_threshold`, `rot_fraction_threshold`, `max_matches` | | see [pruner](modules/pruner.md) |
 
 ## Pipelines and stages
 
-The default pipeline is `Embed → Refine → PruneEnergy → PruneRMSD`. Each stage takes the
+The default pipeline is `Embed → Refine → PruneEnergy → PruneRMSD` (with
+`prune.check_stereo`, a stereo check follows `Refine`). Each stage takes the
 context and the ensemble so far and returns an ensemble; stages built without arguments
 use the legacy racerts defaults. A pipeline can be put together by hand, e.g. to refine
 with an ASE calculator:

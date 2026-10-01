@@ -22,6 +22,7 @@ from racerts.prune.cluster import METHODS as CLUSTER_METHODS
 from racerts.refine import REFINE_BACKENDS, Refine
 from racerts.task import Task
 from racerts.utils.optional import require
+from racerts.validate import Connectivity, Validate
 
 
 @dataclass
@@ -107,6 +108,11 @@ class PruneConfig:
         filter_rotations: Neither are conformers whose principal moments of inertia
             differ by more than rot_fraction_threshold.
         max_matches: Maximum number of symmetry-equivalent atom maps for the RMSD.
+        check_stereo: After refinement, drop conformers whose specified stereo
+            (outside the core atoms of the task, e.g. the reacting atoms) differs from
+            the graph, e.g. after a chirality fallback of the embedding. After the
+            legacy fallback, which drops the chiral tags, there is nothing left to
+            check: use embed.chirality_fallback "frozen_first".
         method: "rmsd" (duplicates by RMSD, as legacy racerts) or "cluster" (one
             conformer per cluster, see ClusterPruner).
         cluster_method: "butina", "hierarchical" or "leader".
@@ -122,6 +128,7 @@ class PruneConfig:
     rmsd_energy_threshold: float = 0.1
     rot_fraction_threshold: float = 0.03
     max_matches: int = 10000
+    check_stereo: bool = False
     method: str = "rmsd"
     cluster_method: str = "butina"
     cluster_threshold: float = 1.5
@@ -223,6 +230,9 @@ class PipelineConfig:
             force_constant=self.refine.force_constant, num_threads=self.num_threads
         )
         prune = self.prune
+        checks = []
+        if prune.check_stereo:
+            checks.append(Validate(Connectivity(bonds=False)))
         return Pipeline(
             [
                 Embed(
@@ -232,6 +242,7 @@ class PipelineConfig:
                     count_policy=embed.count_policy,
                 ),
                 Refine(optimizer, fallback=self.refine.fallback),
+                *checks,
                 PruneEnergy(
                     EnergyPruner(
                         threshold=prune.energy_threshold,

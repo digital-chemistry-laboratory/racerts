@@ -232,3 +232,40 @@ def test_stereo_only_check():
     assert Connectivity(bonds=False).name == "stereo"
     with pytest.raises(ValueError, match="bonds or stereo"):
         Connectivity(bonds=False, stereo=False)
+
+
+def test_check_stereo_setting_adds_a_stereo_check(hept_1_ene_ts):
+    from racerts import PipelineConfig
+
+    names = [s.name for s in PipelineConfig().build(TransitionState([3])).stages]
+    assert "validate" not in names
+    config = PipelineConfig.from_dict(
+        {"embed": {"n_conformers": 4}, "prune": {"check_stereo": True}}
+    )
+    stages = config.build(TransitionState([3, 4, 5])).stages
+    assert [s.name for s in stages][:3] == ["embed", "refine", "validate"]
+    check = stages[2].validators[0]
+    assert (check.bonds, check.exempt) == (False, None)  # None: the task's core atoms
+    ensemble = racerts.generate(
+        hept_1_ene_ts, TransitionState([3, 4, 5]), config=config
+    )
+    assert {
+        ensemble.provenance(i)["validation"]["stereo"] for i in ensemble.conf_ids
+    } == {"ok"}
+
+
+def test_ring_stereo_without_cip_labels():
+    # cis/trans on a ring: chiral tags but no CIP labels.
+    trans = Chem.AddHs(Chem.MolFromSmiles("C[C@H]1CC[C@@H](C)CC1"))
+    AllChem.EmbedMultipleConfs(trans, 2, randomSeed=3)
+    cis = Chem.AddHs(Chem.MolFromSmiles("C[C@H]1CC[C@H](C)CC1"))  # same atom order
+    AllChem.EmbedMolecule(cis, randomSeed=3)
+    trans.AddConformer(cis.GetConformer(), assignId=True)
+    ctx = racerts.Context.create(trans, racerts.GroundState())
+    reasons = Connectivity().validate(ctx, racerts.ConformerEnsemble(trans))
+    assert list(reasons) == [2] and "inverted" in reasons[2]
+
+    config = racerts.PipelineConfig.from_dict(
+        {"embed": {"n_conformers": 4}, "prune": {"check_stereo": True}}
+    )
+    assert len(racerts.generate_gs("C[C@H]1CC[C@@H](C)CC1", config=config)) >= 1

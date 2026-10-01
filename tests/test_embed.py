@@ -260,6 +260,30 @@ def test_frozen_first_removes_conformers_with_inverted_stereo(
     assert 0 < len(ensemble) < 20
 
 
+@pytest.mark.parametrize("task_atoms", ["ts_neighbour", "constrained"])
+def test_frozen_first_takes_frozen_stereo_from_the_reference(
+    pentanediol_with_a_wrong_tag, task_atoms, caplog
+):
+    # C2 (atom 1) is frozen with a tag that contradicts the reference: as a
+    # neighbour of reacting atoms of a TS, or held by Constrained, with the stereo
+    # check after refinement.
+    mol, constrained = pentanediol_with_a_wrong_tag
+    task = constrained
+    if task_atoms == "ts_neighbour":
+        task = racerts.TransitionState([0, 2, 3])  # C1, O, C3: C2 is a neighbour
+    config = PipelineConfig(
+        embed=EmbedConfig(n_conformers=10, chirality_fallback="frozen_first"),
+        prune={"check_stereo": True},
+    )
+    with caplog.at_level(logging.WARNING):
+        ensemble = racerts.generate(mol, task, config=config)
+    assert len(ensemble) > 0
+    assert set(_cip_codes(ensemble.mol, 1)) == {"R"}  # the reference's
+    assert set(_cip_codes(ensemble.mol, 4)) == {"R"}  # the free centre: as the graph
+    if task_atoms == "ts_neighbour":
+        assert "contradict the reference geometry" in caplog.text
+
+
 def test_embed_needs_named_references(hept_1_ene_ts):
     ctx = racerts.Context.create(hept_1_ene_ts, racerts.TransitionState([3, 4, 5]))
     with pytest.raises(ValueError, match="at least one"):

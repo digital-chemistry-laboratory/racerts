@@ -23,12 +23,19 @@ $ racerts gs "OC(=O)[C@@H]1CCCN1C(C)=C" [options]
 | `--multiplicity` | spin multiplicity (default: the lowest for the electrons) |
 | `--config` | [PipelineConfig](pipeline.md#settings) as JSON or YAML; the options below override it |
 | `-n`, `--n-conformers`, `--conf-factor` | conformers to embed |
+| `--count-policy` | how the default number is counted: `legacy`, `fragments`, `catmlp` |
 | `--embed` | `cmap` or `bounds` |
 | `--etkdg`, `--no-etkdg` | ETKDGv3 instead of plain distance geometry (default: only for gs) |
+| `--sequential-seeds`, `--no-sequential-seeds` | one seed per conformer |
+| `--chirality-fallback` | `legacy` or `frozen_first` |
 | `--refine` | `mmff` or `uff` |
+| `--converge`, `--no-converge` | minimize until the energy stops dropping |
+| `--anchor-free-energies`, `--no-anchor-free-energies` | energies without the terms that hold the frozen atoms |
+| `--dielectric MODEL CONSTANT` | MMFF dielectric, e.g. `distance 4` |
 | `--no-fallback` | no fallback for the graph (bonds, connectivity) or MMFF (UFF) |
 | `--seed`, `--num-threads` | |
-| `--energy-threshold`, `--rmsd-threshold` | pruning |
+| `--energy-threshold`, `--rmsd-threshold`, `--rmsd-hydrogens` | pruning |
+| `--check-stereo`, `--no-check-stereo` | drop conformers whose stereo differs from the graph after refinement |
 | `-o`, `--output` | output file (default `conformer_ensemble.xyz`) |
 | `--crest-energies` | only the energy (Hartree) on each comment line, as CREST does |
 | `-v`, `-vv` | progress (INFO) or details (DEBUG) on stderr |

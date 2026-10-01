@@ -145,6 +145,50 @@ def test_ground_states_have_no_chirality_fallback():
     assert fallback(Constrained([0])) == "legacy"
 
 
+def test_new_settings_reach_the_components():
+    config = PipelineConfig.from_dict(
+        {
+            "embed": {
+                "count_policy": "fragments",
+                "sequential_seeds": True,
+                "chirality_fallback": "frozen_first",
+            },
+            "refine": {
+                "converge": True,
+                "anchor_free_energies": True,
+                "dielectric_model": "distance",
+                "dielectric_constant": 4,
+            },
+        }
+    )
+    assert PipelineConfig.from_dict(config.to_dict()) == config
+    embed, refine = config.build(TransitionState([0])).stages[:2]
+    assert embed.count_policy == "fragments"
+    assert embed.embedder.sequential_seeds is True
+    assert embed.embedder.chirality_fallback == "frozen_first"
+    optimizer = refine.optimizer
+    assert optimizer.converge is True and optimizer.anchor_free_energies is True
+    assert (optimizer.dielectric_model, optimizer.dielectric_constant) == (
+        "distance",
+        4.0,
+    )
+
+
+@pytest.mark.parametrize(
+    "section, settings, message",
+    [
+        ("embed", {"count_policy": "many"}, "embed.count_policy"),
+        ("embed", {"chirality_fallback": True}, "embed.chirality_fallback"),
+        ("refine", {"dielectric_model": "water"}, "refine.dielectric_model"),
+        ("refine", {"dielectric_constant": 0}, "refine.dielectric_constant"),
+        ("refine", {"backend": "uff", "dielectric_constant": 4}, "MMFF only"),
+    ],
+)
+def test_new_settings_are_checked(section, settings, message):
+    with pytest.raises(ValueError, match=message):
+        PipelineConfig.from_dict({section: settings})
+
+
 def test_cluster_pruning_setting():
     stages = (
         PipelineConfig.from_dict(

@@ -92,3 +92,40 @@ def test_python_m_racerts_cli(tmp_path):
 
     assert result.returncode == 0, result.stderr
     assert out.exists()
+
+
+def test_ts_options_for_the_new_settings(tmp_path, monkeypatch):
+    import racerts.cli
+
+    seen = {}
+
+    def fake_generate_ts(*args, config, **kwargs):
+        seen["config"] = config
+        raise SystemExit(0)
+
+    monkeypatch.setattr(racerts.cli, "generate_ts", fake_generate_ts)
+
+    def config_of(*options):
+        with pytest.raises(SystemExit):
+            run_subcommand(["ts", EX, "-r", "3", "4", "5", *options])
+        return seen["config"]
+
+    config = config_of(
+        "--count-policy", "fragments", "--sequential-seeds",
+        "--chirality-fallback", "frozen_first", "--converge",
+        "--anchor-free-energies", "--dielectric", "distance", "4", "--rmsd-hydrogens",
+        "--check-stereo",
+    )  # fmt: skip
+    assert config.embed.count_policy == "fragments"
+    assert config.embed.sequential_seeds is True
+    assert config.embed.chirality_fallback == "frozen_first"
+    assert config.refine.converge is True and config.refine.anchor_free_energies
+    assert (config.refine.dielectric_model, config.refine.dielectric_constant) == (
+        "distance",
+        4.0,
+    )
+    assert config.prune.include_hs is True
+    assert config.prune.check_stereo is True
+
+    with pytest.raises(ValueError, match="not a number"):
+        run_subcommand(["ts", EX, "-r", "3", "--dielectric", "distance", "four"])

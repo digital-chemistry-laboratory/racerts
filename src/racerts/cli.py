@@ -14,7 +14,9 @@ from dataclasses import replace
 from racerts.api import generate_gs, generate_ts
 from racerts.config import PipelineConfig
 from racerts.embed import EMBED_MODES
+from racerts.embed.stage import COUNT_POLICIES
 from racerts.refine import REFINE_BACKENDS
+from racerts.refine.forcefield import DIELECTRIC_MODELS
 from racerts.system import GRAPH_METHODS
 from racerts.utils.log import cli_logging
 
@@ -120,9 +122,51 @@ def _subcommand_parser() -> argparse.ArgumentParser:
             help="ETKDGv3 instead of plain distance geometry (default: only for gs).",
         )
         command.add_argument(
+            "--count-policy",
+            choices=list(COUNT_POLICIES),
+            help="How the default number of conformers is counted: legacy, fragments "
+            "(adds the rigid-body freedom of fragments without frozen atoms) or catmlp "
+            f"(default {defaults.embed.count_policy}).",
+        )
+        command.add_argument(
+            "--sequential-seeds",
+            action=argparse.BooleanOptionalAction,
+            default=None,
+            help="One seed per conformer (legacy racerts embeds its first 3 twice; "
+            f"default {defaults.embed.sequential_seeds}).",
+        )
+        command.add_argument(
+            "--chirality-fallback",
+            choices=["legacy", "frozen_first"],
+            help="When the frozen atoms contradict chiral tags: drop all tags (legacy) "
+            "or those of the frozen atoms first (default "
+            f"{defaults.embed.chirality_fallback}).",
+        )
+        command.add_argument(
             "--refine",
             choices=list(REFINE_BACKENDS),
             help=f"Force field (default {defaults.refine.backend}).",
+        )
+        command.add_argument(
+            "--converge",
+            action=argparse.BooleanOptionalAction,
+            default=None,
+            help="Minimize until the energy stops dropping (legacy racerts stops "
+            f"early next to the frozen atoms; default {defaults.refine.converge}).",
+        )
+        command.add_argument(
+            "--anchor-free-energies",
+            action=argparse.BooleanOptionalAction,
+            default=None,
+            help="Energies without the terms that hold the frozen atoms (default "
+            f"{defaults.refine.anchor_free_energies}).",
+        )
+        command.add_argument(
+            "--dielectric",
+            nargs=2,
+            metavar=("MODEL", "CONSTANT"),
+            help=f"MMFF dielectric: model ({', '.join(DIELECTRIC_MODELS)}) and "
+            "constant, e.g. 'distance 4' (default: constant 1).",
         )
         command.add_argument(
             "--no-fallback",
@@ -149,6 +193,20 @@ def _subcommand_parser() -> argparse.ArgumentParser:
             help=f"Duplicate RMSD, A (default {defaults.prune.rmsd_threshold:g}).",
         )
         command.add_argument(
+            "--check-stereo",
+            action=argparse.BooleanOptionalAction,
+            default=None,
+            help="After refinement, drop conformers whose stereo differs from the "
+            f"graph (default {defaults.prune.check_stereo}).",
+        )
+        command.add_argument(
+            "--rmsd-hydrogens",
+            action=argparse.BooleanOptionalAction,
+            default=None,
+            help="Include hydrogens in the duplicate RMSD (default "
+            f"{defaults.prune.include_hs}).",
+        )
+        command.add_argument(
             "-o",
             "--output",
             default=DEFAULT_OUTPUT,
@@ -166,6 +224,15 @@ def _subcommand_parser() -> argparse.ArgumentParser:
 def _config_from_args(args) -> PipelineConfig:
     """The config file (or the defaults) with the options given on the command line."""
     config = PipelineConfig.from_file(args.config) if args.config else PipelineConfig()
+    dielectric = {}
+    if args.dielectric:
+        model, constant = args.dielectric
+        try:
+            dielectric = dict(
+                dielectric_model=model, dielectric_constant=float(constant)
+            )
+        except ValueError:
+            raise ValueError(f"--dielectric: {constant!r} is not a number.") from None
     return _replace(
         config,
         seed=args.seed,
@@ -176,16 +243,24 @@ def _config_from_args(args) -> PipelineConfig:
             conf_factor=args.conf_factor,
             mode=args.embed,
             etkdg=args.etkdg,
+            count_policy=args.count_policy,
+            sequential_seeds=args.sequential_seeds,
+            chirality_fallback=args.chirality_fallback,
         ),
         refine=_replace(
             config.refine,
             backend=args.refine,
             fallback=False if args.no_fallback else None,
+            converge=args.converge,
+            anchor_free_energies=args.anchor_free_energies,
+            **dielectric,
         ),
         prune=_replace(
             config.prune,
             energy_threshold=args.energy_threshold,
             rmsd_threshold=args.rmsd_threshold,
+            include_hs=args.rmsd_hydrogens,
+            check_stereo=args.check_stereo,
         ),
     )
 

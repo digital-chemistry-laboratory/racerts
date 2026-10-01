@@ -881,6 +881,23 @@ def test_swap_rejects_rigid_settings_without_the_route(methylbiphenyl):
         racerts.swap(methylbiphenyl, BUTYL_SWAP, hard=[1.5], n_conformers=2)
 
 
+def test_a_reference_that_does_not_sanitize_is_swapped_like_it():
+    # Connectivity graphs of TSs can have hypervalent atoms (benchmark propargylation:
+    # Si with six bonds); the swap takes what the reference takes.
+    mol = Chem.MolFromSmiles("C[Si](F)(F)(F)(F)F", sanitize=False)
+    mol.UpdatePropertyCache(strict=False)
+    mol = Chem.AddHs(mol)
+    h = next(
+        n.GetIdx()
+        for n in mol.GetAtomWithIdx(0).GetNeighbors()
+        if n.GetAtomicNum() == 1
+    )
+    result = apply_swap(mol, Swap("[*]C", remove_atoms=[h]))
+    assert result.mol.GetAtomWithIdx(1).GetDegree() == 6
+    with pytest.raises(ValueError, match="invalid"):  # a new valence error still raises
+        apply_swap(embedded("CCO"), Swap("[*]=C", remove_atoms=[2]))
+
+
 def test_contacts_of_the_reference_are_no_clashes(caplog):
     # Benchmark Pd_carbofluorination: an O...Pd contact of 2.08 A that the graph
     # lacks (two fragments) is part of the reference, not a clash of the swap.
@@ -902,6 +919,29 @@ def test_contacts_of_the_reference_are_no_clashes(caplog):
     with caplog.at_level("WARNING"):
         racerts.swap(mol.GetMol(), Swap("[*]C", remove_atoms=[h]), conserve="hard")
     assert "clash" not in caplog.text
+
+
+def _hypervalent_si():
+    mol = Chem.MolFromSmiles("C[Si](F)(F)(F)(F)F", sanitize=False)
+    mol.UpdatePropertyCache(strict=False)
+    return Chem.AddHs(mol)
+
+
+def test_the_sanitization_fallback_hides_no_new_errors():
+    mol = _hypervalent_si()
+    h = next(
+        n.GetIdx()
+        for n in mol.GetAtomWithIdx(0).GetNeighbors()
+        if n.GetAtomicNum() == 1
+    )
+    for fragment in ("[*]=C", "[*]#N"):  # a five- or six-bonded carbon
+        with pytest.raises(ValueError, match="invalid"):
+            apply_swap(mol, Swap(fragment, remove_atoms=[h]))
+    # A reference that does not kekulize: raises, instead of saturating the ring.
+    ring = Chem.MolFromSmiles("Cc1cccc1", sanitize=False)
+    ring.UpdatePropertyCache(strict=False)
+    with pytest.raises(ValueError, match="invalid"):
+        apply_swap(ring, Swap("[*]F", remove_atoms=[0]))
 
 
 @pytest.mark.parametrize(

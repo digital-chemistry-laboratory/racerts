@@ -570,10 +570,14 @@ def _build(mol, swap, fragment, attachments, slots, frag_to_new, ref_to_new):
                 target.InvertChirality()
             carried_atoms.add(new_index)
     flags = Chem.SanitizeFlags.SANITIZE_ALL ^ Chem.SanitizeFlags.SANITIZE_FINDRADICALS
+    trial = Chem.RWMol(result)  # a failed sanitization can leave bonds changed
     try:  # radicals as given (kept atoms) or none (fragment), not guessed
-        Chem.SanitizeMol(result, flags)
+        Chem.SanitizeMol(trial, flags)
+        result = trial
     except Exception as error:
-        raise SwapError(f"The swapped molecule is invalid: {error}") from None
+        _accept_problems_of_the_reference(mol, result, ref_to_new, error)
+        Chem.SanitizeMol(result, flags ^ Chem.SanitizeFlags.SANITIZE_PROPERTIES)
+        result.UpdatePropertyCache(strict=False)
     _check_valences(mol, result, ref_to_new)
     result = result.GetMol()
     _perceive_stereo(result, carried_bonds)
@@ -822,6 +826,32 @@ def _settle_new_stereo(mol, result, ref_to_new, anchored, carried_atoms, carried
         if bond.GetStereo() in GEOMETRIC:
             bond.SetStereo(GEOMETRIC[bond.GetStereo()])
     _perceive_stereo(result, carried_bonds | set(agreed_bonds))
+
+
+def _accept_problems_of_the_reference(mol, result, ref_to_new, error) -> None:
+    """
+    A swapped molecule that does not sanitize is accepted only where the reference has
+    the same problem (e.g. a TS connectivity graph with a hypervalent atom): valence
+    problems of kept atoms that the reference has too. Anything else raises.
+    """
+    try:
+        own = Chem.DetectChemistryProblems(mol)
+    except RuntimeError:
+        own = []
+    accepted = {
+        ref_to_new[p.GetAtomIdx()]
+        for p in own
+        if p.GetType() == "AtomValenceException" and p.GetAtomIdx() in ref_to_new
+    }
+    problems = Chem.DetectChemistryProblems(result)
+    for problem in problems:
+        if problem.GetType() != "AtomValenceException" or (
+            problem.GetAtomIdx() not in accepted
+        ):
+            raise SwapError(f"The swapped molecule is invalid: {problem.Message()}")
+    if not problems:
+        raise SwapError(f"The swapped molecule is invalid: {error}")
+    logger.info("The reference has the valence problems of the swap: %s", error)
 
 
 def _check_valences(mol, result, ref_to_new) -> None:

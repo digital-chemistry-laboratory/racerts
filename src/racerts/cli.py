@@ -3,24 +3,29 @@ The racerts command line.
 
     racerts ts FILE -r ATOM [ATOM ...] [-s SMILES ...]   TS conformers
     racerts gs SMILES                                    ground-state conformers
+    racerts swap FILE --new "[*]CCCC" --old "[CH3][c:1]"  conformers after a swap
     racerts FILE [options]                               legacy (or: racerts run)
 """
 
 import argparse
+import json
+import logging
 import os
 import sys
 from dataclasses import replace
 
-from racerts.api import generate_gs, generate_ts
+from racerts.api import generate_gs, generate_ts, swap
 from racerts.config import PipelineConfig
 from racerts.embed import EMBED_MODES
 from racerts.embed.stage import COUNT_POLICIES
 from racerts.refine import REFINE_BACKENDS
 from racerts.refine.forcefield import DIELECTRIC_MODELS
-from racerts.system import GRAPH_METHODS
+from racerts.system import GRAPH_METHODS, build_mol
+from racerts.system.swap import Swap, SwapError
+from racerts.task import TransitionState
 from racerts.utils.log import cli_logging
 
-SUBCOMMANDS = ("ts", "gs")
+SUBCOMMANDS = ("ts", "gs", "swap")
 DEFAULT_OUTPUT = "conformer_ensemble.xyz"
 
 
@@ -117,8 +122,92 @@ def _subcommand_parser() -> argparse.ArgumentParser:
         "-c", "--charge", type=int, default=None, help="Total charge (default: SMILES)."
     )
 
+    swap = sub.add_parser(
+        "swap",
+        help="conformers after replacing a group of a reference geometry",
+        description="Replace a group of the reference by a new fragment and sample "
+        "the new atoms around the kept geometry (see racerts.swap).",
+    )
+    swap.add_argument("filename", help="Reference geometry (.xyz, or .sdf/.mol).")
+    swap.add_argument(
+        "--new",
+        required=True,
+        help="The new fragment: SMILES with a dummy per attachment ([*] or [*:1]).",
+    )
+    where = swap.add_mutually_exclusive_group(required=True)
+    where.add_argument(
+        "--old", help="SMARTS of the group that leaves, the kept atom mapped ([c:1])."
+    )
+    where.add_argument(
+        "--remove",
+        type=int,
+        nargs="*",
+        metavar="I",
+        help="Atoms that leave (their hydrogens too); none: an addition (--attach).",
+    )
+    where.add_argument(
+        "--site", type=int, help="Map number of the terminal H or dummy that leaves."
+    )
+    where.add_argument(
+        "--center",
+        type=int,
+        nargs=2,
+        metavar=("ATOM", "GROUP"),
+        help="The GROUP-th group bound to ATOM leaves (groups by lowest atom index).",
+    )
+    swap.add_argument(
+        "--attach",
+        type=int,
+        nargs=2,
+        action="append",
+        metavar=("DUMMY", "ATOM"),
+        help="Dummy number and the atom it binds to (repeatable).",
+    )
+    swap.add_argument(
+        "--bond-type",
+        nargs=2,
+        action="append",
+        metavar=("DUMMY", "TYPE"),
+        help="single, double, triple or dative (from the fragment atom).",
+    )
+    swap.add_argument(
+        "--mode",
+        choices=["append", "renumber"],
+        default="append",
+        help="append (default): new atoms take the slots of removed ones, the rest are "
+        "appended; renumber: kept atoms first. Changed indices are logged.",
+    )
+    swap.add_argument(
+        "-s", "--smiles", nargs="+", help="SMILES of the reference, one per fragment."
+    )
+    swap.add_argument("-c", "--charge", type=int, default=0, help="Total charge.")
+    swap.add_argument(
+        "-r",
+        "--reacting-atoms",
+        type=int,
+        nargs="+",
+        help="For a TS reference: its reacting atoms (they and their neighbours stay).",
+    )
+    swap.add_argument(
+        "--conserve",
+        choices=["hard", "soft", "free"],
+        default="soft",
+        help="hard: graft only; soft: kept atoms restrained near the reference "
+        "(default); free: only the TS core held.",
+    )
+    swap.add_argument(
+        "--routes",
+        nargs="+",
+        choices=["dg", "rigid"],
+        default=None,
+        help="Distance geometry and/or rigid poses of the fragment (default dg).",
+    )
+    swap.add_argument(
+        "--hard", type=int, nargs="+", default=[], help="Further atoms held fixed."
+    )
+
     defaults = PipelineConfig()
-    for command in (ts, gs):
+    for command in (ts, gs, swap):
         command.add_argument(
             "--multiplicity",
             type=int,
@@ -389,6 +478,8 @@ def run_subcommand(argv):
 
 
 def _run_subcommand(parser, args):
+    if args.command == "swap":
+        return _run_swap(parser, args)
     config = _config_from_args(args)
 
     if args.command == "ts":
@@ -425,6 +516,73 @@ def _run_subcommand(parser, args):
             charge=args.charge,
             multiplicity=args.multiplicity,
             config=config,
+        )
+    ensemble.write_xyz(args.output, use_energy=args.crest_energies)
+    return ensemble
+
+
+SWAP_UNUSED = (
+    "restraint", "keep_hbonds", "contact", "keep_fragments", "link_fragments",
+    "hints", "restraint_half_width", "restraint_force_constant", "embed",
+    "chirality_fallback",
+)  # fmt: skip
+
+
+def _run_swap(parser, args):
+    unused = [f"--{n.replace('_', '-')}" for n in SWAP_UNUSED if getattr(args, n)]
+    if unused:
+        parser.error(f"racerts swap does not take {', '.join(unused)}.")
+    _check_file(parser, args.filename)
+    config = _config_from_args(args)
+    reacting = args.reacting_atoms or []
+    mol = build_mol(
+        args.filename,
+        args.charge,
+        reacting,
+        input_smiles=args.smiles,
+        auto_fallback=not args.no_fallback,
+    )
+    if mol is None:
+        parser.error(f"No molecule could be built from {args.filename}.")
+    try:
+        change = Swap(
+            args.new,
+            site=args.site,
+            remove_atoms=args.remove,
+            center=args.center[0] if args.center else None,
+            substructure=args.center[1] if args.center else None,
+            old_fragment=args.old,
+            attach_map=dict(args.attach) if args.attach else None,
+            bond_types={int(n): kind for n, kind in args.bond_type}
+            if args.bond_type
+            else None,
+            mode=args.mode,
+        )
+    except ValueError as error:
+        parser.error(str(error))
+    if args.conserve == "hard" and (
+        args.crest_energies or args.n_conformers or args.routes
+    ):
+        parser.error("--conserve hard samples nothing: no -n, --routes or energies.")
+    try:  # settings the swap does not take, e.g. from a config file
+        ensemble = swap(
+            mol,
+            change,
+            task=TransitionState(reacting) if reacting else None,
+            conserve=args.conserve,
+            n_conformers=config.embed.n_conformers,
+            routes=args.routes,
+            hard=args.hard,
+            config=config,
+            multiplicity=args.multiplicity,
+        )
+    except SwapError as error:  # the input, not a failure of the run
+        parser.error(str(error))
+    index_map = json.loads(ensemble.mol.GetProp("swap_index_map"))
+    moved = {int(i): k for i, k in index_map.items() if int(i) != k}
+    if moved:  # e.g. the -r atoms of a follow-up run
+        logging.getLogger(__name__).warning(
+            "Atom indices change in the swap (old: new): %s", moved
         )
     ensemble.write_xyz(args.output, use_energy=args.crest_energies)
     return ensemble

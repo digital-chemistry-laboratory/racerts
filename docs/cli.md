@@ -1,7 +1,7 @@
 # Command-line interface
 
-The `racerts` CLI mirrors the core functionality of the Python API. It has two
-subcommands, `racerts ts` and `racerts gs`, and keeps the legacy racerts form
+The `racerts` CLI mirrors the core functionality of the Python API. It has the
+subcommands `racerts ts`, `racerts gs` and `racerts swap` ([Swaps](swap.md)), and keeps the legacy racerts form
 `racerts filename.xyz [options]` (also `racerts run filename.xyz [options]`), which is
 described in the rest of this page. The legacy form always uses the settings of legacy
 racerts; `racerts ts --legacy` writes the same ensemble.

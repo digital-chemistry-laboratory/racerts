@@ -38,6 +38,7 @@ nav:
       - Pipelines and tasks: pipeline.md
       - Restraints: restraints.md
       - Active-bond windows: active-bonds.md
+      - Swaps: swap.md
       - CLI: cli.md
   - Legacy racerts:
       - Migrating from legacy racerts: migration.md

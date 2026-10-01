@@ -165,3 +165,66 @@ def test_gs_links_fragments(tmp_path):
         ["gs", "CC(=O)[O-].[NH4+]", "-n", "4", "--link-fragments", "-o", str(out)]
     )
     assert len(ensemble) > 0 and out.exists()
+
+
+def test_swap_command(tmp_path, sn2_ts):
+    # SN2 TS: H3 on the reacting carbon -> ethyl, the TS core held.
+    out = tmp_path / "swapped.xyz"
+    ensemble = run_subcommand(
+        ["swap", sn2_ts, "-s", "CCl", "[Cl-]", "-c", "-1", "-r", "0", "1", "2",
+         "--new", "[*]CC", "--remove", "3", "-n", "6", "-o", str(out)]
+    )  # fmt: skip
+    assert len(ensemble) >= 1 and out.exists()
+    assert ensemble.mol.GetNumAtoms() == 6 - 1 + 7  # C2H5 for H
+    with open(out) as handle:
+        assert handle.readline().strip() == str(ensemble.mol.GetNumAtoms())
+
+
+def test_swap_command_rejects_what_it_does_not_use(tmp_path, sn2_ts, capsys):
+    with pytest.raises(SystemExit):
+        run_subcommand(
+            ["swap", sn2_ts, "-s", "CCl", "[Cl-]", "-c", "-1", "--new", "[*]C",
+             "--remove", "3", "--keep-hbonds", "--embed", "bounds"]
+        )  # fmt: skip
+    assert "does not take --keep-hbonds, --embed" in capsys.readouterr().err
+    with pytest.raises(SystemExit):
+        run_subcommand(["swap", sn2_ts, "--new", "[*]C"])  # no selector
+    with pytest.raises(SystemExit):
+        run_subcommand(
+            ["swap", sn2_ts, "-s", "CCl", "[Cl-]", "-c", "-1", "--new", "[*]C",
+             "--remove", "3", "--mode", "keep"]
+        )  # fmt: skip
+
+
+def test_swap_command_rejects_hard_with_sampling(sn2_ts, capsys):
+    base = [
+        "swap",
+        sn2_ts,
+        "-s",
+        "CCl",
+        "[Cl-]",
+        "-c",
+        "-1",
+        "--new",
+        "[*]C",
+        "--remove",
+        "3",
+    ]
+    for extra in (
+        ["--conserve", "hard", "-n", "5"],
+        ["--chirality-fallback", "legacy"],
+    ):
+        with pytest.raises(SystemExit):
+            run_subcommand(base + extra)
+    assert "does not take --chirality-fallback" in capsys.readouterr().err
+
+
+def test_swap_command_reports_config_errors(tmp_path, sn2_ts, capsys):
+    config = tmp_path / "config.yaml"
+    config.write_text("restraints:\n  hints: true\n")
+    with pytest.raises(SystemExit):
+        run_subcommand(
+            ["swap", sn2_ts, "-s", "CCl", "[Cl-]", "-c", "-1", "--new", "[*]C",
+             "--remove", "3", "--config", str(config)]
+        )  # fmt: skip
+    assert "no restraints" in capsys.readouterr().err

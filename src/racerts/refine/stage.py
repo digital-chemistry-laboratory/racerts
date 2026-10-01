@@ -6,6 +6,7 @@ from typing import Callable, Optional, Type
 from racerts.pipeline import ConformerEnsemble
 from racerts.pipeline.ensemble import PROVENANCE
 from racerts.restraints.active import record_active_lengths, target_windows
+from racerts.restraints.model import position_restraints
 
 from .base import BaseOptimizer, accepts_restraints
 from .forcefield import MMFFOptimizer, UFFOptimizer
@@ -96,7 +97,10 @@ class Refine:
             )
         anchors = ctx.frozen.hard if self.anchors else ()
         restraints = ctx.restraints.for_stage("refine")
-        groups = _refine_groups(ctx, ensemble, restraints)
+        # soft atoms are held at the reference conformer the optimizer aligns on
+        groups = _refine_groups(
+            ctx, ensemble, restraints, getattr(optimizer, "conf_id_ref", -1)
+        )
 
         def refine(opt):
             if len(groups) == 1:
@@ -139,13 +143,19 @@ def _write_back(ensemble: ConformerEnsemble, part: ConformerEnsemble, conf_ids) 
             target.SetProp(PROVENANCE, source.GetProp(PROVENANCE))
 
 
-def _refine_groups(ctx, ensemble, restraints):
+def _refine_groups(ctx, ensemble, base, conf_id_ref=-1):
     """
     (reference, conformer ids, restraints) groups: by reference (Embed(references=
-    ...)) and, for stratified active bonds, by target, held at +/- 0.02 A.
+    ...)) and, for stratified active bonds, by target, held at +/- 0.02 A. The soft
+    atoms of the task get position restraints at their reference positions.
     """
     groups = []
+    soft = ctx.frozen.soft
     for reference, conf_ids in ctx.by_reference(ensemble):
+        if soft and reference is not None:  # soft atoms near their reference positions
+            restraints = [*base, *position_restraints(reference, soft, conf_id_ref)]
+        else:
+            restraints = base
         by_target = {}
         for conf_id in conf_ids:
             targets = ensemble.provenance(conf_id).get("active_bond_targets")

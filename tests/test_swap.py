@@ -242,6 +242,104 @@ def test_small_kept_share_warns(caplog):
     assert result.warnings and "close to a new embedding" in result.warnings[0]
 
 
+# Tiers: soft atoms (coordinate map in embedding, position restraints in refinement).
+
+import racerts  # noqa: E402
+from racerts.restraints import PositionRestraint  # noqa: E402
+from racerts.task import Constrained, FrozenSet  # noqa: E402
+
+
+def test_frozen_set_and_constrained_with_soft_atoms():
+    assert FrozenSet(soft=(2,)) and not FrozenSet()
+    with pytest.raises(ValueError, match="both hard and soft"):
+        FrozenSet(hard=(1, 2), soft=(2,))
+    with pytest.raises(ValueError, match="both hard and soft"):
+        Constrained(hard=[1], soft=[1])
+    with pytest.raises(ValueError, match="at least one"):
+        Constrained()
+    task = Constrained(hard=[0], soft=[1, 2], core=[0])
+    frozen = task.frozen_atoms(None)
+    assert (frozen.hard, frozen.soft, frozen.core) == ((0,), (1, 2), (0,))
+    moved = task.remap({0: 5, 1: 6, 2: 7})
+    assert (moved.hard, moved.soft, moved.core) == ((5,), (6, 7), (5,))
+    with pytest.raises(ValueError, match=r"soft atoms \[2\]"):
+        task.remap({0: 5, 1: 6})
+
+
+def _eclipsed_octane():
+    from rdkit.Chem import rdMolTransforms
+
+    mol = embedded("CCCCCCCC", seed=1)
+    for k in range(5):  # every C-C-C-C torsion anticlinal: far from a minimum
+        rdMolTransforms.SetDihedralDeg(
+            mol.GetConformer(), k, k + 1, k + 2, k + 3, 120.0
+        )
+    return mol
+
+
+def test_soft_atoms_start_at_the_reference_and_are_restrained(monkeypatch):
+    from racerts.refine import MMFFOptimizer
+
+    mol = _eclipsed_octane()
+    carbons = list(range(8))
+    reference = mol.GetConformer().GetPositions()
+    ctx = racerts.Context.create(mol, Constrained(soft=carbons))
+    embedded_ = racerts.Embed(n_conformers=3).run(ctx)
+    for conf_id in embedded_.conf_ids:  # the coordinate map places them exactly
+        positions = embedded_.mol.GetConformer(conf_id).GetPositions()
+        assert np.abs(positions[carbons] - reference[carbons]).max() < 1e-6
+
+    passed = []
+    original = MMFFOptimizer._refine
+
+    def spy(self, mol, reference, anchors, restraints=()):
+        passed.append((list(anchors), list(restraints)))
+        return original(self, mol, reference, anchors, restraints)
+
+    monkeypatch.setattr(MMFFOptimizer, "_refine", spy)
+    refined = racerts.Refine().run(ctx, embedded_.copy())
+    [(anchors, restraints)] = passed
+    assert anchors == []
+    assert [r.atom for r in restraints] == carbons
+    for r in restraints:
+        assert r.point == pytest.approx(tuple(reference[r.atom]))
+        assert (r.tolerance, r.force_constant) == (0.3, 5.0)
+    for conf_id in refined.conf_ids:
+        # The reported energy leaves out the restraint terms.
+        props = AllChem.MMFFGetMoleculeProperties(refined.mol)
+        plain = AllChem.MMFFGetMoleculeForceField(refined.mol, props, confId=conf_id)
+        assert refined.energy(conf_id) == pytest.approx(plain.CalcEnergy(), abs=1e-6)
+
+
+def test_position_restraints_hold_with_their_force_constant():
+    from racerts.refine import MMFFOptimizer
+
+    mol = _eclipsed_octane()
+    reference = mol.GetConformer().GetPositions()
+    deviations = []
+    for k in (5.0, 1000.0):
+        probe = Chem.Mol(mol)
+        restraints = [
+            PositionRestraint(i, tuple(reference[i]), 0.3, k) for i in range(8)
+        ]
+        MMFFOptimizer(converge=True).refine(probe, mol, (), restraints)
+        positions = probe.GetConformer().GetPositions()
+        deviations.append(np.linalg.norm(positions[:8] - reference[:8], axis=1).max())
+    assert deviations[1] < 0.45 < deviations[0]  # beyond 0.3 A only a little at k 1000
+    with pytest.raises(ValueError, match="reference"):
+        MMFFOptimizer().refine(Chem.Mol(mol), None, (), restraints)
+    with pytest.raises(ValueError):
+        PositionRestraint(0, (0.0, 0.0, float("nan")))
+
+
+def test_soft_atoms_need_the_coordinate_map_embedder():
+    mol = _eclipsed_octane()
+    ctx = racerts.Context.create(mol, Constrained(soft=[0, 1]))
+    embedder = racerts.embed.BoundsMatrixEmbedder()
+    with pytest.raises(ValueError, match="coordinate map"):
+        racerts.Embed(embedder, n_conformers=2).run(ctx)
+
+
 # Regression tests.
 
 
@@ -289,6 +387,30 @@ def test_the_graft_keeps_a_stretched_bond(sn2_ts):
     assert np.linalg.norm(positions[1] - positions[0]) == pytest.approx(
         2.15 * (r[6] + r[35]) / (r[6] + r[17])
     )
+
+
+def test_custom_tasks_may_return_lists():
+    class ListTask:
+        needs_reference = True
+
+        def frozen_atoms(self, mol):
+            return FrozenSet(hard=[0, 1, 2])
+
+    ctx = racerts.Context.create(embedded("CCCC"), ListTask())
+    assert ctx.frozen.hard == (0, 1, 2) and ctx.frozen.core == (0, 1, 2)
+
+
+def test_soft_atoms_dropped_by_an_optimizer_are_reported(caplog):
+    from racerts.refine.base import BaseOptimizer
+
+    class Plain(BaseOptimizer):  # takes no restraints, like the ASE optimizer
+        def _refine(self, mol, reference, anchors):
+            return 0
+
+    mol = _eclipsed_octane()
+    with caplog.at_level("WARNING"):
+        Plain().refine(Chem.Mol(mol), mol, (), [PositionRestraint(0, (0.0, 0.0, 0.0))])
+    assert "soft atoms" in caplog.text
 
 
 def test_e_z_survives_when_a_stereo_atom_leaves():

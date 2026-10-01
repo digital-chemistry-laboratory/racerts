@@ -106,6 +106,55 @@ class DistanceRestraint:
         return max(0.0, self.lower - d, d - self.upper)
 
 
+SOFT_TOLERANCE = 0.3  # A, the flat bottom of the position restraints of soft atoms
+SOFT_FORCE_CONSTANT = 5.0  # kcal/(mol A^2)
+
+
+@dataclass(frozen=True)
+class PositionRestraint:
+    """
+    Holds an atom near a point (A): in MMFF/UFF refinement a flat-bottom term
+    E = 1/2 k (d - tolerance)^2 beyond tolerance, d the distance from the point (in
+    the frame of the reference, on which the conformers are aligned). Used for the
+    soft atoms of a task (FrozenSet.soft); reported energies leave it out.
+    """
+
+    atom: int
+    point: Tuple[float, float, float]
+    tolerance: float = SOFT_TOLERANCE
+    force_constant: float = SOFT_FORCE_CONSTANT
+    stage: str = "refine"
+    source: str = "soft"
+
+    def __post_init__(self):
+        if not _is_index(self.atom) or self.atom < 0:
+            raise TypeError("A position restraint needs a non-negative atom index.")
+        point = tuple(float(x) for x in self.point)
+        if len(point) != 3 or not all(math.isfinite(x) for x in point):
+            raise ValueError(f"Invalid point {self.point}.")
+        if not self.tolerance >= 0 or not self.force_constant > 0:
+            raise ValueError("tolerance must be >= 0 and force_constant positive.")
+        object.__setattr__(self, "atom", int(self.atom))
+        object.__setattr__(self, "point", point)
+        object.__setattr__(self, "tolerance", float(self.tolerance))
+        object.__setattr__(self, "force_constant", float(self.force_constant))
+
+    @property
+    def label(self) -> str:
+        return f"{self.source}:{self.atom}"
+
+    def violation(self, positions) -> float:
+        """How far (A) the atom lies beyond the tolerance (0 within)."""
+        d = float(np.linalg.norm(np.asarray(positions, float)[self.atom] - self.point))
+        return max(0.0, d - self.tolerance)
+
+
+def position_restraints(reference, atoms, conf_id: int = -1) -> List[PositionRestraint]:
+    """The soft atoms held at their positions in conformer conf_id of reference."""
+    positions = reference.GetConformer(conf_id).GetPositions()
+    return [PositionRestraint(int(i), tuple(positions[i])) for i in atoms]
+
+
 class RestraintSet:
     """
     Restraints with one per atom pair. Adding a restraint for a pair that has one

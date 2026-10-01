@@ -36,11 +36,20 @@ class BaseOptimizer(ABC):
         if restraints:
             if accepts_restraints(self._refine):
                 return self._refine(mol, reference, anchors, restraints=restraints)
-            logger.info(
-                "%s refines without the %d restraints (they guided the embedding).",
-                type(self).__name__,
-                len(restraints),
-            )
+            soft = [r for r in restraints if not hasattr(r, "pair")]
+            if soft:  # position restraints: nothing else holds these atoms
+                logger.warning(
+                    "%s takes no restraints: the %d soft atoms are free in this "
+                    "refinement.",
+                    type(self).__name__,
+                    len(soft),
+                )
+            if len(soft) < len(restraints):
+                logger.info(
+                    "%s refines without the %d restraints (they guided the embedding).",
+                    type(self).__name__,
+                    len(restraints) - len(soft),
+                )
         return self._refine(mol, reference, anchors)
 
     @abstractmethod

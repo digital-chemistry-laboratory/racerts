@@ -17,17 +17,28 @@ class FrozenSet:
             force-field sums and the alignment.
         core: Atoms whose distances to all hard atoms are fixed in the bounds-matrix
             embedder (for a TS the reacting atoms); default: hard.
+        soft: Atoms placed at the reference coordinates in embedding (coordinate map,
+            like hard atoms) and held near them in MMFF/UFF refinement by a flat-bottom
+            position restraint (see racerts.restraints.PositionRestraint), e.g. the
+            kept atoms of a swap.
     """
 
     hard: Tuple[int, ...] = ()
     core: Optional[Tuple[int, ...]] = None
+    soft: Tuple[int, ...] = ()
 
     def __post_init__(self):
+        object.__setattr__(self, "hard", tuple(self.hard))
         if self.core is None:
             object.__setattr__(self, "core", self.hard)
+        object.__setattr__(self, "core", tuple(self.core))
+        object.__setattr__(self, "soft", tuple(self.soft))
+        both = sorted(set(self.hard) & set(self.soft))
+        if both:
+            raise ValueError(f"Atoms {both} are both hard and soft.")
 
     def __bool__(self) -> bool:
-        return bool(self.hard)
+        return bool(self.hard or self.soft)
 
 
 @runtime_checkable

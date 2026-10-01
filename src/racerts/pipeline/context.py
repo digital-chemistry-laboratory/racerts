@@ -101,7 +101,7 @@ class Context:
         mol = Chem.Mol(mol)
         set_charge_and_multiplicity(mol, charge, multiplicity)
         frozen = task.frozen_atoms(mol)
-        check_atom_indices(mol, frozen.hard + frozen.core, "frozen atoms")
+        check_atom_indices(mol, frozen.hard + frozen.core + frozen.soft, "frozen atoms")
         restraints = RestraintSet(restraints or ())
         restraints.check_atoms(mol.GetNumAtoms())
         if hasattr(task, "restraints"):  # e.g. active-bond windows of a TS

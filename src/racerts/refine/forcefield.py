@@ -11,6 +11,8 @@ from rdkit.Chem.AllChem import (
     UFFGetMoleculeForceField,  # type: ignore
 )
 
+from racerts.restraints.model import PositionRestraint
+
 from .base import BaseOptimizer
 
 logger = logging.getLogger(__name__)
@@ -95,10 +97,17 @@ class ForceFieldOptimizer(BaseOptimizer):
         """
         Returns the number of Minimize calls that did not converge. With restraints,
         the reported energies leave out their terms and those of the anchors.
+        Position restraints (soft atoms) hold atoms near points of the reference
+        frame: without anchors, the conformers are aligned on their atoms.
         """
-        align_indices = list(anchors)
+        positions = [r for r in restraints if isinstance(r, PositionRestraint)]
+        restraints = [r for r in restraints if not isinstance(r, PositionRestraint)]
+        anchors = list(anchors)
+        align_indices = anchors or [r.atom for r in positions]
+        if positions and reference is None:
+            raise ValueError("Position restraints need a reference geometry.")
         coordinates_ref = None
-        if align_indices:
+        if anchors:
             coordinates_ref = reference.GetConformer(self.conf_id_ref).GetPositions()
         setup = self._setup(mol)
 
@@ -114,17 +123,26 @@ class ForceFieldOptimizer(BaseOptimizer):
             )
             ff = self._force_field(mol, conf_id, setup)
 
-            for idx in align_indices:
+            for idx in anchors:
                 point = coordinates_ref[idx]
                 ep_idx = ff.AddExtraPoint(*point, fixed=True) - 1
                 ff.AddDistanceConstraint(ep_idx, idx, 0, 0, self.force_constant)
+            for position in positions:
+                ep_idx = ff.AddExtraPoint(*position.point, fixed=True) - 1
+                ff.AddDistanceConstraint(
+                    ep_idx,
+                    position.atom,
+                    0,
+                    position.tolerance,
+                    position.force_constant,
+                )
             for restraint in restraints:
                 self._add_restraint(ff, restraint)
 
             ff.Initialize()
             local_fail = minimize(ff, self.maxIter, converge=self.converge)
 
-            if restraints or (self.anchor_free_energies and align_indices):
+            if restraints or positions or (self.anchor_free_energies and anchors):
                 energy = self._force_field(mol, conf_id, setup).CalcEnergy()
             else:
                 energy = ff.CalcEnergy()

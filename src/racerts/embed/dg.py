@@ -146,7 +146,7 @@ class DistanceGeometryEmbedder(BaseEmbedder):
         if fallback == "strip_tags" and self.chirality_fallback == "frozen_first":
             tagged = [
                 i
-                for i in frozen.hard
+                for i in (*frozen.hard, *frozen.soft)
                 if mol.GetAtomWithIdx(i).GetChiralTag()
                 != Chem.ChiralType.CHI_UNSPECIFIED
             ]
@@ -219,7 +219,7 @@ class DistanceGeometryEmbedder(BaseEmbedder):
             atom.SetChiralTag(before.GetChiralTag())
         tagged = [
             i
-            for i in frozen.hard
+            for i in (*frozen.hard, *frozen.soft)
             if original.GetAtomWithIdx(i).GetChiralTag()
             != Chem.ChiralType.CHI_UNSPECIFIED
         ]
@@ -313,10 +313,10 @@ class CmapEmbedder(DistanceGeometryEmbedder):
             )
         if reference is None:
             return
-        cmap = {
-            frozen.hard[i]: reference.GetConformer().GetAtomPosition(frozen.hard[i])
-            for i in range(len(frozen.hard))
-        }
+        conf = reference.GetConformer()
+        # Soft atoms start at the reference too; refinement then lets them move.
+        placed = [*frozen.hard, *frozen.soft]
+        cmap = {i: conf.GetAtomPosition(i) for i in placed}
         params.SetCoordMap(cmap)  # type: ignore
 
 
@@ -327,6 +327,11 @@ class BoundsMatrixEmbedder(DistanceGeometryEmbedder):
     """
 
     def _configure(self, params, mol, reference, frozen, restraints=()):
+        if frozen.soft:
+            raise ValueError(
+                "Soft atoms are placed by a coordinate map: use the CmapEmbedder "
+                "(embed mode 'cmap')."
+            )
         bounds = bounds_matrix(
             mol,
             reference=reference,

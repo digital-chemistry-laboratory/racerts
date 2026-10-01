@@ -55,6 +55,7 @@ testpaths = ["tests"]
 addopts = "-m \"not ase\""
 markers = [
     "ase: tests requiring optional ASE dependency",
+    "xtb: tests with GFN2-xTB (tblite); they also carry the ase marker",
 ]
 
 [tool.ruff]

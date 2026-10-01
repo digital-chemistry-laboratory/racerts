@@ -2,6 +2,7 @@
 
 import logging
 
+import numpy as np
 import pytest
 from rdkit import Chem
 from rdkit.Chem import AllChem
@@ -13,6 +14,7 @@ from racerts.validate import (
     Connectivity,
     FrozenCore,
     IdentityFilter,
+    ImaginaryModes,
     validator,
 )
 
@@ -150,6 +152,75 @@ def test_identity_filter_in_a_pipeline(hept_1_ene_ts):
         ensemble.provenance(i)["validation"] == {"connectivity": "ok"}
         for i in ensemble.conf_ids
     )
+
+
+class Spring:
+    """A diatomic harmonic spring as an ASE calculator: E = k/2 (r - r0)^2."""
+
+    def __init__(self, k=36.0, r0=0.74):
+        from ase.calculators.calculator import Calculator, all_changes
+
+        class _Spring(Calculator):
+            implemented_properties = ["energy", "forces"]
+
+            def calculate(inner, atoms=None, properties=None, changes=all_changes):
+                super(_Spring, inner).calculate(atoms, properties, changes)
+                d = atoms.positions[1] - atoms.positions[0]
+                r = np.linalg.norm(d)
+                inner.results["energy"] = 0.5 * k * (r - r0) ** 2
+                f = -k * (r - r0) * d / r
+                inner.results["forces"] = np.array([-f, f])
+
+        self.calculator = _Spring()
+
+
+@pytest.mark.ase
+def test_frequencies_agree_with_ase_vibrations(tmp_path):
+    ase = pytest.importorskip("ase")
+    from ase.vibrations import Vibrations
+
+    atoms = ase.Atoms("H2", positions=[[0, 0, 0], [0, 0, 0.74]])
+    atoms.calc = Spring().calculator
+    ours = ImaginaryModes(atoms.calc).frequencies(atoms)
+    assert len(ours) == 1  # linear: 3N - 5 modes
+
+    vibrations = Vibrations(atoms, name=str(tmp_path / "vib"), delta=0.005)
+    vibrations.run()
+    reference = np.real(vibrations.get_frequencies()).max()
+    assert ours[0] == pytest.approx(reference, rel=1e-4)
+
+
+def _ethane(eclipsed: bool):
+    """Ethane along z; the H of the second carbon at the same azimuths if eclipsed."""
+    from ase import Atoms
+
+    positions = [[0, 0, -0.765], [0, 0, 0.765]]
+    for carbon, z, offset in ((0, -1.16, 0.0), (1, 1.16, 0.0 if eclipsed else 60.0)):
+        for k in range(3):
+            angle = np.radians(offset + 120 * k)
+            positions.append([1.02 * np.cos(angle), 1.02 * np.sin(angle), z])
+    return Atoms("C2H6", positions=positions)
+
+
+@pytest.mark.ase
+@pytest.mark.xtb
+def test_the_rotation_ts_of_ethane_has_one_imaginary_mode():
+    pytest.importorskip("ase")
+    TBLite = pytest.importorskip("tblite.ase").TBLite
+    from ase.optimize import BFGS
+
+    def optimized(eclipsed):
+        atoms = _ethane(eclipsed)
+        atoms.calc = TBLite(method="GFN2-xTB", verbosity=0)
+        BFGS(atoms, logfile=None).run(fmax=0.001, steps=200)  # keeps the symmetry
+        return atoms
+
+    check = ImaginaryModes(lambda: TBLite(method="GFN2-xTB", verbosity=0))
+    staggered = check.frequencies(optimized(False))
+    eclipsed = check.frequencies(optimized(True))
+    assert (staggered < -50).sum() == 0
+    assert (eclipsed < -50).sum() == 1
+    assert -400 < eclipsed.min() < -150  # the methyl torsion
 
 
 def test_stereo_only_check():

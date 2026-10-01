@@ -79,6 +79,32 @@ def test_uniform_window(aldol):
     assert worst < 0.02
 
 
+def test_stratified_targets(aldol):
+    task = TransitionState(
+        REACTING, active_bonds=[CC], active_window=(2.0, 2.9), stratify=5
+    )
+    ensemble, _ = _run(aldol, task, n=25)
+    targets = collections.Counter()
+    for conf_id in ensemble.conf_ids:
+        target = ensemble.provenance(conf_id)["active_bond_targets"]["10-12"]
+        assert abs(_length(ensemble, conf_id) - target) < 0.05
+        targets[target] += 1
+    assert sorted(targets) == pytest.approx([2.0, 2.225, 2.45, 2.675, 2.9])
+
+    # The default pipeline prunes each target on its own: every target stays.
+    config = PipelineConfig.from_dict({"embed": {"n_conformers": 25}})
+    pruned = racerts.generate_ts(
+        ALDOL, REACTING, smiles=SMILES, config=config, active_window=(2.0, 2.9),
+        active_bonds=[CC], stratify=5,
+    )  # fmt: skip
+    survived = {
+        pruned.provenance(i)["active_bond_targets"]["10-12"] for i in pruned.conf_ids
+    }
+    assert len(survived) == 5
+    summary = pruned.summary()
+    assert "active bond 10-12: min 2.0" in summary and "max 2.8" in summary
+
+
 @pytest.mark.parametrize(
     "settings, message",
     [
@@ -94,7 +120,32 @@ def test_invalid_window_settings(settings, message):
         TransitionState(REACTING, **settings)
 
 
+def test_cli_writes_active_bonds(tmp_path):
+    from racerts.cli import run_subcommand
+
+    out = tmp_path / "ts.xyz"
+    run_subcommand(
+        ["ts", ALDOL, "-r", *map(str, REACTING), "-s", *SMILES, "-n", "10",
+         "--active-window", "2.0", "2.9", "--active-bond", "10", "12", "--stratify", "2",
+         "-o", str(out)]
+    )  # fmt: skip
+    lines = (tmp_path / "active_bonds.csv").read_text().splitlines()
+    assert lines[0] == "conf_id,energy_kcal_mol,target_10-12,length_10-12"
+    assert {line.split(",")[2] for line in lines[1:]} == {"2.0000", "2.9000"}
+
+
 # ---- regression tests ----
+
+
+def test_uniform_windows_are_pruned_per_length(aldol):
+    # With one energy window over all lengths, only the long end survived.
+    config = PipelineConfig.from_dict({"embed": {"n_conformers": 40}})
+    ensemble = racerts.generate_ts(
+        ALDOL, REACTING, smiles=SMILES, config=config, active_window=(2.0, 2.9),
+        active_bonds=[CC],
+    )  # fmt: skip
+    lengths = [_length(ensemble, i) for i in ensemble.conf_ids]
+    assert min(lengths) < 2.3 and max(lengths) > 2.6
 
 
 def test_task_windows_win_over_generated_restraints(aldol, sn2_ts_water, caplog):
@@ -161,6 +212,13 @@ def test_active_bonds_are_checked(aldol, bonds, error):
         TransitionState(REACTING, active_bonds=bonds, active_window=0.2).active_pairs(
             aldol
         )
+
+
+def test_cli_stratify_needs_a_window():
+    from racerts.cli import run_subcommand
+
+    with pytest.raises(SystemExit):
+        run_subcommand(["ts", ALDOL, "-r", *map(str, REACTING), "--stratify", "3"])
 
 
 def test_ring_13_pairs_are_not_forming_bonds():

@@ -74,6 +74,10 @@ def generate_ts(
     auto_fallback: bool = True,
     verbose: bool = False,
     restraints: Optional[RestraintSet] = None,
+    active_window=None,
+    active_bonds: Optional[Sequence[Sequence[int]]] = None,
+    stratify: int = 0,
+    neighbor_window: float = 0.10,
 ) -> ConformerEnsemble:
     """
     A TS conformer ensemble from a TS geometry (xyz or sdf/mol file), with the reacting
@@ -95,6 +99,8 @@ def generate_ts(
             to UFF (config.refine.fallback) in the default pipeline.
         verbose: Log progress (INFO) during the call.
         restraints: Distance restraints (see generate).
+        active_window, active_bonds, stratify, neighbor_window: Sample the lengths
+            of the forming bonds in a window (see TransitionState).
     """
     if isinstance(smiles, str):
         smiles = [smiles]
@@ -114,7 +120,14 @@ def generate_ts(
         raise ValueError(f"No valid mol object could be generated from {file_name}.")
     return generate(
         mol,
-        TransitionState(reacting_atoms, frozen_atoms),
+        TransitionState(
+            reacting_atoms,
+            frozen_atoms,
+            active_bonds=active_bonds,
+            active_window=active_window,
+            neighbor_window=neighbor_window,
+            stratify=stratify,
+        ),
         config=config,
         pipeline=pipeline,
         charge=charge,

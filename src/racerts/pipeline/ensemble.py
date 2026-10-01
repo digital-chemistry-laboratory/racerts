@@ -256,14 +256,27 @@ class ConformerEnsemble:
     def summary(self) -> str:
         energies = self.energies()
         if np.isnan(energies).all():
-            return f"{len(self)} conformers"
-        i = int(np.nanargmin(energies))
-        method = self.energy_method or "unknown method"
-        window = np.nanmax(energies) - energies[i]
-        return (
-            f"{len(self)} conformers; energies ({method}): lowest {energies[i]:.4f} "
-            f"kcal/mol (conformer {self.conf_ids[i]}), window {window:.2f} kcal/mol"
-        )
+            text = f"{len(self)} conformers"
+        else:
+            i = int(np.nanargmin(energies))
+            method = self.energy_method or "unknown method"
+            window = np.nanmax(energies) - energies[i]
+            text = (
+                f"{len(self)} conformers; energies ({method}): lowest {energies[i]:.4f} "
+                f"kcal/mol (conformer {self.conf_ids[i]}), window {window:.2f} kcal/mol"
+            )
+        lengths = {}
+        for conf_id in self.conf_ids:
+            for bond, d in (
+                self.provenance(conf_id).get("active_bond_lengths", {}).items()
+            ):
+                lengths.setdefault(bond, []).append(d)
+        for bond, values in lengths.items():
+            text += (
+                f"; active bond {bond}: min {min(values):.3f}, median "
+                f"{float(np.median(values)):.3f}, max {max(values):.3f} A"
+            )
+        return text
 
 
 def _energy(conf: Chem.Conformer) -> Optional[float]:

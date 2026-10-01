@@ -77,6 +77,35 @@ def _subcommand_parser() -> argparse.ArgumentParser:
         help="First method for the molecular graph (default: smiles).",
     )
     ts.add_argument("-c", "--charge", type=int, default=0, help="Total charge.")
+    ts.add_argument(
+        "--active-window",
+        type=float,
+        nargs="+",
+        metavar="A",
+        help="Sample the forming bonds in a window: DELTA (seed length +/- DELTA) or "
+        "LO HI (A); writes active_bonds.csv next to the output.",
+    )
+    ts.add_argument(
+        "--active-bond",
+        type=int,
+        nargs=2,
+        action="append",
+        metavar=("I", "J"),
+        help="An active bond (repeatable; default: the forming bonds of the seed).",
+    )
+    ts.add_argument(
+        "--stratify",
+        type=int,
+        default=0,
+        metavar="K",
+        help="K target lengths evenly spaced in the window (default: anywhere).",
+    )
+    ts.add_argument(
+        "--neighbor-window",
+        type=float,
+        default=0.10,
+        help="+/- A for the reacting atoms to their neighbours (default 0.1).",
+    )
 
     gs = sub.add_parser(
         "gs",
@@ -364,6 +393,13 @@ def _run_subcommand(parser, args):
 
     if args.command == "ts":
         _check_file(parser, args.filename)
+        window = args.active_window
+        if window is None and (args.active_bond or args.stratify):
+            parser.error("--active-bond and --stratify need --active-window.")
+        if window is not None:
+            if len(window) not in (1, 2):
+                parser.error("--active-window takes DELTA or LO HI.")
+            window = window[0] if len(window) == 1 else tuple(window)
         ensemble = generate_ts(
             args.filename,
             args.reacting_atoms,
@@ -374,7 +410,15 @@ def _run_subcommand(parser, args):
             config=config,
             mol_getter=GRAPH_METHODS[args.graph]() if args.graph else None,
             auto_fallback=not args.no_fallback,
+            active_window=window,
+            active_bonds=args.active_bond,
+            stratify=args.stratify,
+            neighbor_window=args.neighbor_window,
         )
+        if window is not None:
+            write_active_bonds(
+                ensemble, os.path.join(os.path.dirname(args.output), "active_bonds.csv")
+            )
     else:
         ensemble = generate_gs(
             args.smiles,
@@ -384,6 +428,27 @@ def _run_subcommand(parser, args):
         )
     ensemble.write_xyz(args.output, use_energy=args.crest_energies)
     return ensemble
+
+
+def write_active_bonds(ensemble, path: str) -> None:
+    """A CSV: conformer id, energy (kcal/mol), target and length of each active bond."""
+    bonds, rows = [], []
+    for conf_id in ensemble.conf_ids:
+        provenance = ensemble.provenance(conf_id)
+        lengths = provenance.get("active_bond_lengths", {})
+        targets = provenance.get("active_bond_targets", {})
+        bonds = bonds or sorted(lengths)
+        energy = ensemble.energy(conf_id)
+        cells = [str(conf_id), "" if energy is None else f"{energy:.4f}"]
+        for bond in bonds:
+            target = targets.get(bond)
+            cells += ["" if target is None else f"{target:.4f}", f"{lengths[bond]:.4f}"]
+        rows.append(",".join(cells))
+    header = ["conf_id", "energy_kcal_mol"]
+    for bond in bonds:
+        header += [f"target_{bond}", f"length_{bond}"]
+    with open(path, "w") as handle:
+        handle.write("\n".join([",".join(header), *rows]) + "\n")
 
 
 def _add_verbose(parser) -> None:

@@ -14,7 +14,11 @@ from .rmsd import RMSDPruner
 
 
 class _Prune:
-    """Prunes the ensemble in place with pruner (default: default_pruner())."""
+    """
+    Prunes the ensemble in place with pruner (default: default_pruner()). For a TS
+    with stratified active bonds, each target is pruned on its own: energies and
+    geometries at different constrained lengths are not comparable.
+    """
 
     name: str
     default_pruner: type
@@ -24,8 +28,50 @@ class _Prune:
 
     def run(self, ctx, ensemble: ConformerEnsemble) -> ConformerEnsemble:
         pruner = self.pruner if self.pruner is not None else self.default_pruner()
-        pruner.prune(mol=ensemble.mol)
+        groups = _target_groups(ctx, ensemble)
+        if len(groups) <= 1:
+            pruner.prune(mol=ensemble.mol)
+            return ensemble
+        kept = set()
+        for conf_ids in groups:
+            part = ensemble.filter(conf_ids)
+            pruner.prune(mol=part.mol)
+            kept.update(part.conf_ids)
+        for conf_id in ensemble.conf_ids:
+            if conf_id not in kept:
+                ensemble.mol.RemoveConformer(conf_id)
         return ensemble
+
+
+LENGTH_BINS = 5  # uniform active-bond windows are pruned per fifth of the window
+
+
+def _target_groups(ctx, ensemble):
+    """
+    The conformer ids per target of the active bonds of a windowed TS: per target
+    (stratified) or per fifth of the window (uniform); else one group.
+    """
+    if ctx is None or not getattr(ctx.task, "windowed", False):
+        return [ensemble.conf_ids]
+    windows = {f"{a}-{b}": w for (a, b), w in ctx.task.active_windows(ctx.mol).items()}
+    stratified = getattr(ctx.task, "stratify", 0)
+    groups = {}
+    for conf_id in ensemble.conf_ids:
+        targets = ensemble.provenance(conf_id).get("active_bond_targets") or {}
+        key = []
+        for bond, t in sorted(targets.items()):
+            if stratified or bond not in windows:
+                key.append((bond, t))
+            else:
+                lo, hi = windows[bond]
+                key.append(
+                    (
+                        bond,
+                        min(int((t - lo) / (hi - lo) * LENGTH_BINS), LENGTH_BINS - 1),
+                    )
+                )
+        groups.setdefault(tuple(key), []).append(conf_id)
+    return list(groups.values())
 
 
 class PruneEnergy(_Prune):

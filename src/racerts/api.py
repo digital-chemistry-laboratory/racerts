@@ -372,6 +372,9 @@ def swap(
         for part in parts[1:]:
             ensemble = ensemble.merge(part)
         stages = [s for s in config.build(new_task).stages if s.name != "embed"]
+        for stage in stages:  # the swap embeds with the frozen_first fallback
+            if stage.name == "refine":
+                stage.stereo_anchors = True
         ensemble = Pipeline(stages).run(ctx, ensemble)
         _record_index_map(ensemble.mol, index_map)
         if restraints is not None:

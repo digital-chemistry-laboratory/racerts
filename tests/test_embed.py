@@ -313,3 +313,75 @@ def test_frozen_first_explains_when_every_conformer_is_inverted(
         racerts.generate(butanol, Constrained(hard=[3, 4, 12, 13]), config=config)
     assert re.search(r"All \d+ conformers have inverted stereo", caplog.text)
     assert "chirality_fallback='legacy' keeps them" in caplog.text
+
+
+def test_frozen_first_holds_substituents_that_set_frozen_stereo():
+    # Benchmark Ti_elimination: frozen stereocentres whose one free methyl sets their
+    # configuration came out inverted in every conformer. With frozen_first, such a
+    # substituent starts at the reference too (legacy mode is unchanged).
+    from racerts.embed.dg import stereo_anchors
+    from racerts.task import FrozenSet
+
+    mol = Chem.AddHs(Chem.MolFromSmiles("C[C@H](O)CC"))
+    AllChem.EmbedMolecule(mol, randomSeed=3)
+    # C1 frozen with O2, C3 and its H: the methyl C0 alone sets its configuration.
+    h1 = next(
+        n.GetIdx()
+        for n in mol.GetAtomWithIdx(1).GetNeighbors()
+        if n.GetAtomicNum() == 1
+    )
+    frozen = FrozenSet(hard=(1, 2, 3, h1))
+    assert stereo_anchors(mol, frozen) == [0]
+    assert stereo_anchors(mol, FrozenSet(hard=(1, 2))) == []  # two free neighbours
+
+    ctx = racerts.Context.create(mol, Constrained(hard=[1, 2, 3, h1]))
+    reference = mol.GetConformer().GetPositions()
+    for fallback, pinned in (("frozen_first", True), ("legacy", False)):
+        embedder = dg.CmapEmbedder(randomSeed=7, chirality_fallback=fallback)
+        ensemble = racerts.Embed(embedder, n_conformers=4).run(ctx)
+        moved = max(
+            np.linalg.norm(
+                ensemble.mol.GetConformer(c).GetPositions()[0] - reference[0]
+            )
+            for c in ensemble.conf_ids
+        )
+        assert (moved < 1e-3) == pinned
+
+
+def test_refine_holds_stereo_anchors_when_asked():
+    from racerts.embed.dg import stereo_anchors
+    from racerts.refine import MMFFOptimizer
+
+    mol = Chem.AddHs(Chem.MolFromSmiles("C[C@H](O)CC"))
+    AllChem.EmbedMolecule(mol, randomSeed=3)
+    h1 = next(
+        n.GetIdx()
+        for n in mol.GetAtomWithIdx(1).GetNeighbors()
+        if n.GetAtomicNum() == 1
+    )
+    ctx = racerts.Context.create(mol, Constrained(hard=[1, 2, 3, h1]))
+    assert stereo_anchors(ctx.mol, ctx.frozen) == [0]
+    seen = []
+
+    class Spy(MMFFOptimizer):
+        def _refine(self, mol, reference, anchors, restraints=()):
+            seen.append(list(anchors))
+            return super()._refine(mol, reference, anchors, restraints)
+
+    ensemble = racerts.Embed(n_conformers=2).run(ctx)
+    racerts.Refine(Spy(), stereo_anchors=True).run(ctx, ensemble.copy())
+    racerts.Refine(Spy()).run(ctx, ensemble.copy())
+    assert seen == [[1, 2, 3, h1, 0], [1, 2, 3, h1]]
+    # The default pipeline holds them with the frozen_first fallback only.
+    from racerts.config import PipelineConfig as Config
+
+    def refine_stage(fallback):
+        stages = (
+            Config.from_dict({"embed": {"chirality_fallback": fallback}})
+            .build(Constrained(hard=[1]))
+            .stages
+        )
+        return next(s for s in stages if s.name == "refine")
+
+    assert refine_stage("frozen_first").stereo_anchors
+    assert not refine_stage("legacy").stereo_anchors

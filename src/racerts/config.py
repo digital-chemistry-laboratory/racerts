@@ -397,7 +397,11 @@ class PipelineConfig:
                     count_policy=embed.count_policy,
                     hint_share=self.restraints.hint_share,
                 ),
-                Refine(optimizer, fallback=self.refine.fallback),
+                Refine(
+                    optimizer,
+                    fallback=self.refine.fallback,
+                    stereo_anchors=embed.chirality_fallback == "frozen_first",
+                ),
                 *faces,
                 *checks,
                 PruneEnergy(

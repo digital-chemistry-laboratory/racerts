@@ -69,7 +69,7 @@ ensemble = racerts.generate_ts("ts.xyz", [3, 4, 5], config=config)
 | | `use_random_coords` | true | |
 | | `count_policy` | `legacy` | how -1 is counted: `legacy`; `fragments` (adds 3 or 6 rigid-body degrees of freedom per fragment without frozen atoms, e.g. a solvent molecule); `per_bond` (max(7, 10 × rotatable bonds)) |
 | | `sequential_seeds` | false | one seed per conformer, in a stream that starts at a value derived from `seed` (different seeds do not overlap); legacy racerts embeds its first 3 conformers twice |
-| | `chirality_fallback` | `legacy` | when the frozen atoms make the chirality checks fail: `legacy` (drop all chiral tags, or stop enforcing chirality; free stereocentres can invert) or `frozen_first` (drop the tags of the frozen atoms first; afterwards the frozen atoms take the configuration of the reference, and conformers with inverted stereo are removed) |
+| | `chirality_fallback` | `legacy` | when the frozen atoms make the chirality checks fail: `legacy` (drop all chiral tags, or stop enforcing chirality; free stereocentres can invert) or `frozen_first` (drop the tags of the frozen atoms first; afterwards the frozen atoms take the configuration of the reference, and conformers with inverted stereo are removed; a free substituent that alone sets the configuration of a frozen stereocentre is held at the reference in embedding and refinement) |
 | `refine` | `backend` | `mmff` | `mmff` or `uff` |
 | | `fallback` | true | UFF if MMFF has no parameters |
 | | `force_constant` | 1e6 | kcal/mol/Å² on the frozen atoms |

@@ -68,6 +68,12 @@ class Refine:
         anchors: Hold the hard frozen atoms at the reference (default). False refines
             all atoms freely, e.g. for a saddle-point search from TS-like conformers
             (ASEOptimizer with Sella).
+        stereo_anchors: Also hold the free substituents that alone set the
+            configuration of a frozen stereocentre (racerts.embed.dg.stereo_anchors),
+            which the "frozen_first" embedding places at the reference; the default
+            pipeline sets it with that fallback. Otherwise refinement can turn such a
+            substituent through to the other stereoisomer (benchmark Ti_elimination
+            with UFF).
     """
 
     name = "refine"
@@ -77,10 +83,12 @@ class Refine:
         optimizer: Optional[BaseOptimizer] = None,
         fallback: bool = True,
         anchors: bool = True,
+        stereo_anchors: bool = False,
     ):
         self.optimizer = optimizer
         self.fallback = fallback
         self.anchors = anchors
+        self.stereo_anchors = stereo_anchors
 
     def run(self, ctx, ensemble: ConformerEnsemble) -> ConformerEnsemble:
         optimizer = self.optimizer if self.optimizer is not None else MMFFOptimizer()
@@ -96,6 +104,11 @@ class Refine:
                 "Refine(optimizer, anchors=False)."
             )
         anchors = ctx.frozen.hard if self.anchors else ()
+        if self.anchors and self.stereo_anchors and ctx.reference is not None:
+            from racerts.embed.dg import stereo_anchors
+
+            extra = [i for i in stereo_anchors(ctx.mol, ctx.frozen) if i not in anchors]
+            anchors = (*anchors, *extra)
         restraints = ctx.restraints.for_stage("refine")
         # soft atoms are held at the reference conformer the optimizer aligns on
         groups = _refine_groups(

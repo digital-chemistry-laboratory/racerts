@@ -1,7 +1,7 @@
 """Distance-geometry embedders: coordinate map (CmapEmbedder) or bounds matrix."""
 
 import logging
-from typing import Optional, Sequence, Union
+from typing import List, Optional, Sequence, Union
 
 import numpy as np
 from rdkit import Chem
@@ -9,7 +9,7 @@ from rdkit.Chem import AllChem
 from rdkit.Chem.AllChem import EmbedMultipleConfs  # type: ignore
 from rdkit.Chem.rdDistGeom import EmbedFailureCauses
 
-from racerts.system.stereo import StereoCheck, reference_tags
+from racerts.system.stereo import TETRAHEDRAL, StereoCheck, reference_tags
 from racerts.task import FrozenSet
 
 from .base import BaseEmbedder
@@ -34,7 +34,9 @@ class DistanceGeometryEmbedder(BaseEmbedder):
       reference fixes their configuration) and the check is repeated; the legacy
       fallback follows only if it still fails. After any fallback, the graph keeps
       its chiral tags, and conformers whose specified stereo (outside the core atoms,
-      e.g. the reacting atoms) is inverted are removed, with a warning.
+      e.g. the reacting atoms) is inverted are removed, with a warning. The
+      coordinate-map embedder also places the free substituent that alone sets the
+      configuration of a frozen stereocentre (see stereo_anchors).
     - False: no fallback (the ground-state default: stereocentres of the input are
       never given up).
 
@@ -274,6 +276,28 @@ class DistanceGeometryEmbedder(BaseEmbedder):
 
 CHIRALITY_FALLBACKS = (True, False, "legacy", "frozen_first")
 
+
+def stereo_anchors(mol: Chem.Mol, frozen: FrozenSet) -> List[int]:
+    """
+    Free atoms that alone set the configuration of a frozen stereocentre: the only
+    neighbour of a tagged hard (or soft) atom that is not frozen. The coordinate-map
+    embedder places them at the reference too in "frozen_first" mode: with the
+    centre and its other neighbours fixed, a substituent on the wrong side is the
+    other stereoisomer, which the no-enforce fallback produces (benchmark
+    Ti_elimination: every conformer inverted).
+    """
+    held = set(frozen.hard) | set(frozen.soft)
+    anchors = set()
+    for i in held:
+        atom = mol.GetAtomWithIdx(i)
+        if atom.GetChiralTag() not in TETRAHEDRAL:
+            continue
+        free = [n.GetIdx() for n in atom.GetNeighbors() if n.GetIdx() not in held]
+        if len(free) == 1:
+            anchors.add(free[0])
+    return sorted(anchors)
+
+
 # Room for this many conformers after the start of a seed stream (RDKit seeds are
 # 31-bit integers).
 _STREAM_LENGTH = 2**24
@@ -328,6 +352,8 @@ class CmapEmbedder(DistanceGeometryEmbedder):
         conf = reference.GetConformer()
         # Soft atoms start at the reference too; refinement then lets them move.
         placed = [*frozen.hard, *frozen.soft]
+        if self.chirality_fallback == "frozen_first":
+            placed += stereo_anchors(mol, frozen)
         cmap = {i: conf.GetAtomPosition(i) for i in placed}
         params.SetCoordMap(cmap)  # type: ignore
 

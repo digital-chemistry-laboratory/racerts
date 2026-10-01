@@ -30,6 +30,7 @@ from .pipeline import ConformerEnsemble, ConformerRecord, Context, Pipeline, Sta
 from .prune import PruneCount, PruneEnergy, PruneRMSD
 from .refine import Refine, Rescore
 from .task import Constrained, FrozenSet, GroundState, Task, TransitionState
+from .validate import Validate
 
 __all__ = [
     "ConformerEnsemble",
@@ -52,6 +53,7 @@ __all__ = [
     "Stage",
     "Task",
     "TransitionState",
+    "Validate",
     "generate",
     "generate_gs",
     "generate_ts",

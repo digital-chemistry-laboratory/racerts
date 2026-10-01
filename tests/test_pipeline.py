@@ -109,6 +109,8 @@ def _two_references(mol):
 def test_several_references(hept_1_ene_ts):
     import numpy as np
 
+    from racerts.validate import FrozenCore
+
     mol = _two_references(hept_1_ene_ts)
     task = racerts.TransitionState([3, 4, 5])
     pipeline = racerts.Pipeline(
@@ -125,6 +127,7 @@ def test_several_references(hept_1_ene_ts):
         target = mol.GetConformer(reference).GetPositions()[frozen]
         found = ensemble.mol.GetConformer(conf_id).GetPositions()[frozen]
         assert np.abs(found - target).max() < 1e-3
+    assert FrozenCore().validate(ctx, ensemble) == {}
 
     one = racerts.Embed(n_conformers=3, references=[7]).run(ctx)
     assert len(one) == 3 and {one.provenance(i)["reference"] for i in one.conf_ids} == {

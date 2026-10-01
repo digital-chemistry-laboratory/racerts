@@ -23,7 +23,7 @@ from racerts.refine import REFINE_BACKENDS, Refine
 from racerts.refine.forcefield import DIELECTRIC_MODELS
 from racerts.task import Task
 from racerts.utils.optional import require
-from racerts.validate import Connectivity, Validate
+from racerts.validate import AttackFace, Connectivity, Validate
 
 
 @dataclass
@@ -382,6 +382,9 @@ class PipelineConfig:
             )
         optimizer = REFINE_BACKENDS[refine.backend](**options)
         prune = self.prune
+        faces = []
+        if getattr(task, "windowed", False) and getattr(task, "stereo_filter", False):
+            faces.append(Validate(AttackFace()))
         checks = []
         if prune.check_stereo:
             checks.append(Validate(Connectivity(bonds=False)))
@@ -395,6 +398,7 @@ class PipelineConfig:
                     hint_share=self.restraints.hint_share,
                 ),
                 Refine(optimizer, fallback=self.refine.fallback),
+                *faces,
                 *checks,
                 PruneEnergy(
                     EnergyPruner(

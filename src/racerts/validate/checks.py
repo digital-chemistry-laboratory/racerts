@@ -148,3 +148,100 @@ class IdentityFilter(Validate):
 
     def __init__(self, **settings):
         super().__init__(Connectivity(**settings))
+
+
+MIN_FACE_HEIGHT = 0.3  # A: a partner closer to the plane has no defined face
+MIN_PLANE_SINE = 0.17  # neighbours within 10 degrees of a line span no plane
+
+
+class AttackFace:
+    """
+    Whether each forming bond approaches from the same face as in the seed: for every
+    active bond (i, j), the side of j relative to the plane of i's other neighbours
+    (three: their plane; two: their plane with i, unless nearly collinear), and the
+    same from j's side. A side
+    counts only where j lies at least min_height from the plane in the seed, and a
+    conformer is flagged only where j lies at least min_height on the other side: a
+    partner near the plane (e.g. in the plane of a ring) has no defined face. Atoms
+    with one other neighbour, or four and more, have no face either. Loosened active-bond windows let
+    distance geometry put the partner on the wrong face; in the default pipeline the
+    filter runs after refinement, since raw embedded geometries are too rough for it
+    (cyclization TS: 36 of 60 embedded conformers "flipped", none after MMFF).
+
+    Args:
+        pairs: The bonds; default: the active bonds of the task (TransitionState).
+        min_height: See above (A).
+    """
+
+    name = "attack_face"
+
+    def __init__(
+        self,
+        pairs: Optional[Sequence[Sequence[int]]] = None,
+        min_height: float = MIN_FACE_HEIGHT,
+    ):
+        self.pairs = None if pairs is None else [tuple(p) for p in pairs]
+        self.min_height = min_height
+
+    def validate(self, ctx, ensemble: ConformerEnsemble) -> Dict[int, str]:
+        pairs = self.pairs
+        if pairs is None:
+            pairs = (
+                ctx.task.active_pairs(ctx.mol)
+                if hasattr(ctx.task, "active_pairs")
+                else []
+            )
+        if not pairs or ctx.reference is None:
+            return {}
+        mol = ensemble.mol
+        sides = [(i, j) for a, b in pairs for i, j in ((a, b), (b, a))]
+        neighbors = {
+            (i, j): sorted(
+                n.GetIdx()
+                for n in mol.GetAtomWithIdx(i).GetNeighbors()
+                if n.GetIdx() != j
+            )
+            for i, j in sides
+        }
+        seed = ctx.reference.GetConformer().GetPositions()
+        expected = {}
+        for side in sides:
+            height = _height(seed, *side, neighbors[side])
+            if height is not None and abs(height) >= self.min_height:
+                expected[side] = np.sign(height)
+        reasons = {}
+        for conf in mol.GetConformers():
+            positions = conf.GetPositions()
+            flipped = []
+            for (i, j), sign in expected.items():
+                height = _height(positions, i, j, neighbors[(i, j)])
+                if height is not None and sign * height <= -self.min_height:
+                    flipped.append(f"{j} on {i}")
+            if flipped:
+                reasons[conf.GetId()] = (
+                    f"attack from the other face ({', '.join(flipped)})"
+                )
+        return reasons
+
+
+def _height(
+    positions: np.ndarray, i: int, j: int, neighbors: Sequence[int]
+) -> Optional[float]:
+    """
+    The signed distance (A) of atom j from the plane of i's neighbours (two: their
+    plane with i), measured from i; None without a plane.
+    """
+    if len(neighbors) == 3:
+        a, b, c = (positions[k] for k in neighbors)
+        normal = np.cross(b - a, c - a)
+        scale = np.linalg.norm(b - a) * np.linalg.norm(c - a)
+    elif len(neighbors) == 2:
+        a, b = (positions[k] - positions[i] for k in neighbors)
+        normal = np.cross(a, b)
+        scale = np.linalg.norm(a) * np.linalg.norm(b)
+    else:  # one neighbour, or four and more: no single face
+        return None
+    length = np.linalg.norm(normal)
+    if length < MIN_PLANE_SINE * scale:  # (nearly) collinear: no plane
+        return None
+    return float(np.dot(normal / length, positions[j] - positions[i]))

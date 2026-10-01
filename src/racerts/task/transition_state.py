@@ -54,6 +54,8 @@ class TransitionState:
             target_force_constant; a flat-bottom window would let the force field push
             all conformers to one edge). The provenance records the targets
             ("active_bond_targets") and the lengths ("active_bond_lengths").
+        stereo_filter: In window mode, drop conformers whose reacting atoms are
+            attacked from the other face than in the seed (see AttackFace).
     """
 
     needs_reference = True
@@ -66,6 +68,7 @@ class TransitionState:
         active_window: Window = None,
         neighbor_window: float = 0.10,
         stratify: int = 0,
+        stereo_filter: bool = True,
         window_force_constant: float = 10000.0,
         target_force_constant: float = 10000.0,
     ):
@@ -99,6 +102,7 @@ class TransitionState:
         self.active_window = active_window
         self.neighbor_window = neighbor_window
         self.stratify = int(stratify)
+        self.stereo_filter = stereo_filter
         self.window_force_constant = window_force_constant
         self.target_force_constant = target_force_constant
 

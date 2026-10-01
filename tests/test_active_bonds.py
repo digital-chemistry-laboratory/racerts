@@ -9,6 +9,7 @@ import pytest
 import racerts
 from racerts import PipelineConfig, TransitionState
 from racerts.system import build_mol
+from racerts.validate import AttackFace
 
 from .conftest import DATA
 
@@ -103,6 +104,32 @@ def test_stratified_targets(aldol):
     assert len(survived) == 5
     summary = pruned.summary()
     assert "active bond 10-12: min 2.0" in summary and "max 2.8" in summary
+
+
+def test_attack_face_filter(aldol):
+    ensemble, ctx = _run(aldol, TransitionState(REACTING, active_window=0.25), n=4)
+    assert AttackFace().validate(ctx, ensemble) == {}
+    # Mirror C10 through the plane of C12's neighbours: the other face.
+    conf_id = ensemble.conf_ids[1]
+    conf = ensemble.mol.GetConformer(conf_id)
+    p = conf.GetPositions()
+    a, b, c = (p[i] for i in (11, 13, 32))
+    normal = np.cross(b - a, c - a)
+    normal /= np.linalg.norm(normal)
+    mirrored = p[10] - 2 * np.dot(p[10] - a, normal) * normal
+    conf.SetAtomPosition(10, mirrored.tolist())
+    reasons = AttackFace().validate(ctx, ensemble)
+    assert list(reasons) == [conf_id] and "10 on 12" in reasons[conf_id]
+    # The default pipeline of a windowed TS includes the filter.
+    names = [
+        s.name
+        for s in PipelineConfig()
+        .build(TransitionState(REACTING, active_window=0.2))
+        .stages
+    ]
+    assert names[:3] == ["embed", "refine", "validate"]  # on refined geometries
+    no_filter = TransitionState(REACTING, active_window=0.2, stereo_filter=False)
+    assert "validate" not in [s.name for s in PipelineConfig().build(no_filter).stages]
 
 
 @pytest.mark.parametrize(
@@ -203,6 +230,15 @@ def test_windowed_refinement_needs_restraints(aldol):
     racerts.Refine(lj, anchors=False).run(ctx, ensemble.copy())  # a free search: fine
 
 
+def test_attack_face_with_an_atom_in_two_active_bonds(sn2_ts):
+    # SN2: C0 forms a bond to Cl2 and breaks the one to Cl1.
+    mol = build_mol(sn2_ts, -1, [0, 1, 2], input_smiles=["CCl", "[Cl-]"])
+    task = TransitionState([0, 1, 2], active_bonds=[(0, 1), (0, 2)], active_window=0.2)
+    ctx = racerts.Context.create(mol, task)
+    seed_copy = racerts.ConformerEnsemble(racerts.Context.create(mol, task).mol)
+    assert AttackFace().validate(ctx, seed_copy) == {}
+
+
 @pytest.mark.parametrize(
     "bonds, error",
     [([(10, 99)], ValueError), ([(1, 8)], ValueError), ([(10, 10)], ValueError)],
@@ -249,6 +285,28 @@ def test_three_membered_forming_bonds_stay_active():
         conf.SetAtomPosition(i, Point3D(2.0 * x, 2.0 * y, 0.0))
     mol.AddConformer(conf)
     assert TransitionState([0, 1, 2], active_window=0.3).active_pairs(mol) == [(0, 2)]
+
+
+def test_attack_face_needs_a_clear_height(aldol):
+    ensemble, ctx = _run(aldol, TransitionState(REACTING, active_window=0.25), n=2)
+    conf_id = ensemble.conf_ids[0]
+    conf = ensemble.mol.GetConformer(conf_id)
+    p = conf.GetPositions()
+    a, b, c = (p[i] for i in (11, 13, 32))  # the plane of C12's other neighbours
+    normal = np.cross(b - a, c - a)
+    normal /= np.linalg.norm(normal)
+    height = np.dot(p[10] - p[12], normal)
+    # C10 just across the plane (0.1 A): no clear face, not flagged ...
+    conf.SetAtomPosition(
+        10, (p[10] - (height + 0.1 * np.sign(height)) * normal).tolist()
+    )
+    assert AttackFace().validate(ctx, ensemble) == {}
+    # ... 0.5 A across: flagged.
+    conf.SetAtomPosition(
+        10, (p[10] - (height + 0.5 * np.sign(height)) * normal).tolist()
+    )
+    assert "10 on 12" in AttackFace().validate(ctx, ensemble)[conf_id]
+    assert AttackFace(min_height=0.6).validate(ctx, ensemble) == {}
 
 
 def test_window_problems_are_explained(sn2_ts, monkeypatch, caplog):

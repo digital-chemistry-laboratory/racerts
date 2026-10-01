@@ -44,5 +44,10 @@ What changes with a window (`TransitionState(..., active_window=...)`):
 - **Pruning:** the energy window and the duplicate RMSD apply per target (stratified) or
   per fifth of the window (uniform). Energies at different constrained lengths are not
   comparable: on the aldol TS, MMFF puts 2.0 Å about 66 kcal/mol above 2.9 Å.
+- **Attack face:** conformers whose partner approaches a reacting atom from the other
+  face than in the seed are dropped after refinement (`AttackFace`, a validator;
+  `stereo_filter=False` turns it off). A face counts where the partner lies at least
+  0.3 Å from the plane of the atom's other neighbours, in the seed and, to be flagged,
+  on the other side in the conformer.
 - **Provenance:** `active_bond_targets` and `active_bond_lengths` ("i-j": Å) for every
   conformer; `ConformerEnsemble.summary()` gives min, median and max per bond.

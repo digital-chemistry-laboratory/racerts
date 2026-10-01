@@ -5,8 +5,9 @@ from typing import Callable, Optional, Type
 
 from racerts.pipeline import ConformerEnsemble
 from racerts.pipeline.ensemble import PROVENANCE
+from racerts.restraints.active import record_active_lengths, target_windows
 
-from .base import BaseOptimizer
+from .base import BaseOptimizer, accepts_restraints
 from .forcefield import MMFFOptimizer, UFFOptimizer
 
 logger = logging.getLogger(__name__)
@@ -82,17 +83,30 @@ class Refine:
 
     def run(self, ctx, ensemble: ConformerEnsemble) -> ConformerEnsemble:
         optimizer = self.optimizer if self.optimizer is not None else MMFFOptimizer()
+        if (
+            self.anchors
+            and getattr(ctx.task, "windowed", False)
+            and not accepts_restraints(optimizer._refine)
+        ):
+            raise ValueError(
+                f"In window mode the reacting atoms are held by restraints, which "
+                f"{type(optimizer).__name__} does not take, while their neighbours stay "
+                "fixed. Refine with MMFF or UFF, or search the saddle point freely: "
+                "Refine(optimizer, anchors=False)."
+            )
         anchors = ctx.frozen.hard if self.anchors else ()
-        groups = ctx.by_reference(ensemble)
         restraints = ctx.restraints.for_stage("refine")
+        groups = _refine_groups(ctx, ensemble, restraints)
 
         def refine(opt):
             if len(groups) == 1:
-                return opt.refine(ensemble.mol, groups[0][0], anchors, restraints)
-            # Several references (Embed(references=...)): each group against its own.
-            for reference, conf_ids in groups:
+                reference, _, group_restraints = groups[0]
+                return opt.refine(ensemble.mol, reference, anchors, group_restraints)
+            # Several references (Embed(references=...)) or active-bond targets: each
+            # group against its own reference and targets.
+            for reference, conf_ids, group_restraints in groups:
                 part = ensemble.filter(conf_ids)
-                opt.refine(part.mol, reference, anchors, restraints)
+                opt.refine(part.mol, reference, anchors, group_restraints)
                 _write_back(ensemble, part, conf_ids)
 
         energy_method = refine_with_fallback(
@@ -101,6 +115,7 @@ class Refine:
             fallback=UFFOptimizer if self.fallback else None,
         )
         ensemble.mol.SetProp("energy_method", energy_method)
+        record_active_lengths(ctx, ensemble)
         return ensemble
 
 
@@ -122,3 +137,26 @@ def _write_back(ensemble: ConformerEnsemble, part: ConformerEnsemble, conf_ids) 
             target.SetDoubleProp("energy", source.GetDoubleProp("energy"))
         if source.HasProp(PROVENANCE):
             target.SetProp(PROVENANCE, source.GetProp(PROVENANCE))
+
+
+def _refine_groups(ctx, ensemble, restraints):
+    """
+    (reference, conformer ids, restraints) groups: by reference (Embed(references=
+    ...)) and, for stratified active bonds, by target, held at +/- 0.02 A.
+    """
+    groups = []
+    for reference, conf_ids in ctx.by_reference(ensemble):
+        by_target = {}
+        for conf_id in conf_ids:
+            targets = ensemble.provenance(conf_id).get("active_bond_targets")
+            key = None if not targets else tuple(sorted(targets.items()))
+            by_target.setdefault(key, []).append(conf_id)
+        for key, ids in by_target.items():
+            group_restraints = restraints
+            if key is not None:
+                target = {tuple(map(int, pair.split("-"))): t for pair, t in key}
+                group_restraints = target_windows(
+                    restraints, target, 0.02, ctx.task.target_force_constant
+                )
+            groups.append((reference, ids, group_restraints))
+    return groups

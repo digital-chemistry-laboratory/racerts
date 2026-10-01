@@ -48,6 +48,12 @@ class TransitionState:
             d); or (lo, hi) in A, for every active bond.
         neighbor_window: +/- A for the distances of the reacting atoms to their bonded
             neighbours, in window mode.
+        stratify: 0: lengths drawn anywhere in the window by the embedding; k > 0: k
+            target lengths evenly spaced in the window, one per embedding batch. Either
+            way, refinement holds each conformer at its target (+/- 0.02 A, with
+            target_force_constant; a flat-bottom window would let the force field push
+            all conformers to one edge). The provenance records the targets
+            ("active_bond_targets") and the lengths ("active_bond_lengths").
     """
 
     needs_reference = True
@@ -59,7 +65,9 @@ class TransitionState:
         active_bonds: Optional[Sequence[Sequence[int]]] = None,
         active_window: Window = None,
         neighbor_window: float = 0.10,
+        stratify: int = 0,
         window_force_constant: float = 10000.0,
+        target_force_constant: float = 10000.0,
     ):
         self.reacting_atoms = list(reacting_atoms)
         self.user_frozen_atoms = list(frozen_atoms) if frozen_atoms else []
@@ -78,11 +86,21 @@ class TransitionState:
                 raise ValueError(
                     "active_window must be a number or (lo, hi) with 0 < lo < hi."
                 )
+        if stratify < 0 or (stratify and active_window is None):
+            raise ValueError(
+                "stratify needs an active_window and must not be negative."
+            )
+        if stratify == 1:
+            raise ValueError(
+                "stratify: use 0 (anywhere in the window) or at least 2 targets."
+            )
         if active_window is not None and frozen_atoms:
             raise ValueError("Give either frozen_atoms or an active_window.")
         self.active_window = active_window
         self.neighbor_window = neighbor_window
+        self.stratify = int(stratify)
         self.window_force_constant = window_force_constant
+        self.target_force_constant = target_force_constant
 
     @property
     def windowed(self) -> bool:
@@ -163,6 +181,17 @@ class TransitionState:
                 windows[(a, b)] = tuple(map(float, self.active_window))
         return windows
 
+    def targets(self, mol: Chem.Mol) -> List[Dict[Tuple[int, int], float]]:
+        """The target lengths of each batch (stratify > 0): k evenly spaced per bond."""
+        windows = self.active_windows(mol)
+        return [
+            {
+                pair: lo + (hi - lo) * i / (self.stratify - 1)
+                for pair, (lo, hi) in windows.items()
+            }
+            for i in range(self.stratify)
+        ]
+
     def restraints(self, mol: Chem.Mol):
         """
         In window mode, the windows of the active bonds and of the reacting atoms to
@@ -226,6 +255,14 @@ class TransitionState:
                 )
                 taken.add(pair)
         return restraints
+
+    def active_lengths(
+        self, mol: Chem.Mol, conf_id: int, pairs: Sequence[Tuple[int, int]]
+    ) -> Dict[str, float]:
+        """The lengths of the active bonds pairs (see active_pairs of the reference)
+        in a conformer ("a-b": A)."""
+        positions = mol.GetConformer(conf_id).GetPositions()
+        return {f"{a}-{b}": round(_length(positions, (a, b)), 4) for a, b in pairs}
 
     @classmethod
     def from_endpoints(

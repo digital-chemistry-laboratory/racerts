@@ -9,10 +9,17 @@ from rdkit.Chem import Descriptors
 
 from racerts.pipeline import ConformerEnsemble
 from racerts.refine.base import accepts_restraints
+from racerts.restraints.active import (
+    keep_embedded_lengths,
+    record_active_lengths,
+    target_provenance,
+    target_windows,
+)
 from racerts.system.spec import rigid_body_dof
 from racerts.task import FrozenSet
 
 from .base import BaseEmbedder
+from .bounds import INCONSISTENT_RESTRAINTS
 from .dg import BoundsMatrixEmbedder, CmapEmbedder, DistanceGeometryEmbedder
 
 logger = logging.getLogger(__name__)
@@ -181,7 +188,10 @@ class Embed:
                 provenance["restraints"] = common
 
         references = self._references(ctx)
-        if references is None and not any(r.source == "hint" for r in restraints):
+        stratified = getattr(ctx.task, "stratify", 0)
+        hinted = any(r.source == "hint" for r in restraints)
+        windowed = getattr(ctx.task, "windowed", False)
+        if references is None and not hinted and not stratified and not windowed:
             logger.info("Embedding %d conformers with %s.", n, type(embedder).__name__)
             embedded = self._embed(embedder, ctx, ctx.reference, n)
             embedded.add_provenance(**provenance)
@@ -192,13 +202,13 @@ class Embed:
             (ref_id, ctx.reference_mol(ref_id)) for ref_id in references
         ]  # fmt: skip
         for ref_id, reference in targets:
-            for k, (count, extra, hints) in enumerate(self._batches(ctx, n)):
+            for k, (count, extra, batch) in enumerate(self._batches(ctx, n)):
                 logger.info(
                     "Embedding %d conformers with %s%s%s.",
                     count,
                     type(embedder).__name__,
                     "" if ref_id is None else f" from reference {ref_id}",
-                    f" with hints {[h.label for h in hints]}" if hints else "",
+                    f" ({batch})" if batch else "",
                 )
                 batch_embedder = _with_seed_offset(embedder, k)
                 part = self._embed(
@@ -212,32 +222,52 @@ class Embed:
                 )
                 if ref_id is not None:
                     part.add_provenance(reference=ref_id)
-                if restraints:
-                    part.add_provenance(active_restraints=[h.label for h in hints])
+                if batch:
+                    part.add_provenance(**batch)
                 ensemble = part if ensemble is None else ensemble.merge(part)
         if len(ensemble) == 0:
             raise no_conformers_error(ctx.frozen)
+        record_active_lengths(ctx, ensemble)
+        keep_embedded_lengths(ctx, ensemble)
         return ensemble
 
     def _batches(self, ctx, n):
-        """(count, restraints, hints) per batch: first the one without hints."""
+        """
+        (count, restraints, provenance) per batch: target batches (stratified active
+        bonds), else the batch without hints first, then the hint batches.
+        """
         restraints = ctx.restraints.for_stage("embed")
         hints = [r for r in restraints if r.source == "hint"]
         base = [r for r in restraints if r.source != "hint"]
+        if getattr(ctx.task, "stratify", 0):
+            if hints:
+                raise ValueError("Hints and stratified active bonds do not combine.")
+            targets = ctx.task.targets(ctx.mol)
+            sizes = [
+                n // len(targets) + (i < n % len(targets)) for i in range(len(targets))
+            ]
+            return [
+                (size, target_windows(base, target, 0.01), target_provenance(target))
+                for size, target in zip(sizes, targets)
+                if size
+            ]
         if not hints:
-            return [(n, base, [])]
+            return [(n, base, {})]
         subsets = [[hint] for hint in hints]
         if len(hints) > 1 and _compatible(ctx, base + hints):
             subsets.append(hints)
         n_hint = round(self.hint_share * n)
         if n_hint == 0:
-            return [(n, base, [])]
+            return [(n, base, {"active_restraints": []})]
         subsets = subsets[:n_hint]  # at least one conformer per hint batch
         size = n_hint // len(subsets)
-        batches = (
-            [(n - size * len(subsets), base, [])] if n > size * len(subsets) else []
-        )
-        return batches + [(size, base + subset, subset) for subset in subsets]
+        batches = []
+        if n > size * len(subsets):
+            batches.append((n - size * len(subsets), base, {"active_restraints": []}))
+        return batches + [
+            (size, base + subset, {"active_restraints": [h.label for h in subset]})
+            for subset in subsets
+        ]
 
     def _references(self, ctx) -> Optional[list]:
         if self.references is None:
@@ -265,7 +295,17 @@ class Embed:
         if restraints is None:
             restraints = ctx.restraints.for_stage("embed")
         if restraints:
-            embedder.embed(mol, reference, ctx.frozen, n, restraints=restraints)
+            try:
+                embedder.embed(mol, reference, ctx.frozen, n, restraints=restraints)
+            except ValueError as error:
+                if str(error) != INCONSISTENT_RESTRAINTS or not getattr(
+                    ctx.task, "windowed", False
+                ):
+                    raise
+                raise ValueError(
+                    f"{error} With active-bond windows: try a narrower active_window "
+                    "(the TS core cannot take this one)."
+                ) from None
         else:
             embedder.embed(mol, reference, ctx.frozen, n)
         if check and mol.GetNumConformers() == 0:

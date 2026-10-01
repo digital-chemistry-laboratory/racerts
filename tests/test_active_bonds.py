@@ -6,7 +6,8 @@ import os
 import numpy as np
 import pytest
 
-from racerts import TransitionState
+import racerts
+from racerts import PipelineConfig, TransitionState
 from racerts.system import build_mol
 
 from .conftest import DATA
@@ -20,6 +21,19 @@ CC = (10, 12)  # the forming C-C bond, 2.2 A in the seed
 @pytest.fixture(scope="module")
 def aldol():
     return build_mol(ALDOL, 0, REACTING, input_smiles=SMILES)
+
+
+def _run(mol, task, n=30, pipeline=None):
+    ctx = racerts.Context.create(mol, task)
+    pipeline = pipeline or racerts.Pipeline(
+        [racerts.Embed(n_conformers=n), racerts.Refine()]
+    )
+    return pipeline.run(ctx), ctx
+
+
+def _length(ensemble, conf_id, pair=CC):
+    p = ensemble.mol.GetConformer(conf_id).GetPositions()
+    return float(np.linalg.norm(p[pair[0]] - p[pair[1]]))
 
 
 def test_the_legacy_ts_has_no_windows(aldol):
@@ -37,7 +51,105 @@ def test_active_bonds_are_the_forming_bonds(aldol):
     assert sources["active"] == 2 and sources["neighbor"] == 8 and sources["core"] > 0
 
 
+def test_uniform_window(aldol):
+    ensemble, ctx = _run(aldol, TransitionState(REACTING, active_window=0.25))
+    lengths = [_length(ensemble, i) for i in ensemble.conf_ids]
+    assert min(lengths) > 2.2 - 0.25 - 0.05 and max(lengths) < 2.2 + 0.25 + 0.05
+    assert np.std(lengths) > 0.05  # it varies
+    hard = list(ctx.frozen.hard)
+    seed = aldol.GetConformer().GetPositions()[hard]
+    for conf_id in ensemble.conf_ids:
+        p = ensemble.mol.GetConformer(conf_id).GetPositions()
+        assert np.abs(p[hard] - seed).max() < 1e-3
+        # Refinement holds the embedded length (the target).
+        provenance = ensemble.provenance(conf_id)
+        assert (
+            abs(
+                provenance["active_bond_lengths"]["10-12"]
+                - provenance["active_bond_targets"]["10-12"]
+            )
+            < 0.05
+        )
+    neighbor = [r for r in ctx.restraints if r.source == "neighbor"]
+    worst = max(
+        r.violation(ensemble.mol.GetConformer(i).GetPositions())
+        for r in neighbor
+        for i in ensemble.conf_ids
+    )
+    assert worst < 0.02
+
+
+@pytest.mark.parametrize(
+    "settings, message",
+    [
+        (dict(stratify=3), "stratify needs an active_window"),
+        (dict(active_window=(2.9, 2.0)), "active_window"),
+        (dict(active_window=-0.1), "active_window must be positive"),
+        (dict(active_window=0.2, stratify=1), "at least 2 targets"),
+        (dict(active_window=0.2, frozen_atoms=[1, 2]), "either frozen_atoms"),
+    ],
+)
+def test_invalid_window_settings(settings, message):
+    with pytest.raises(ValueError, match=message):
+        TransitionState(REACTING, **settings)
+
+
 # ---- regression tests ----
+
+
+def test_task_windows_win_over_generated_restraints(aldol, sn2_ts_water, caplog):
+    import logging
+
+    from racerts.restraints import DistanceRestraint, RestraintSet
+
+    # A graph hint on the proton transfer H19...O11, an active bond: left out.
+    config = PipelineConfig.from_dict(
+        {"embed": {"n_conformers": 12}, "restraints": {"hints": True}}
+    )
+    with caplog.at_level(logging.WARNING):
+        ensemble = racerts.generate(
+            aldol, TransitionState(REACTING, active_window=0.25), config=config
+        )
+    for conf_id in ensemble.conf_ids:
+        provenance = ensemble.provenance(conf_id)
+        assert "hint:11-19" not in provenance.get("active_restraints", [])
+        length = provenance["active_bond_lengths"]["11-19"]
+        assert abs(length - provenance["active_bond_targets"]["11-19"]) < 0.05
+
+    # keep_fragments in window mode: the nucleophile belongs to the core.
+    mol = build_mol(sn2_ts_water, -1, [0, 1, 2], input_smiles=["CCl", "[Cl-]", "O"])
+    task = TransitionState([0, 1, 2], active_window=0.3)
+    ctx = racerts.Context.create(
+        mol, task, restraints=racerts.PipelineConfig.from_dict(
+            {"restraints": {"keep_fragments": True}}
+        ).restraints.build(mol, task.frozen_atoms(mol)),
+    )  # fmt: skip
+    by_pair = {r.pair: r.source for r in ctx.restraints}
+    assert by_pair[(0, 2)] == "active" and by_pair[(2, 7)] == "fragment"
+
+    # A user restraint on an active bond is a contradiction.
+    with pytest.raises(ValueError, match="active-bond windows"):
+        racerts.Context.create(
+            aldol,
+            TransitionState(REACTING, active_window=0.25),
+            restraints=RestraintSet([DistanceRestraint.around(10, 12, 2.5)]),
+        )
+
+
+@pytest.mark.ase
+def test_windowed_refinement_needs_restraints(aldol):
+    pytest.importorskip("ase")
+    from ase.calculators.lj import LennardJones
+
+    from racerts.refine import ASEOptimizer
+
+    task = TransitionState(REACTING, active_window=0.25)
+    ctx = racerts.Context.create(aldol, task)
+    ensemble = racerts.Embed(n_conformers=2).run(ctx)
+    lj = ASEOptimizer(LennardJones(), max_steps=2)
+    with pytest.raises(ValueError, match="anchors=False"):
+        racerts.Refine(lj).run(ctx, ensemble.copy())
+    racerts.Refine(lj, anchors=False).run(ctx, ensemble.copy())  # a free search: fine
 
 
 @pytest.mark.parametrize(
@@ -79,3 +191,25 @@ def test_three_membered_forming_bonds_stay_active():
         conf.SetAtomPosition(i, Point3D(2.0 * x, 2.0 * y, 0.0))
     mol.AddConformer(conf)
     assert TransitionState([0, 1, 2], active_window=0.3).active_pairs(mol) == [(0, 2)]
+
+
+def test_window_problems_are_explained(sn2_ts, monkeypatch, caplog):
+    import racerts.embed.dg as dg
+    from racerts.embed.bounds import INCONSISTENT_RESTRAINTS
+
+    mol = build_mol(sn2_ts, -1, [0, 1, 2], input_smiles=["CCl", "[Cl-]"])
+    with caplog.at_level("WARNING"):  # a C-Cl window down to 0.5 A
+        TransitionState(
+            [0, 1, 2], active_bonds=[(0, 2)], active_window=(0.5, 0.8)
+        ).restraints(mol)
+    assert "below 0.9 times its covalent length" in caplog.text
+
+    def inconsistent(*args, **kwargs):
+        raise ValueError(INCONSISTENT_RESTRAINTS)
+
+    monkeypatch.setattr(dg, "bounds_matrix", inconsistent)
+    ctx = racerts.Context.create(
+        mol, TransitionState([0, 1, 2], active_bonds=[(0, 2)], active_window=0.3)
+    )
+    with pytest.raises(ValueError, match="narrower active_window"):
+        racerts.Embed(n_conformers=2).run(ctx)

@@ -1,12 +1,14 @@
 """The Embed stage."""
 
 import logging
-from typing import Optional, Sequence, Union
+from typing import Callable, Optional, Sequence, Union
 
 from rdkit import Chem
 from rdkit.Chem import Descriptors
 
 from racerts.pipeline import ConformerEnsemble
+from racerts.system.spec import rigid_body_dof
+from racerts.task import FrozenSet
 
 from .base import BaseEmbedder
 from .dg import BoundsMatrixEmbedder, CmapEmbedder, DistanceGeometryEmbedder
@@ -15,19 +17,42 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_CONF_FACTOR = 80
 EMBED_MODES = {"cmap": CmapEmbedder, "bounds": BoundsMatrixEmbedder}
+COUNT_POLICIES = ("legacy", "fragments", "catmlp")
+
+CountPolicy = Union[str, Callable[[Chem.Mol, Optional[FrozenSet]], int]]
 
 
 def conformer_count(
     mol: Chem.Mol,
     number_of_conformers: int = -1,
     conf_factor: int = DEFAULT_CONF_FACTOR,
+    policy: CountPolicy = "legacy",
+    frozen: Optional[FrozenSet] = None,
 ) -> int:
-    """number_of_conformers, or for -1: rotatable bonds * conf_factor + 30."""
-    if number_of_conformers == -1:
-        return (
-            Descriptors.NumRotatableBonds(mol)  # type: ignore[attr-defined]
-        ) * conf_factor + 30
-    return number_of_conformers
+    """
+    number_of_conformers, or for -1 the count of the policy (n_rot: rotatable bonds):
+    - "legacy": n_rot * conf_factor + 30 (legacy racerts);
+    - "fragments": (n_rot + rigid-body freedom of the fragments that move relative to
+      the frozen core, e.g. solvent molecules) * conf_factor + 30;
+    - "catmlp": max(7, 10 * n_rot), as catmlp;
+    - a callable policy(mol, frozen) that returns the count.
+    """
+    if number_of_conformers != -1:
+        return number_of_conformers
+    if callable(policy):
+        return int(policy(mol, frozen))
+    n_rot = Descriptors.NumRotatableBonds(mol)  # type: ignore[attr-defined]
+    if policy == "legacy":
+        return n_rot * conf_factor + 30
+    if policy == "fragments":
+        core = frozen.core if frozen else ()
+        return (n_rot + rigid_body_dof(mol, core)) * conf_factor + 30
+    if policy == "catmlp":
+        return max(7, 10 * n_rot)
+    raise ValueError(
+        f"Unknown conformer count policy {policy!r}; use one of {COUNT_POLICIES} or a "
+        "callable."
+    )
 
 
 def default_embedder(
@@ -69,9 +94,10 @@ class Embed:
     Args:
         embedder: Any BaseEmbedder; default: default_embedder for the task, with
             the context's seed.
-        n_conformers: Number of conformers to embed; -1 for the default count
-            (rotatable bonds * conf_factor + 30).
+        n_conformers: Number of conformers to embed; -1 for the count of the policy.
         conf_factor: Conformers per rotatable bond for the default count.
+        count_policy: How -1 is counted (see conformer_count), default "legacy"
+            (rotatable bonds * conf_factor + 30).
         references: With several reference geometries (conformers of the context's
             molecule, e.g. TSs from a TS search): "all", or a list of their conformer
             ids. The count is embedded for each; the provenance records "reference"
@@ -89,6 +115,7 @@ class Embed:
         embedder: Optional[BaseEmbedder] = None,
         n_conformers: int = -1,
         conf_factor: int = DEFAULT_CONF_FACTOR,
+        count_policy: CountPolicy = "legacy",
         references: Union[None, str, Sequence[int]] = None,
     ):
         if isinstance(references, str) and references != "all":
@@ -96,6 +123,7 @@ class Embed:
         self.embedder = embedder
         self.n_conformers = n_conformers
         self.conf_factor = conf_factor
+        self.count_policy = count_policy
         self.references = references
 
     def run(
@@ -113,6 +141,8 @@ class Embed:
             ctx.graph(),
             self.n_conformers,
             self.conf_factor,
+            self.count_policy,
+            ctx.frozen,
         )
         provenance = {
             "embedder": type(embedder).__name__,

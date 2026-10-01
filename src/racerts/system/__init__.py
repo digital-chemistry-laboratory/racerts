@@ -17,7 +17,9 @@ from .graph import (
 from .spec import (
     count_electrons,
     infer_charge_and_multiplicity,
+    rigid_body_dof,
     set_charge_and_multiplicity,
+    split_fragments,
 )
 
 __all__ = [
@@ -33,5 +35,7 @@ __all__ = [
     "mol_from_explicit_h_smiles",
     "mol_from_geometry",
     "radical_multiplicity",
+    "rigid_body_dof",
     "set_charge_and_multiplicity",
+    "split_fragments",
 ]

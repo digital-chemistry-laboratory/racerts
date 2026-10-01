@@ -66,6 +66,7 @@ ensemble = racerts.generate_ts("ts.xyz", [3, 4, 5], config=config)
 | | `conf_factor` | 80 | |
 | | `etkdg` | None | ETKDGv3 instead of plain distance geometry; None: only without frozen atoms |
 | | `use_random_coords` | true | |
+| | `count_policy` | `legacy` | how -1 is counted: `legacy`; `fragments` (adds 3 or 6 rigid-body degrees of freedom per fragment without frozen atoms, e.g. a solvent molecule); `catmlp` (max(7, 10 × rotatable bonds)) |
 | | `sequential_seeds` | false | one seed per conformer, in a stream that starts at a value derived from `seed` (different seeds do not overlap); legacy racerts embeds its first 3 conformers twice |
 | `refine` | `backend` | `mmff` | `mmff` or `uff` |
 | | `fallback` | true | UFF if MMFF has no parameters |

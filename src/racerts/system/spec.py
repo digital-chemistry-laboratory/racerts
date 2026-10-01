@@ -1,7 +1,7 @@
-"""Charge and spin multiplicity of the system, stored as properties of the Mol."""
+"""The system: charge and spin multiplicity (stored as properties of the Mol), fragments."""
 
 import logging
-from typing import Dict, Optional
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from rdkit import Chem
 
@@ -71,3 +71,35 @@ def set_charge_and_multiplicity(
         )
     mol.SetIntProp("charge", state["charge"])
     mol.SetIntProp("multiplicity", state["multiplicity"])
+
+
+def split_fragments(
+    mol: Chem.Mol, core_atoms: Sequence[int]
+) -> Tuple[List[int], List[List[int]]]:
+    """
+    Split mol into the core and the fragments that move relative to it.
+
+    The core holds the atoms of all fragments with a core atom (e.g. the reacting
+    atoms of a TS); every other fragment (e.g. a solvent molecule or counterion) is
+    free. Without core atoms, the largest fragment is the core.
+
+    Returns:
+        The core atom indices and the free fragments (lists of atom indices).
+    """
+    core_set = set(core_atoms)
+    fragments = [list(fragment) for fragment in Chem.GetMolFrags(mol)]
+    free = [f for f in fragments if not core_set.intersection(f)]
+    core = [i for f in fragments if core_set.intersection(f) for i in f]
+    if not core and free:
+        core = max(free, key=len)
+        free.remove(core)
+    return core, free
+
+
+def rigid_body_dof(mol: Chem.Mol, core_atoms: Sequence[int]) -> int:
+    """
+    Rigid-body degrees of freedom of the fragments that move relative to the core (see
+    split_fragments): 3 translations for a single atom, 6 for a molecule.
+    """
+    _, free = split_fragments(mol, core_atoms)
+    return sum(3 if len(fragment) == 1 else 6 for fragment in free)

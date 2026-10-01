@@ -144,6 +144,35 @@ def test_neighbouring_seeds_give_different_streams(hept_1_ene_ts):
     assert dg.stream_start(1) != dg.stream_start(2) and dg.stream_start(1) >= 0
 
 
+def test_conformer_count_policies():
+    from rdkit.Chem import Descriptors
+
+    from racerts.embed import conformer_count
+    from racerts.task import FrozenSet
+
+    # Pentane with a water and a chloride that are not reacting. (RDKit counts the
+    # rotatable bonds of pentane with explicit hydrogens as 4 up to 2025.03, 2 since.)
+    mol = Chem.AddHs(Chem.MolFromSmiles("CCCCC.O.[Cl-]"))
+    n_rot = Descriptors.NumRotatableBonds(mol)
+    core = FrozenSet(hard=(0, 1), core=(0,))
+
+    assert conformer_count(mol, 12) == 12
+    assert conformer_count(mol, conf_factor=10) == n_rot * 10 + 30
+    # Water: 6 rigid-body degrees of freedom; chloride: 3.
+    assert conformer_count(mol, conf_factor=10, policy="fragments", frozen=core) == (
+        (n_rot + 6 + 3) * 10 + 30
+    )
+    # Without a core, the largest fragment is the reference.
+    assert conformer_count(mol, conf_factor=10, policy="fragments") == (
+        (n_rot + 6 + 3) * 10 + 30
+    )
+    assert conformer_count(mol, policy="catmlp") == max(7, 10 * n_rot)
+    assert conformer_count(Chem.MolFromSmiles("C"), policy="catmlp") == 7
+    assert conformer_count(mol, policy=lambda mol, frozen: 5) == 5
+    with pytest.raises(ValueError, match="policy"):
+        conformer_count(mol, policy="many")
+
+
 def test_embed_needs_named_references(hept_1_ene_ts):
     ctx = racerts.Context.create(hept_1_ene_ts, racerts.TransitionState([3, 4, 5]))
     with pytest.raises(ValueError, match="at least one"):

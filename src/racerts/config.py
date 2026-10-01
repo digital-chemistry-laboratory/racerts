@@ -8,6 +8,7 @@ from dataclasses import asdict, dataclass, field, fields
 from typing import Any, Dict, Optional
 
 from racerts.embed import DEFAULT_CONF_FACTOR, EMBED_MODES, Embed, default_embedder
+from racerts.embed.stage import COUNT_POLICIES
 from racerts.pipeline import Pipeline
 from racerts.prune import (
     ClusterPruner,
@@ -34,6 +35,9 @@ class EmbedConfig:
         etkdg: Use ETKDGv3 instead of plain distance geometry. None: plain distance
             geometry when atoms are frozen (as in legacy racerts), ETKDGv3 otherwise.
         use_random_coords: Start embedding from random coordinates.
+        count_policy: How n_conformers=-1 is counted: "legacy", "fragments" (adds the
+            rigid-body freedom of fragments that move relative to the frozen core) or
+            "catmlp" (max(7, 10 * rotatable bonds)).
         sequential_seeds: One seed stream for all conformers (a seed per conformer,
             from a start derived from seed); legacy racerts embeds its first 3
             conformers twice.
@@ -44,12 +48,15 @@ class EmbedConfig:
     conf_factor: int = DEFAULT_CONF_FACTOR
     etkdg: Optional[bool] = None
     use_random_coords: bool = True
+    count_policy: str = "legacy"
     sequential_seeds: bool = False
 
     def __post_init__(self):
         _check_types(self, "embed")
         if self.mode not in EMBED_MODES:
             raise ValueError(f"embed.mode must be one of {sorted(EMBED_MODES)}.")
+        if self.count_policy not in COUNT_POLICIES:
+            raise ValueError(f"embed.count_policy must be one of {COUNT_POLICIES}.")
         if self.n_conformers != -1 and self.n_conformers < 1:
             raise ValueError("embed.n_conformers must be -1 (default count) or > 0.")
         if self.conf_factor < 0:
@@ -209,7 +216,12 @@ class PipelineConfig:
         prune = self.prune
         return Pipeline(
             [
-                Embed(embedder, self.embed.n_conformers, self.embed.conf_factor),
+                Embed(
+                    embedder,
+                    embed.n_conformers,
+                    embed.conf_factor,
+                    count_policy=embed.count_policy,
+                ),
                 Refine(optimizer, fallback=self.refine.fallback),
                 PruneEnergy(
                     EnergyPruner(

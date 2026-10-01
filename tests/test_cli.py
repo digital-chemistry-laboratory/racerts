@@ -131,3 +131,29 @@ def test_ts_options_for_the_new_settings(tmp_path, monkeypatch):
     assert config_of("--legacy", "--converge").refine.converge is True
     with pytest.raises(ValueError, match="not a number"):
         run_subcommand(["ts", EX, "-r", "3", "--dielectric", "distance", "four"])
+
+
+def test_ts_restraint_options(tmp_path, monkeypatch):
+    import racerts.cli
+
+    seen = {}
+
+    def fake_generate_ts(*args, config, **kwargs):
+        seen["config"] = config
+        raise SystemExit(0)
+
+    monkeypatch.setattr(racerts.cli, "generate_ts", fake_generate_ts)
+    with pytest.raises(SystemExit):
+        run_subcommand(
+            ["ts", EX, "-r", "3", "4", "5", "--restraint", "0", "6", "4.6",
+             "--restraint", "1", "6", "4.0", "--keep-hbonds", "--contact", "0", "9",
+             "--keep-fragments", "--restraint-half-width", "0.3",
+             "--restraint-force-constant", "50"]
+        )  # fmt: skip
+    restraints = seen["config"].restraints
+    assert restraints.user == [[0, 6, 4.6], [1, 6, 4.0]]
+    assert restraints.hbonds and restraints.keep_fragments
+    assert restraints.contacts == [[0, 9]]
+    assert (restraints.half_width, restraints.force_constant) == (0.3, 50.0)
+    with pytest.raises(ValueError, match="--restraint takes"):
+        run_subcommand(["ts", EX, "-r", "3", "--restraint", "a", "6", "4.6"])

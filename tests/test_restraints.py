@@ -179,6 +179,19 @@ def test_embedding_keeps_the_frozen_atoms_with_restraints(hept_1_ene_ts):
     assert _in_windows(embedded.mol, [(0, 6, target)]) >= 0.8
 
 
+@pytest.mark.parametrize("cl_o", [5.0, 3.75])
+def test_inconsistent_windows_raise(sn2_ts_water, cl_o):
+    # H7 is bonded to O6, so Cl2...H7 = 2.2 +/- 0.25 A keeps Cl2...O6 below about
+    # 3.45 A. Triangle smoothing could repair a window at 3.75 A by stretching the bond.
+    mol = _sn2_water(sn2_ts_water)
+    config = PipelineConfig(
+        embed=EmbedConfig(n_conformers=3),
+        restraints={"user": [[2, 7, 2.2], [2, 6, cl_o]]},
+    )
+    with pytest.raises(ValueError, match="restraints are inconsistent"):
+        racerts.generate(mol, TransitionState(REACTING), config=config)
+
+
 def test_without_restraints_the_cmap_embedder_uses_no_bounds_matrix(
     sn2_ts_water, monkeypatch
 ):
@@ -257,6 +270,48 @@ def test_ase_refinement_runs_without_the_restraints(caplog):
     assert "refines without the 1 restraints" in caplog.text
 
 
+# ---- the pipeline ----
+
+
+def test_generate_ts_keeps_the_restrained_contact(sn2_ts_water):
+    config = PipelineConfig.from_dict(
+        {
+            "embed": {"n_conformers": 20},
+            "restraints": {"user": [list(t) for t in CONTACT]},
+        }
+    )
+    ensemble = racerts.generate_ts(
+        sn2_ts_water, REACTING, charge=-1, smiles=SN2_SMILES, config=config
+    )
+    assert len(ensemble) > 0
+    assert _in_windows(ensemble.mol, CONTACT) == 1.0
+    assert PipelineConfig.from_dict(config.to_dict()) == config
+
+
+@pytest.mark.parametrize("setting", ["hbonds", "keep_fragments"])
+def test_seed_contacts_are_kept(sn2_ts_water, setting):
+    config = PipelineConfig.from_dict(
+        {"embed": {"n_conformers": 20}, "restraints": {setting: True}}
+    )
+    ensemble = racerts.generate_ts(
+        sn2_ts_water, REACTING, charge=-1, smiles=SN2_SMILES, config=config
+    )
+    assert _in_windows(ensemble.mol, [(2, 7, 2.20)]) == 1.0
+
+
+def test_restraints_between_frozen_atoms_are_dropped(sn2_ts, caplog):
+    with caplog.at_level(logging.WARNING):
+        ensemble = racerts.generate_ts(
+            sn2_ts,
+            REACTING,
+            charge=-1,
+            smiles="CCl.[Cl-]",
+            config=PipelineConfig(embed=EmbedConfig(n_conformers=3)),
+            restraints=RestraintSet([DistanceRestraint.around(0, 1, 2.0)]),
+        )
+    assert len(ensemble) > 0 and "both atoms are frozen" in caplog.text
+
+
 def test_generated_windows_that_do_not_fit_are_left_out(sn2_ts_water, caplog):
     # Cl2...O6 at 3.75 A does not fit with Cl2...H7 at 2.2 A (O6-H7 is a bond): from
     # the user it raises (test_inconsistent_windows_raise); generated, it is left out.
@@ -278,6 +333,21 @@ def test_generated_windows_that_do_not_fit_are_left_out(sn2_ts_water, caplog):
 
 
 # ---- ported from catmlp test_embedding_constraints (e1547eb) ----
+
+
+def test_user_triplets_become_windows_and_flat_bottom_terms():
+    mol = Chem.AddHs(Chem.MolFromSmiles("CCCC"))
+    (r,) = build_restraints(mol, user=[(0, 3, 2.8)])
+    assert (r.pair, r.force_constant) == ((0, 3), 20.0)
+    assert (r.lower, r.upper) == pytest.approx((2.55, 3.05))
+    assert len(build_restraints(Chem.AddHs(Chem.MolFromSmiles("CC")))) == 0
+
+    config = PipelineConfig.from_dict(
+        {"embed": {"n_conformers": 3}, "restraints": {"user": [[0, 3, 2.8]]}}
+    )
+    ensemble = racerts.generate_gs("CCCC", config=config)
+    for conf in ensemble.mol.GetConformers():
+        assert r.violation(conf.GetPositions()) < 0.1
 
 
 def test_parallel_restrained_refinement_reports_physical_energies():

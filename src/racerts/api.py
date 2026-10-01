@@ -7,6 +7,7 @@ from rdkit import Chem
 
 from racerts.config import PipelineConfig
 from racerts.pipeline import ConformerEnsemble, Context, Pipeline
+from racerts.restraints import RestraintSet
 from racerts.system.build import BaseMolGetter, build_mol
 from racerts.system.graph import radical_multiplicity
 from racerts.task import GroundState, Task, TransitionState
@@ -21,6 +22,7 @@ def generate(
     charge: Optional[int] = None,
     multiplicity: Optional[int] = None,
     verbose: bool = False,
+    restraints: Optional[RestraintSet] = None,
 ) -> ConformerEnsemble:
     """
     Generate a conformer ensemble of mol for the task.
@@ -37,12 +39,24 @@ def generate(
         charge, multiplicity: Override the values of mol (see
             set_charge_and_multiplicity).
         verbose: Log progress (INFO) during the call.
+        restraints: Distance restraints in addition to those of config.restraints
+            (they win for the same atom pair).
     """
     config = config if config is not None else PipelineConfig()
     with verbose_logging(verbose):
         ctx = Context.create(
             mol, task, seed=config.seed, charge=charge, multiplicity=multiplicity
         )
+        if config.restraints or restraints:
+            combined = RestraintSet()
+            if config.restraints:
+                combined = config.restraints.build(ctx.mol, ctx.frozen)
+            ctx = Context.create(
+                ctx.mol,
+                task,
+                seed=config.seed,
+                restraints=combined.merge(restraints or ()),
+            )
         pipeline = pipeline if pipeline is not None else config.build(task)
         return pipeline.run(ctx)
 
@@ -59,6 +73,7 @@ def generate_ts(
     mol_getter: Optional[BaseMolGetter] = None,
     auto_fallback: bool = True,
     verbose: bool = False,
+    restraints: Optional[RestraintSet] = None,
 ) -> ConformerEnsemble:
     """
     A TS conformer ensemble from a TS geometry (xyz or sdf/mol file), with the reacting
@@ -79,6 +94,7 @@ def generate_ts(
             connectivity if the graph cannot be built from the SMILES, and from MMFF
             to UFF (config.refine.fallback) in the default pipeline.
         verbose: Log progress (INFO) during the call.
+        restraints: Distance restraints (see generate).
     """
     if isinstance(smiles, str):
         smiles = [smiles]
@@ -104,6 +120,7 @@ def generate_ts(
         charge=charge,
         multiplicity=multiplicity,
         verbose=verbose,
+        restraints=restraints,
     )
 
 
@@ -114,6 +131,7 @@ def generate_gs(
     config: Optional[PipelineConfig] = None,
     pipeline: Optional[Pipeline] = None,
     verbose: bool = False,
+    restraints: Optional[RestraintSet] = None,
 ) -> ConformerEnsemble:
     """
     A ground-state conformer ensemble (nothing frozen) from a SMILES or a Mol.
@@ -137,4 +155,5 @@ def generate_gs(
         charge=charge,
         multiplicity=multiplicity,
         verbose=verbose,
+        restraints=restraints,
     )

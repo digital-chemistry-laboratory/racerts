@@ -36,6 +36,7 @@ nav:
   - Getting started: getting-started.md
   - User guide:
       - Pipelines and tasks: pipeline.md
+      - Restraints: restraints.md
       - CLI: cli.md
   - Legacy racerts:
       - Migrating from legacy racerts: migration.md

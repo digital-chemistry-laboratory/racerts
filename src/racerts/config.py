@@ -174,7 +174,70 @@ class PruneConfig:
             raise ValueError("prune.max_matches must be positive.")
 
 
-_SECTIONS = {"embed": EmbedConfig, "refine": RefineConfig, "prune": PruneConfig}
+@dataclass
+class RestraintConfig:
+    """
+    Distance restraints (see racerts.restraints.build_restraints): windows in the
+    embedding and flat-bottom terms in MMFF/UFF refinement; reported energies leave
+    them out, and ASE refinements run without them.
+
+    Attributes:
+        user: [atom, atom, target distance (A)] triplets.
+        half_width: Half width of the windows (A).
+        force_constant: kcal/(mol A^2), as RDKit: 1/2 k (d - bound)^2.
+        hbonds: Keep the hydrogen bonds of the reference geometry.
+        contacts: [atom, atom] non-covalent contacts to keep as in the reference.
+        keep_fragments: Keep fragments without core atoms (solvent) at the core.
+    """
+
+    user: list = field(default_factory=list)
+    half_width: float = 0.25
+    force_constant: float = 20.0
+    hbonds: bool = False
+    contacts: list = field(default_factory=list)
+    keep_fragments: bool = False
+
+    def __post_init__(self):
+        _check_types(self, "restraints")
+        for name, size in (("user", 3), ("contacts", 2)):
+            items = getattr(self, name)
+            if not isinstance(items, (list, tuple)) or any(
+                not isinstance(item, (list, tuple)) or len(item) != size
+                for item in items
+            ):
+                raise ValueError(
+                    f"restraints.{name} must be a list of {size}-element lists."
+                )
+            setattr(self, name, [list(item) for item in items])
+        for name in ("half_width", "force_constant"):
+            if getattr(self, name) <= 0:
+                raise ValueError(f"restraints.{name} must be positive.")
+
+    def __bool__(self) -> bool:
+        return bool(self.user or self.hbonds or self.contacts or self.keep_fragments)
+
+    def build(self, mol, frozen):
+        """The RestraintSet for mol (with the reference geometry) and its frozen set."""
+        from racerts.restraints import build_restraints
+
+        return build_restraints(
+            mol,
+            frozen,
+            user=[tuple(item) for item in self.user],
+            half_width=self.half_width,
+            force_constant=self.force_constant,
+            hbonds=self.hbonds,
+            contacts=[tuple(item) for item in self.contacts],
+            keep_fragments=self.keep_fragments,
+        )
+
+
+_SECTIONS = {
+    "embed": EmbedConfig,
+    "refine": RefineConfig,
+    "prune": PruneConfig,
+    "restraints": RestraintConfig,
+}
 
 
 @dataclass
@@ -193,6 +256,7 @@ class PipelineConfig:
     embed: EmbedConfig = field(default_factory=EmbedConfig)
     refine: RefineConfig = field(default_factory=RefineConfig)
     prune: PruneConfig = field(default_factory=PruneConfig)
+    restraints: RestraintConfig = field(default_factory=RestraintConfig)
 
     def __post_init__(self):
         _check_types(self, "")

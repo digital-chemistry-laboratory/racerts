@@ -206,6 +206,45 @@ def _subcommand_parser() -> argparse.ArgumentParser:
             f"graph (default {defaults.prune.check_stereo}).",
         )
         command.add_argument(
+            "--restraint",
+            nargs=3,
+            action="append",
+            metavar=("I", "J", "DISTANCE"),
+            help="Keep atoms I and J at DISTANCE (A) +/- the half width (repeatable).",
+        )
+        command.add_argument(
+            "--keep-hbonds",
+            action="store_true",
+            default=None,
+            help="Keep the hydrogen bonds of the input geometry (ts).",
+        )
+        command.add_argument(
+            "--contact",
+            nargs=2,
+            type=int,
+            action="append",
+            metavar=("I", "J"),
+            help="Keep the non-covalent contact I...J as in the input geometry (ts).",
+        )
+        command.add_argument(
+            "--keep-fragments",
+            action="store_true",
+            default=None,
+            help="Keep fragments without reacting atoms (e.g. solvent) at the core (ts).",
+        )
+        command.add_argument(
+            "--restraint-half-width",
+            type=float,
+            help=f"Half width of restraint windows, A (default "
+            f"{defaults.restraints.half_width:g}).",
+        )
+        command.add_argument(
+            "--restraint-force-constant",
+            type=float,
+            help="Flat-bottom force constant, kcal/(mol A^2) (default "
+            f"{defaults.restraints.force_constant:g}).",
+        )
+        command.add_argument(
             "--rmsd-hydrogens",
             action=argparse.BooleanOptionalAction,
             default=None,
@@ -245,9 +284,26 @@ def _config_from_args(args) -> PipelineConfig:
             )
         except ValueError:
             raise ValueError(f"--dielectric: {constant!r} is not a number.") from None
+    user = None
+    if args.restraint:
+        try:
+            user = [[int(i), int(j), float(d)] for i, j, d in args.restraint]
+        except ValueError:
+            raise ValueError(
+                f"--restraint takes two atom indices and a distance: {args.restraint}"
+            ) from None
     return _replace(
         config,
         seed=args.seed,
+        restraints=_replace(
+            config.restraints,
+            user=user,
+            hbonds=args.keep_hbonds,
+            contacts=[list(pair) for pair in args.contact] if args.contact else None,
+            keep_fragments=args.keep_fragments,
+            half_width=args.restraint_half_width,
+            force_constant=args.restraint_force_constant,
+        ),
         num_threads=args.num_threads,
         embed=_replace(
             config.embed,

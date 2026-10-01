@@ -8,6 +8,7 @@ import numpy as np
 from racerts.pipeline import ConformerEnsemble
 
 from .base import BasePruner
+from .cluster import ClusterPruner
 from .energy import EnergyPruner
 from .rmsd import RMSDPruner
 
@@ -49,6 +50,19 @@ class PruneRMSD(_Prune):
 
     name = "prune_rmsd"
     default_pruner = RMSDPruner
+
+
+class PruneCluster(_Prune):
+    """
+    Keeps one conformer per cluster (see ClusterPruner).
+
+    Args:
+        pruner: Any BasePruner; default ClusterPruner() (Butina at 1.5 A, the
+            lowest-energy member of each cluster).
+    """
+
+    name = "prune_cluster"
+    default_pruner = ClusterPruner
 
 
 class PruneCount:

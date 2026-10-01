@@ -72,6 +72,8 @@ ensemble = racerts.generate_ts("ts.xyz", [3, 4, 5], config=config)
 | `prune` | `energy_threshold` | 20.0 | kcal/mol above the lowest conformer |
 | | `eht_energies` | false | rank by extended Hückel energies (deprecated: use `Rescore`) |
 | | `rmsd_threshold` | 0.125 | Å, heavy atoms |
+| | `method` | `rmsd` | `rmsd` (duplicates, as legacy racerts) or `cluster` (one conformer per cluster) |
+| | `cluster_method`, `cluster_threshold` | `butina`, 1.5 | `butina`, `hierarchical` or `leader`; Å, heavy-atom RMSD after superposition |
 | | `include_hs`, `filter_energies`, `filter_rotations`, `rmsd_energy_threshold`, `rot_fraction_threshold`, `max_matches` | | see [pruner](modules/pruner.md) |
 
 ## Pipelines and stages
@@ -124,6 +126,8 @@ More stages:
 | `Refine(optimizer, anchors=False)` | refines all atoms freely, e.g. a saddle-point search from TS-like conformers |
 | `Rescore(calculator)` or `Rescore(batch=fn)` | replaces the energies by single points of an ASE calculator (xTB, MLIPs), or of a function that evaluates a list of Atoms at once; the replaced energy goes into the provenance |
 | `PruneCount(n_max, renumber=False)` | keeps the `n_max` lowest conformers |
+| `PruneCluster(ClusterPruner(...))` | keeps one conformer per cluster: Butina, hierarchical (scipy) or leader clustering, on the RMSD after superposition with fixed atoms (`kernel="aligned"`, e.g. for TS graphs without bonds), the symmetry-aware RMSD (`"symmetric"`), or any `metric(mol, a, b)`; the lowest or the central member |
+| `FamilySelector(n_max, clusterer)` | up to `n_max` conformers spread over the clusters: the best of each, then the second best, ... (families ordered by their best member) |
 | `Validate(*validators, on_fail="drop" or "flag")` | checks the conformers (see below) |
 
 `Pipeline.run(ctx, ensemble)` continues an ensemble (e.g. to refine it with another

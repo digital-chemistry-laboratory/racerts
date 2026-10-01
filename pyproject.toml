@@ -17,6 +17,7 @@ requires-python = ">=3.10"
 dependencies = [
     "rdkit>=2023.9.6",
     "numpy>=1.26.4",
+    "scipy>=1.10",
     "ipython>=7.34.0",
     "py3Dmol>=2.0.0",
 ]

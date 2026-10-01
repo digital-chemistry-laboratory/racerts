@@ -6,8 +6,8 @@ import numpy as np
 from rdkit import Chem
 from rdkit.Chem import rdDetermineBonds
 
+from racerts.geometry import superpose
 from racerts.pipeline import ConformerEnsemble
-from racerts.prune.rmsd import superpose
 from racerts.system.stereo import StereoCheck
 
 from .base import Validate

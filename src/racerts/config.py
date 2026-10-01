@@ -9,7 +9,15 @@ from typing import Any, Dict, Optional
 
 from racerts.embed import DEFAULT_CONF_FACTOR, EMBED_MODES, Embed, default_embedder
 from racerts.pipeline import Pipeline
-from racerts.prune import EnergyPruner, PruneEnergy, PruneRMSD, RMSDPruner
+from racerts.prune import (
+    ClusterPruner,
+    EnergyPruner,
+    PruneCluster,
+    PruneEnergy,
+    PruneRMSD,
+    RMSDPruner,
+)
+from racerts.prune.cluster import METHODS as CLUSTER_METHODS
 from racerts.refine import REFINE_BACKENDS, Refine
 from racerts.task import Task
 from racerts.utils.optional import require
@@ -80,6 +88,10 @@ class PruneConfig:
         filter_rotations: Neither are conformers whose principal moments of inertia
             differ by more than rot_fraction_threshold.
         max_matches: Maximum number of symmetry-equivalent atom maps for the RMSD.
+        method: "rmsd" (duplicates by RMSD, as legacy racerts) or "cluster" (one
+            conformer per cluster, see ClusterPruner).
+        cluster_method: "butina", "hierarchical" or "leader".
+        cluster_threshold: Cluster distance (A, heavy-atom RMSD after superposition).
     """
 
     energy_threshold: float = 20.0
@@ -91,14 +103,22 @@ class PruneConfig:
     rmsd_energy_threshold: float = 0.1
     rot_fraction_threshold: float = 0.03
     max_matches: int = 10000
+    method: str = "rmsd"
+    cluster_method: str = "butina"
+    cluster_threshold: float = 1.5
 
     def __post_init__(self):
         _check_types(self, "prune")
+        if self.method not in ("rmsd", "cluster"):
+            raise ValueError("prune.method must be 'rmsd' or 'cluster'.")
+        if self.cluster_method not in CLUSTER_METHODS:
+            raise ValueError(f"prune.cluster_method must be one of {CLUSTER_METHODS}.")
         for name in (
             "energy_threshold",
             "rmsd_threshold",
             "rmsd_energy_threshold",
             "rot_fraction_threshold",
+            "cluster_threshold",
         ):
             if getattr(self, name) < 0:
                 raise ValueError(f"prune.{name} must not be negative.")
@@ -191,19 +211,31 @@ class PipelineConfig:
                         YAeHMOP_energies=prune.eht_energies,
                     )
                 ),
-                PruneRMSD(
-                    RMSDPruner(
-                        threshold=prune.rmsd_threshold,
-                        include_hs=prune.include_hs,
-                        num_threads=self.num_threads,
-                        filter_energies=prune.filter_energies,
-                        filter_rotations=prune.filter_rotations,
-                        energy_threshold=prune.rmsd_energy_threshold,
-                        rot_fraction_threshold=prune.rot_fraction_threshold,
-                        maxMatches=prune.max_matches,
-                    )
-                ),
+                self._duplicates(),
             ]
+        )
+
+    def _duplicates(self):
+        prune = self.prune
+        if prune.method == "cluster":
+            return PruneCluster(
+                ClusterPruner(
+                    threshold=prune.cluster_threshold,
+                    method=prune.cluster_method,
+                    maxMatches=prune.max_matches,
+                )
+            )
+        return PruneRMSD(
+            RMSDPruner(
+                threshold=prune.rmsd_threshold,
+                include_hs=prune.include_hs,
+                num_threads=self.num_threads,
+                filter_energies=prune.filter_energies,
+                filter_rotations=prune.filter_rotations,
+                energy_threshold=prune.rmsd_energy_threshold,
+                rot_fraction_threshold=prune.rot_fraction_threshold,
+                maxMatches=prune.max_matches,
+            )
         )
 
 

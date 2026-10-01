@@ -143,3 +143,27 @@ def test_ground_states_have_no_chirality_fallback():
     assert fallback(GroundState()) is False
     assert fallback(TransitionState([0])) is True
     assert fallback(Constrained([0])) is True
+
+
+def test_cluster_pruning_setting():
+    stages = (
+        PipelineConfig.from_dict(
+            {
+                "prune": {
+                    "method": "cluster",
+                    "cluster_method": "leader",
+                    "cluster_threshold": 0.8,
+                }
+            }
+        )
+        .build(TransitionState([0]))
+        .stages
+    )
+    assert stages[-1].name == "prune_cluster"
+    pruner = stages[-1].pruner
+    assert (pruner.method, pruner.threshold) == ("leader", 0.8)
+    assert PipelineConfig().build(TransitionState([0])).stages[-1].name == "prune_rmsd"
+    with pytest.raises(ValueError, match="prune.method"):
+        PipelineConfig.from_dict({"prune": {"method": "kmeans"}})
+    with pytest.raises(ValueError, match="prune.cluster_method"):
+        PipelineConfig.from_dict({"prune": {"cluster_method": "kmeans"}})

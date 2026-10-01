@@ -107,7 +107,10 @@ class SwapResult:
         attachments: (kept atom, fragment atom) of each attachment bond, new indices.
         placed: Whether the new atoms have coordinates (a single attachment that
             replaces a bond, grafted rigidly).
-        positioned: The new atoms with coordinates: all if placed, else none.
+        positioned: The new atoms with coordinates: all if placed; else the fragment
+            atoms that replace a removed atom, at its position if of the same element
+            (a donor atom of a ligand) or along its bond (the others are at the origin
+            until sampled).
         warnings: Diagnostics, also logged.
         fragment: The fragment with its hydrogens and dummies (for further poses,
             see racerts.embed.rigid_attach).
@@ -209,7 +212,15 @@ def apply_swap(mol: Chem.Mol, swap: Swap, seed: int = 0xF00D) -> SwapResult:
         attachments=[(ref_to_new[a.kept], frag_to_new[a.root]) for a in attachments],
         placed=placed,
         warnings=warnings,
-        positioned=new_atoms if placed else [],
+        positioned=new_atoms
+        if placed
+        else sorted(
+            {
+                frag_to_new[a.root]
+                for a in attachments
+                if a.partner is not None and mol.GetNumConformers()
+            }
+        ),
         fragment=fragment,
         fragment_map=frag_to_new,
         replaced={
@@ -927,6 +938,13 @@ def _coordinates(
             grafted = (xyz - xyz[a.root]) @ rotation.T + anchor + length * direction
             for j, k in frag_to_new.items():
                 new_positions[k] = grafted[j]
+        else:  # roots that replace an atom: at its position (same element) or along
+            for b in attachments:  # its bond at the sum of the covalent radii
+                if b.partner is None:
+                    continue
+                new_positions[frag_to_new[b.root]] = _root_position(
+                    mol, fragment, b, positions
+                )
         new_conf = Chem.Conformer(result.GetNumAtoms())
         for k, p in enumerate(new_positions):
             new_conf.SetAtomPosition(k, p.tolist())
@@ -948,6 +966,15 @@ def _bond_length(mol, fragment, attachment, removed_length: float) -> float:
     if partner == 0:
         return kept + root
     return removed_length * (kept + root) / (kept + table.GetRcovalent(partner))
+
+
+def _root_position(mol, fragment, attachment, positions) -> np.ndarray:
+    anchor = positions[attachment.kept]
+    direction = positions[attachment.partner] - anchor
+    norm = np.linalg.norm(direction)
+    if not np.isfinite(norm) or norm < 1e-8:
+        raise SwapError("The attachment has coincident or invalid coordinates.")
+    return anchor + direction / norm * _bond_length(mol, fragment, attachment, norm)
 
 
 def rotation_between(source: np.ndarray, target: np.ndarray) -> np.ndarray:

@@ -762,6 +762,45 @@ def _square_planar_pd_dmpe():
     return mol, pd, cl, p
 
 
+def test_ligand_swap_keeps_the_square_plane():
+    # dmpe -> dppe: the new P atoms replace the old ones and, held, keep their
+    # positions; the phenyl groups are sampled (UFF: MMFF has no Pd).
+    mol, pd, cl, p = _square_planar_pd_dmpe()
+    dmpe = [a.GetIdx() for a in mol.GetAtoms() if a.GetSymbol() in ("C", "P")]
+    change = Swap(
+        "[*:1]P(c1ccccc1)(c1ccccc1)CCP([*:2])(c1ccccc1)c1ccccc1",
+        remove_atoms=dmpe,
+        attach_map={1: pd, 2: pd},
+        bond_types={1: "dative", 2: "dative"},
+    )
+    result = apply_swap(mol, change)
+    assert not result.placed and len(result.positioned) == 2
+    reference = mol.GetConformer().GetPositions()
+    for old in p:  # the new donors start where the old ones were
+        new = result.index_map[old]
+        assert result.mol.GetAtomWithIdx(new).GetSymbol() == "P"
+        np.testing.assert_allclose(
+            result.mol.GetConformer().GetPositions()[new], reference[old]
+        )
+    config = racerts.PipelineConfig.from_dict({"refine": {"backend": "uff"}})
+    ensemble = racerts.swap(
+        mol, change, hard=[pd, *cl, *p], n_conformers=12, routes=["dg"], config=config
+    )
+    assert ensemble.energy_method == "UFFOptimizer" and len(ensemble) >= 3
+    held = [result.index_map[i] for i in (pd, *cl, *p)]
+    for conf_id in ensemble.conf_ids:
+        positions = ensemble.mol.GetConformer(conf_id).GetPositions()
+        np.testing.assert_allclose(positions[held], reference[[pd, *cl, *p]], atol=0.02)
+    # An added ligand has no position to start from: a task cannot hold it.
+    pdcl2 = Chem.AddHs(Chem.MolFromSmiles("Cl[Pd]Cl"))
+    AllChem.Compute2DCoords(pdcl2)
+    addition = Swap(
+        "[*:1]P(C)(C)C", remove_atoms=[], attach_map={1: 1}, bond_types={1: "dative"}
+    )
+    with pytest.raises(ValueError, match="without coordinates"):
+        racerts.swap(pdcl2, addition, task=TransitionState([1]), config=config)
+
+
 # Regression tests.
 
 TETRAHEDRAL_TAGS = (
@@ -942,6 +981,15 @@ def test_soft_atoms_dropped_by_an_optimizer_are_reported(caplog):
     with caplog.at_level("WARNING"):
         Plain().refine(Chem.Mol(mol), mol, (), [PositionRestraint(0, (0.0, 0.0, 0.0))])
     assert "soft atoms" in caplog.text
+
+
+def test_positioned_atoms_are_listed_once():
+    # One donor for two attachments (the P of two cut bonds): listed once.
+    mol, pd, cl, p = _square_planar_pd_dmpe()
+    change = Swap("[*:1]C", remove_atoms=[cl[0]])
+    assert apply_swap(mol, change).positioned == sorted(
+        set(apply_swap(mol, change).positioned)
+    )
 
 
 def _labels(mol):

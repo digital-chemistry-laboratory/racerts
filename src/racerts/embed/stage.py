@@ -1,5 +1,6 @@
 """The Embed stage."""
 
+import copy
 import logging
 from typing import Callable, Optional, Sequence, Union
 
@@ -111,6 +112,12 @@ class Embed:
             ids. The count is embedded for each; the provenance records "reference"
             (its conformer id), and Refine then refines each conformer against its
             reference. Default: the first conformer only.
+        hint_share: With hints among the restraints (source "hint", e.g. graph
+            hydrogen bonds): the share of the conformers embedded in hint batches, one
+            per hint and one with all hints together (if their windows are
+            compatible); the others are embedded without hints. Each batch has its own
+            seed; the provenance records the hints of each conformer
+            ("active_restraints").
 
     Embed starts an ensemble; it raises if it gets one. An embedder passed in keeps its
     own settings, including its seed.
@@ -125,9 +132,13 @@ class Embed:
         conf_factor: int = DEFAULT_CONF_FACTOR,
         count_policy: CountPolicy = "legacy",
         references: Union[None, str, Sequence[int]] = None,
+        hint_share: float = 0.3,
     ):
         if isinstance(references, str) and references != "all":
             raise ValueError("references must be None, 'all' or conformer ids.")
+        if not 0 <= hint_share <= 1:
+            raise ValueError("hint_share must be between 0 and 1.")
+        self.hint_share = hint_share
         self.embedder = embedder
         self.n_conformers = n_conformers
         self.conf_factor = conf_factor
@@ -165,29 +176,68 @@ class Embed:
                     f"{type(embedder).__name__}.embed takes no restraints, so it cannot "
                     "embed with distance restraints."
                 )
-            provenance["restraints"] = [r.label for r in restraints]
+            common = [r.label for r in restraints if r.source != "hint"]
+            if common:
+                provenance["restraints"] = common
 
         references = self._references(ctx)
-        if references is None:
+        if references is None and not any(r.source == "hint" for r in restraints):
             logger.info("Embedding %d conformers with %s.", n, type(embedder).__name__)
             embedded = self._embed(embedder, ctx, ctx.reference, n)
             embedded.add_provenance(**provenance)
             return embedded
 
         ensemble = None
-        for ref_id in references:
-            logger.info(
-                "Embedding %d conformers with %s from reference %d.",
-                n,
-                type(embedder).__name__,
-                ref_id,
-            )
-            part = self._embed(embedder, ctx, ctx.reference_mol(ref_id), n, check=False)
-            part.add_provenance(**provenance, reference=ref_id)
-            ensemble = part if ensemble is None else ensemble.merge(part)
+        targets = [(None, ctx.reference)] if references is None else [
+            (ref_id, ctx.reference_mol(ref_id)) for ref_id in references
+        ]  # fmt: skip
+        for ref_id, reference in targets:
+            for k, (count, extra, hints) in enumerate(self._batches(ctx, n)):
+                logger.info(
+                    "Embedding %d conformers with %s%s%s.",
+                    count,
+                    type(embedder).__name__,
+                    "" if ref_id is None else f" from reference {ref_id}",
+                    f" with hints {[h.label for h in hints]}" if hints else "",
+                )
+                batch_embedder = _with_seed_offset(embedder, k)
+                part = self._embed(
+                    batch_embedder, ctx, reference, count, extra, check=False
+                )
+                part.add_provenance(
+                    **{
+                        **provenance,
+                        "seed": getattr(batch_embedder, "randomSeed", None),
+                    }
+                )
+                if ref_id is not None:
+                    part.add_provenance(reference=ref_id)
+                if restraints:
+                    part.add_provenance(active_restraints=[h.label for h in hints])
+                ensemble = part if ensemble is None else ensemble.merge(part)
         if len(ensemble) == 0:
             raise no_conformers_error(ctx.frozen)
         return ensemble
+
+    def _batches(self, ctx, n):
+        """(count, restraints, hints) per batch: first the one without hints."""
+        restraints = ctx.restraints.for_stage("embed")
+        hints = [r for r in restraints if r.source == "hint"]
+        base = [r for r in restraints if r.source != "hint"]
+        if not hints:
+            return [(n, base, [])]
+        subsets = [[hint] for hint in hints]
+        if len(hints) > 1 and _compatible(ctx, base + hints):
+            subsets.append(hints)
+        n_hint = round(self.hint_share * n)
+        if n_hint == 0:
+            return [(n, base, [])]
+        subsets = subsets[:n_hint]  # at least one conformer per hint batch
+        size = n_hint // len(subsets)
+        batches = (
+            [(n - size * len(subsets), base, [])] if n > size * len(subsets) else []
+        )
+        return batches + [(size, base + subset, subset) for subset in subsets]
 
     def _references(self, ctx) -> Optional[list]:
         if self.references is None:
@@ -221,3 +271,30 @@ class Embed:
         if check and mol.GetNumConformers() == 0:
             raise no_conformers_error(ctx.frozen)
         return ConformerEnsemble(mol)
+
+
+def _with_seed_offset(embedder, k: int):
+    """For batch k > 0, a copy of the embedder with another seed (if it has one)."""
+    seed = getattr(embedder, "randomSeed", None)
+    if k == 0 or seed is None or seed < 0:
+        return embedder
+    batch_embedder = copy.copy(embedder)
+    batch_embedder.randomSeed = (seed + 7919 * k) % (2**31 - 1)  # RDKit: 31 bits
+    return batch_embedder
+
+
+def _compatible(ctx, restraints) -> bool:
+    """
+    Whether the windows can be embedded together, with the distances among the hard
+    atoms fixed as the embedders fix them (see embed.bounds).
+    """
+    from .bounds import bounds_matrix
+
+    reference = ctx.reference
+    hard = list(ctx.frozen.hard) if reference is not None else []
+    pairs = [(a, b) for k, a in enumerate(hard) for b in hard[k + 1 :]]
+    try:
+        bounds_matrix(ctx.graph(), reference, pairs=pairs, windows=restraints)
+    except ValueError:
+        return False
+    return True

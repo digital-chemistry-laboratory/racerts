@@ -239,6 +239,12 @@ def _subcommand_parser() -> argparse.ArgumentParser:
             help="Embed the fragments of a complex together (gs).",
         )
         command.add_argument(
+            "--hints",
+            action="store_true",
+            default=None,
+            help="Hydrogen bonds from the graph as embedding windows in some batches.",
+        )
+        command.add_argument(
             "--restraint-half-width",
             type=float,
             help=f"Half width of restraint windows, A (default "
@@ -308,6 +314,7 @@ def _config_from_args(args) -> PipelineConfig:
             contacts=[list(pair) for pair in args.contact] if args.contact else None,
             keep_fragments=args.keep_fragments,
             link_fragments=args.link_fragments,
+            hints=args.hints,
             half_width=args.restraint_half_width,
             force_constant=args.restraint_force_constant,
         ),

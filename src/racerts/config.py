@@ -191,6 +191,8 @@ class RestraintConfig:
         fragment_links: [atom, atom] links between fragments (catmlp): windows
             [1.0, 1.3] x the vdW sum.
         link_fragments: Also choose links that join every fragment.
+        hints: Candidate hydrogen bonds from the graph (at most max_hints) as
+            embedding-only windows, used in a share hint_share of the conformers.
     """
 
     user: list = field(default_factory=list)
@@ -201,9 +203,16 @@ class RestraintConfig:
     keep_fragments: bool = False
     fragment_links: list = field(default_factory=list)
     link_fragments: bool = False
+    hints: bool = False
+    max_hints: int = 8
+    hint_share: float = 0.3
 
     def __post_init__(self):
         _check_types(self, "restraints")
+        if not 0 <= self.hint_share <= 1:
+            raise ValueError("restraints.hint_share must be between 0 and 1.")
+        if self.max_hints < 1:
+            raise ValueError("restraints.max_hints must be positive.")
         for name, size in (("user", 3), ("contacts", 2), ("fragment_links", 2)):
             items = getattr(self, name)
             if not isinstance(items, (list, tuple)) or any(
@@ -226,6 +235,7 @@ class RestraintConfig:
             or self.keep_fragments
             or self.fragment_links
             or self.link_fragments
+            or self.hints
         )
 
     def build(self, mol, frozen, seed: int = 0xF00D):
@@ -244,6 +254,8 @@ class RestraintConfig:
             fragment_links=[tuple(item) for item in self.fragment_links] or None,
             link_fragments=self.link_fragments,
             seed=seed,
+            hints=self.hints,
+            max_hints=self.max_hints,
         )
 
 
@@ -380,6 +392,7 @@ class PipelineConfig:
                     embed.n_conformers,
                     embed.conf_factor,
                     count_policy=embed.count_policy,
+                    hint_share=self.restraints.hint_share,
                 ),
                 Refine(optimizer, fallback=self.refine.fallback),
                 *checks,

@@ -30,6 +30,8 @@ def build_restraints(
     fragment_links: Optional[Iterable[Sequence[int]]] = None,
     link_fragments: bool = False,
     seed: int = 0xF00D,
+    hints: bool = False,
+    max_hints: int = 8,
 ) -> RestraintSet:
     """
     The distance restraints for mol, which carries the reference geometry if a source
@@ -51,6 +53,9 @@ def build_restraints(
             chosen to join every fragment (user pairs between fragments first, then
             charged pairs, then the least buried atoms). If the windows cannot be
             smoothed, the lower factor 0.8 is tried once; user windows never widen.
+        hints: Candidate hydrogen bonds from the graph (sources.graph_hints, at most
+            max_hints) as embedding-only windows (source "hint", stage "embed"): Embed
+            uses them in some batches only (see Embed hint_share).
 
     User restraints win over generated ones for the same pair; generated ones for the
     same pair must agree.
@@ -91,6 +96,15 @@ def build_restraints(
             mol, restraints, user_set, fragment_links, link_fragments, frozen, seed,
             force_constant,
         )  # fmt: skip
+    if hints:
+        taken = {r.pair for r in restraints}
+        candidates = RestraintSet(
+            DistanceRestraint(h, a, lower, upper, stage="embed", source="hint")
+            for h, a, lower, upper in sources.graph_hints(mol, max_hints=max_hints)
+            if (min(h, a), max(h, a)) not in taken and not (h in hard and a in hard)
+        )
+        for hint in _consistent(mol, frozen, restraints, candidates, each=True):
+            restraints.add(hint)
     if restraints:
         logger.info(
             "Restraints (atoms: window in A): %s",

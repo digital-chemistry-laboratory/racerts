@@ -46,3 +46,13 @@ From Python, `racerts.restraints.RestraintSet` and `DistanceRestraint` (with `st
 `"embed"`, `"refine"` or `"both"`) can be passed to `generate`, `generate_ts` or
 `generate_gs` as `restraints=`, and `build_restraints(mol, frozen, ...)` builds them
 from the sources above.
+
+## Hints
+
+`restraints.hints` adds candidate hydrogen bonds from the graph (at most `max_hints`,
+default 8) as embedding-only windows H···A 1.7–2.3 Å:
+- donors N–H and O–H; acceptors N, O and F, but not amide, aniline or pyrrole-type N and
+  not the alkoxy O of esters;
+- pairs that close a pseudo-ring of at least 6 atoms, or lie in different fragments;
+- no charged partners (MMFF's Coulomb term pulls them together anyway);
+- ranked by how close the pseudo-ring is to 7 atoms.

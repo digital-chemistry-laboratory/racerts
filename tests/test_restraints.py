@@ -350,6 +350,65 @@ def test_ground_state_complexes_are_embedded_together():
         assert np.linalg.norm(p[link.first] - p[link.second]) < link.upper + 0.3
 
 
+# ---- graph hints ----
+
+
+@pytest.mark.parametrize(
+    "smiles, expected",
+    [
+        ("OCCCCCCCO", [(9, 8), (24, 0)]),  # each O-H to the other O
+        ("CC(=O)NCCCO", [(11, 7), (18, 2)]),  # amide N-H to O-H; O-H to C=O
+        ("CC(=O)OCCO", [(14, 2)]),  # not to the ester alkoxy O
+        ("Nc1ccccc1CCO", [(10, 9), (11, 9)]),  # aniline N-H donates, never accepts
+        ("OC(=O)[C@@H]1CCCN1C(C)=C", []),  # a 5-membered pseudo-ring only
+        ("[NH3+]CCCCC(=O)[O-]", []),  # charged partners: off
+    ],
+)
+def test_graph_hints(smiles, expected):
+    mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
+    hints = sources.graph_hints(mol)
+    assert [(h, a) for h, a, *_ in hints] == expected
+    assert all(window == (1.7, 2.3) for *_, lo, hi in hints for window in [(lo, hi)])
+    if smiles.startswith("[NH3+]"):
+        assert sources.graph_hints(mol, charged=True)
+
+
+def test_hint_batches_and_their_provenance():
+    config = PipelineConfig.from_dict(
+        {"seed": 3, "embed": {"n_conformers": 20}, "restraints": {"hints": True}}
+    )
+    pipeline = racerts.Pipeline([racerts.Embed(n_conformers=20)])
+    ensemble = racerts.generate_gs("OCCCCCCCO", config=config, pipeline=pipeline)
+    active = [
+        tuple(ensemble.provenance(i)["active_restraints"]) for i in ensemble.conf_ids
+    ]
+    assert active.count(()) == 14
+    assert active.count(("hint:8-9",)) == 2 and active.count(("hint:0-24",)) == 2
+    assert active.count(("hint:8-9", "hint:0-24")) == 2
+    seeds = {ensemble.provenance(i)["seed"] for i in ensemble.conf_ids}
+    assert len(seeds) == 4  # one per batch
+    # Hinted conformers have their hydrogen bond.
+    hinted = [i for i, a in zip(ensemble.conf_ids, active) if a]
+    positions = [ensemble.mol.GetConformer(i).GetPositions() for i in hinted]
+    windows = {"hint:8-9": (8, 9), "hint:0-24": (0, 24)}
+    inside = [
+        all(
+            1.6 <= np.linalg.norm(p[windows[h][0]] - p[windows[h][1]]) <= 2.4 for h in a
+        )
+        for p, a in zip(positions, [a for a in active if a])
+    ]
+    assert np.mean(inside) >= 0.8
+    assert "restraints" not in ensemble.provenance(ensemble.conf_ids[0])
+
+
+def test_hints_are_released_in_refinement():
+    restraints = build_restraints(
+        Chem.AddHs(Chem.MolFromSmiles("OCCCCCCCO")), hints=True
+    )
+    assert {r.stage for r in restraints} == {"embed"}
+    assert RestraintSet(restraints).for_stage("refine") == []
+
+
 def test_generated_windows_that_do_not_fit_are_left_out(sn2_ts_water, caplog):
     # Cl2...O6 at 3.75 A does not fit with Cl2...H7 at 2.2 A (O6-H7 is a bond): from
     # the user it raises (test_inconsistent_windows_raise); generated, it is left out.
@@ -423,3 +482,40 @@ def test_parallel_restrained_refinement_reports_physical_energies():
 def test_invalid_user_restraints_fail_early(user, error):
     with pytest.raises(error):
         build_restraints(Chem.AddHs(Chem.MolFromSmiles("CC")), user=user)
+
+
+# ---- regression tests ----
+
+
+def test_the_combined_hint_batch_is_checked_with_the_frozen_atoms(sn2_ts_water):
+    # Each hint fits alone with the frozen core; together they fit only without it.
+    mol = _sn2_water(sn2_ts_water)
+    hints = RestraintSet(
+        DistanceRestraint(i, j, 1.9, 2.3, stage="embed", source="hint")
+        for i, j in ((2, 6), (1, 6))
+    )
+    config = PipelineConfig(embed=EmbedConfig(n_conformers=12))
+    ensemble = racerts.generate(
+        mol, TransitionState(REACTING), config=config, restraints=hints
+    )
+    active = {
+        tuple(ensemble.provenance(i)["active_restraints"]) for i in ensemble.conf_ids
+    }
+    assert ("hint:2-6", "hint:1-6") not in active  # no combined batch
+
+
+def test_hint_batches_with_small_budgets_and_extreme_seeds():
+    def run(n, share, seed=3):
+        config = PipelineConfig.from_dict(
+            {"seed": seed, "restraints": {"hints": True, "hint_share": share}}
+        )
+        pipeline = racerts.Pipeline([racerts.Embed(n_conformers=n, hint_share=share)])
+        return racerts.generate_gs("OCCCCCCCO", config=config, pipeline=pipeline)
+
+    none = run(10, 0.0)
+    assert {tuple(none.provenance(i)["active_restraints"]) for i in none.conf_ids} == {
+        ()
+    }
+    assert len(run(1, 0.3)) == 1  # one conformer: no hint batch
+    assert len(run(2, 1.0)) == 2  # two hint batches of one, no more
+    assert len(run(10, 0.3, seed=2**31 - 1)) == 10  # batch seeds stay in range

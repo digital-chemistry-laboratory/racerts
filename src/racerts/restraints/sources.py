@@ -259,3 +259,65 @@ def carrier_links(
     if len({find(k) for k in range(len(fragments))}) != 1:
         raise ValueError("The fragment links do not join every fragment.")
     return links
+
+
+# Acceptors that graph hints leave out: amide/thioamide and carbamate
+# N, aniline N, pyrrole-type aromatic N, and the alkoxy O of esters and carbamates.
+_POOR_ACCEPTORS = [
+    Chem.MolFromSmarts(smarts)
+    for smarts in ("[NX3][CX3]=[O,S]", "[NX3]a", "[nX3]", "[OX2]([#6])[CX3]=[O,S]")
+]
+HINT_WINDOW = (1.7, 2.3)  # A, H...acceptor
+
+
+def graph_hints(
+    mol: Chem.Mol,
+    max_hints: int = 8,
+    window: Tuple[float, float] = HINT_WINDOW,
+    charged: bool = False,
+    min_ring: int = 6,
+) -> List[Tuple[int, int, float, float]]:
+    """
+    Candidate hydrogen bonds from the graph alone: N-H or O-H
+    donors, N, O or F acceptors without the poor ones (amide and aniline N, aromatic
+    N-H type N, ester alkoxy O), pairs that close a pseudo-ring of at least min_ring
+    atoms (or lie in different fragments), without charged partners unless charged
+    (MMFF's Coulomb term already pulls those together). Ranked by how close the
+    pseudo-ring is to 7 atoms; at most max_hints, as (H, acceptor, lower, upper).
+    """
+    poor = {
+        match[0]
+        for pattern in _POOR_ACCEPTORS
+        for match in mol.GetSubstructMatches(pattern)
+    }
+    acceptors = [
+        a.GetIdx()
+        for a in mol.GetAtoms()
+        if a.GetSymbol() in ("N", "O", "F")
+        and a.GetIdx() not in poor
+        and a.GetFormalCharge() <= 0
+        and a.GetTotalDegree() < 4
+        and (charged or a.GetFormalCharge() == 0)
+    ]
+    topological = Chem.GetDistanceMatrix(mol)
+    candidates = []
+    for hydrogen in mol.GetAtoms():
+        neighbors = hydrogen.GetNeighbors()
+        if hydrogen.GetAtomicNum() != 1 or len(neighbors) != 1:
+            continue
+        donor = neighbors[0]
+        if donor.GetSymbol() not in ("N", "O"):
+            continue
+        if not charged and donor.GetFormalCharge() != 0:
+            continue
+        h = hydrogen.GetIdx()
+        for a in acceptors:
+            if a == donor.GetIdx():
+                continue
+            d = topological[h, a]
+            ring = np.inf if d > 1e6 else d + 1  # different fragments: no ring
+            if ring < min_ring:
+                continue
+            candidates.append((0 if ring == np.inf else abs(ring - 7), h, a))
+    candidates.sort()
+    return [(h, a, *window) for _, h, a in candidates[:max_hints]]

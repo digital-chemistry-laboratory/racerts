@@ -561,6 +561,30 @@ def test_a_replaced_atom_passes_its_role_on(sn2_ts):
     assert len(ensemble) == 1
 
 
+def _square_planar_pd_dmpe():
+    """cis-[PdCl2(dmpe)] with Pd, Cl and P held square planar."""
+    from rdkit.Geometry import Point3D
+
+    mol = Chem.AddHs(Chem.MolFromSmiles(PD_DMPE))
+    pd = next(a.GetIdx() for a in mol.GetAtoms() if a.GetSymbol() == "Pd")
+    cl = [a.GetIdx() for a in mol.GetAtoms() if a.GetSymbol() == "Cl"]
+    p = [a.GetIdx() for a in mol.GetAtoms() if a.GetSymbol() == "P"]
+    square = {pd: (0, 0, 0), cl[0]: (2.35, 0, 0), cl[1]: (0, 2.35, 0)}
+    square.update({p[0]: (-2.25, 0, 0), p[1]: (0, -2.25, 0)})
+    coord_map = {i: Point3D(*x) for i, x in square.items()}
+    assert (
+        AllChem.EmbedMolecule(
+            mol, coordMap=coord_map, randomSeed=1, useRandomCoords=True
+        )
+        == 0
+    )
+    ff = AllChem.UFFGetMoleculeForceField(mol)
+    for i in square:
+        ff.UFFAddPositionConstraint(i, 0.0, 1e4)
+    ff.Minimize(maxIts=2000)
+    return mol, pd, cl, p
+
+
 # Regression tests.
 
 TETRAHEDRAL_TAGS = (
@@ -633,6 +657,45 @@ def test_new_stereo_at_the_attachment_comes_from_the_reference():
         for h in hydrogens
     }
     assert graphs == {canonical("C/C=C/c1ccccc1"), canonical("C/C=C\\c1ccccc1")}
+
+
+def test_charge_and_multiplicity_carry_over(sn2_ts):
+    from racerts.system import GRAPH_METHODS, build_mol
+
+    # A connectivity graph: the charge is only a property, no formal charges.
+    ts = build_mol(sn2_ts, -1, [0, 1, 2], mol_getter=GRAPH_METHODS["connect"]())
+    result = apply_swap(ts, Swap("[*]C", remove_atoms=[3]))
+    assert result.mol.GetIntProp("charge") == -1
+    assert not any(a.GetNumRadicalElectrons() for a in result.mol.GetAtoms())
+    ensemble = racerts.swap(
+        ts,
+        Swap("[*]C", remove_atoms=[3]),
+        task=TransitionState([0, 1, 2]),
+        n_conformers=3,
+    )
+    assert (
+        ensemble.mol.GetIntProp("charge"),
+        ensemble.mol.GetIntProp("multiplicity"),
+    ) == (-1, 1)
+    triplet = embedded("CCO")
+    triplet.SetIntProp("multiplicity", 3)
+    for conserve in ("soft", "hard"):
+        swapped = racerts.swap(
+            triplet,
+            Swap("[*]CC", remove_atoms=[0]),
+            conserve=conserve,
+            **({} if conserve == "hard" else {"n_conformers": 3}),
+        )
+        assert swapped.mol.GetIntProp("multiplicity") == 3
+    charged = apply_swap(embedded("CO"), Swap("[*][N+](C)(C)C", remove_atoms=[0]))
+    assert charged.mol.GetIntProp("charge") == 1
+
+
+def test_a_lower_bond_order_raises():
+    mol = embedded("CC(=O)C")  # atom 2 is O
+    with pytest.raises(ValueError, match="bond order"):
+        apply_swap(mol, Swap("[*]F", remove_atoms=[2]))  # C=O -> C-F: C would gain an H
+    assert identity(apply_swap(mol, Swap("[*]=C", remove_atoms=[2])).mol) == "C=C(C)C"
 
 
 def test_the_graft_keeps_a_stretched_bond(sn2_ts):
@@ -762,6 +825,24 @@ def test_no_spurious_e_z_between_stereo_double_bonds():
         assert geometry == [graph]
 
 
+def test_valence_check_spares_metals_and_heavy_atom_templates():
+    mol, pd, cl, p = _square_planar_pd_dmpe()
+    dmpe = [a.GetIdx() for a in mol.GetAtoms() if a.GetSymbol() in ("C", "P")]
+    one = apply_swap(
+        mol,
+        Swap(
+            "[*:1]P(C)(C)C",
+            remove_atoms=dmpe,
+            attach_map={1: pd},
+            bond_types={1: "dative"},
+        ),
+    )
+    assert identity(one.mol) == canonical("CP(C)(C)->[Pd](Cl)Cl")
+    template = Chem.MolFromSmiles("CC=O")  # no explicit hydrogens
+    AllChem.EmbedMolecule(template, randomSeed=1)
+    assert identity(apply_swap(template, Swap("[*]C", remove_atoms=[2])).mol) == "CCC"
+
+
 def test_hard_mode_takes_charge_and_multiplicity(methylbiphenyl):
     hard = racerts.swap(
         methylbiphenyl, BUTYL_SWAP, conserve="hard", charge=1, multiplicity=2
@@ -772,6 +853,25 @@ def test_hard_mode_takes_charge_and_multiplicity(methylbiphenyl):
     )
     index_map = json.loads(hard.mol.GetProp("swap_index_map"))
     assert index_map["1"] == 1
+
+
+def test_a_multiplicity_that_no_longer_fits_is_dropped(caplog):
+    radical = Chem.AddHs(Chem.MolFromSmiles("[CH2]C"))
+    AllChem.EmbedMolecule(radical, randomSeed=1)
+    radical.SetIntProp("multiplicity", 2)
+    h = next(
+        n.GetIdx()
+        for n in radical.GetAtomWithIdx(0).GetNeighbors()
+        if n.GetAtomicNum() == 1
+    )
+    with caplog.at_level("WARNING"):
+        # the radical centre gets a methyl in place of an H: still a radical, fits
+        result = apply_swap(radical, Swap("[*]C", remove_atoms=[h]))
+    assert result.mol.GetIntProp("multiplicity") == 2
+    # The radical CH2 group itself leaves for a methyl: closed shell, dropped.
+    with caplog.at_level("WARNING"):
+        result = apply_swap(radical, Swap("[*]C", remove_atoms=[0]))
+    assert not result.mol.HasProp("multiplicity") and "does not fit" in caplog.text
 
 
 def test_swap_rejects_rigid_settings_without_the_route(methylbiphenyl):
@@ -843,6 +943,22 @@ def test_new_stereo_with_either_stereo_perception(legacy):
         assert result.mol.GetAtomWithIdx(3).GetChiralTag() in TETRAHEDRAL_TAGS
     finally:
         Chem.SetUseLegacyStereoPerception(True)
+
+
+def test_the_multiplicity_parity_counts_hydrogens_and_dummies(caplog):
+    template = Chem.AddHs(Chem.MolFromSmiles("[*:1]c1ccc([*:2])cc1"))
+    AllChem.EmbedMolecule(template, randomSeed=1)
+    template.SetIntProp("multiplicity", 3)
+    once = apply_swap(template, Swap("[*]C", site=1))
+    assert once.mol.GetIntProp("multiplicity") == 3
+    heavy = Chem.MolFromSmiles("CCO")  # implicit hydrogens
+    AllChem.EmbedMolecule(heavy, randomSeed=1)
+    heavy.SetIntProp("multiplicity", 1)
+    with caplog.at_level("WARNING"):
+        chloro = apply_swap(heavy, Swap("[*]Cl", remove_atoms=[2]))
+    assert (
+        chloro.mol.GetIntProp("multiplicity") == 1 and "does not fit" not in caplog.text
+    )
 
 
 def test_clashes_are_judged_against_each_reference(caplog):

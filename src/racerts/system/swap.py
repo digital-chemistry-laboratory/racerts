@@ -180,6 +180,7 @@ def apply_swap(mol: Chem.Mol, swap: Swap, seed: int = 0xF00D) -> SwapResult:
             frag_to_new[a.root] for a in attachments if a.partner is not None
         }
     _settle_new_stereo(mol, result, ref_to_new, anchored, carried_atoms, carried_bonds)
+    _charge_and_multiplicity(mol, result, fragment, frag_to_new, removed)
 
     conserved = [ref_to_new[i] for i in sorted(ref_to_new)]
     new_atoms = sorted(frag_to_new.values())
@@ -573,9 +574,49 @@ def _build(mol, swap, fragment, attachments, slots, frag_to_new, ref_to_new):
         Chem.SanitizeMol(result, flags)
     except Exception as error:
         raise SwapError(f"The swapped molecule is invalid: {error}") from None
+    _check_valences(mol, result, ref_to_new)
     result = result.GetMol()
     _perceive_stereo(result, carried_bonds)
     return result, carried_atoms, carried_bonds
+
+
+def _charge_and_multiplicity(mol, result, fragment, frag_to_new, removed) -> None:
+    """
+    The charge of the reference (property or formal charges) changed by the formal
+    charges of the fragment and of the removed atoms; the multiplicity of the
+    reference, if it has one and the swap keeps the parity of the electrons.
+    """
+    from .spec import infer_charge_and_multiplicity
+
+    charge = infer_charge_and_multiplicity(mol)["charge"]
+    charge += sum(fragment.GetAtomWithIdx(j).GetFormalCharge() for j in frag_to_new)
+    charge -= sum(mol.GetAtomWithIdx(i).GetFormalCharge() for i in removed)
+    result.SetIntProp("charge", int(charge))
+    if mol.HasProp("multiplicity"):
+        multiplicity = mol.GetIntProp("multiplicity")
+        reference_charge = infer_charge_and_multiplicity(mol)["charge"]
+        change = _electrons(result) - charge - (_electrons(mol) - reference_charge)
+        if change % 2 == 0:  # the parity of the electrons is the same
+            result.SetIntProp("multiplicity", multiplicity)
+        else:
+            logger.warning(
+                "The multiplicity %d of the reference does not fit the swap (%+d "
+                "electrons); it is not carried over.",
+                multiplicity,
+                change,
+            )
+
+
+def _electrons(mol: Chem.Mol) -> int:
+    """Protons of the atoms and their implicit hydrogens, a dummy counting as one."""
+    total = 0
+    for atom in mol.GetAtoms():
+        total += atom.GetAtomicNum() or 1
+        try:
+            total += atom.GetTotalNumHs()
+        except RuntimeError:  # valences not computed: explicit counts only
+            total += atom.GetNumExplicitHs()
+    return total
 
 
 UNSPECIFIED_BOND = (Chem.BondStereo.STEREONONE, Chem.BondStereo.STEREOANY)
@@ -781,6 +822,36 @@ def _settle_new_stereo(mol, result, ref_to_new, anchored, carried_atoms, carried
         if bond.GetStereo() in GEOMETRIC:
             bond.SetStereo(GEOMETRIC[bond.GetStereo()])
     _perceive_stereo(result, carried_bonds | set(agreed_bonds))
+
+
+def _check_valences(mol, result, ref_to_new) -> None:
+    """
+    A kept atom may not lose bond order where that leaves it short: a hydrogen
+    without coordinates (a reference with a geometry and explicit hydrogens), or an
+    open valence on an atom without implicit hydrogens (not guessed as a radical).
+    Metals (no default valence) are not checked; nor, for the first, graphs without
+    a geometry or without explicit hydrogens, where implicit hydrogens are normal.
+    """
+    table = Chem.GetPeriodicTable()
+    geometry = mol.GetNumConformers() > 0 and any(
+        a.GetAtomicNum() == 1 for a in mol.GetAtoms()
+    )
+    for i, k in ref_to_new.items():
+        old, new = mol.GetAtomWithIdx(i), result.GetAtomWithIdx(k)
+        if table.GetDefaultValence(new.GetAtomicNum()) < 0:
+            continue
+        try:
+            lost = old.GetTotalValence() - new.GetTotalValence()
+            gained_h = new.GetNumImplicitHs() - old.GetNumImplicitHs()
+        except RuntimeError:  # a reference without computed valences
+            continue
+        if (geometry and gained_h > 0) or (lost > 0 and new.GetNoImplicit()):
+            raise SwapError(
+                f"Atom {i} would lose bond order in the swap (it would need "
+                f"{max(lost, gained_h)} more hydrogen(s) or unpaired electrons): the "
+                "new bond is of lower order than the removed one; give bond_types, "
+                "or attach where bonds are cut."
+            )
 
 
 def _copy_bond(result, bond, i, j):

@@ -1,10 +1,11 @@
 # Command-line interface
 
 The `racerts` CLI mirrors the core functionality of the Python API. It has the
-subcommands `racerts ts`, `racerts gs` and `racerts swap` ([Swaps](swap.md)), and keeps the legacy racerts form
-`racerts filename.xyz [options]` (also `racerts run filename.xyz [options]`), which is
-described in the rest of this page. The legacy form always uses the settings of legacy
-racerts; `racerts ts --legacy` writes the same ensemble.
+subcommands `racerts ts`, `racerts gs` and `racerts swap` ([Swaps](swap.md)), and keeps
+the legacy racerts form `racerts filename.xyz [options]` (also
+`racerts run filename.xyz [options]`), described [below](#racerts-filenamexyz-legacy).
+The legacy form always uses the settings of legacy racerts; `racerts ts --legacy` writes
+the same ensemble.
 
 ## racerts ts / racerts gs
 
@@ -21,25 +22,30 @@ $ racerts gs "OC(=O)[C@@H]1CCCN1C(C)=C" [options]
 | `--graph` (ts) | first method for the graph: `smiles`, `bonds` or `connect` |
 | `-c`, `--charge` | total charge (ts: default 0; gs: from the SMILES) |
 | `--multiplicity` | spin multiplicity (default: the lowest for the electrons) |
-| `--config` | [PipelineConfig](pipeline.md#settings) as JSON or YAML; the options below override it |
-| `--legacy` | the settings of legacy racerts where the defaults changed (the config file and the options below override them) |
+| `--config` | [PipelineConfig](pipeline.md#settings) as JSON or YAML; the other options override it |
+| `--legacy` | the settings of legacy racerts, whatever the defaults (the config file and the other options override them) |
 | `-n`, `--n-conformers`, `--conf-factor` | conformers to embed |
 | `--count-policy` | how the default number is counted: `legacy`, `fragments`, `per_bond` |
-| `--embed` | `cmap` or `bounds` |
+| `--embed` | `cmap` or `bounds` (`embed.mode`) |
 | `--etkdg`, `--no-etkdg` | ETKDGv3 instead of plain distance geometry (default: only for gs) |
 | `--sequential-seeds`, `--no-sequential-seeds` | one seed per conformer |
-| `--chirality-fallback` | `legacy` or `frozen_first` |
-| `--refine` | `mmff` or `uff` |
+| `--chirality-fallback` (ts) | `legacy` or `frozen_first` |
+| `--active-window`, `--active-bond`, `--stratify`, `--neighbor-window` (ts) | [active-bond windows](active-bonds.md) |
+| `--restraint`, `--hints`, `--restraint-half-width`, `--restraint-force-constant`; `--keep-hbonds`, `--contact`, `--keep-fragments` (ts); `--link-fragments` (gs) | [restraints](restraints.md) |
+| `--refine` | `mmff` or `uff` (`refine.backend`) |
 | `--converge`, `--no-converge` | minimize until the energy stops dropping |
 | `--anchor-free-energies`, `--no-anchor-free-energies` | energies without the terms that hold the frozen atoms |
 | `--dielectric MODEL CONSTANT` | MMFF dielectric, e.g. `distance 4` |
 | `--no-fallback` | no fallback for the graph (bonds, connectivity) or MMFF (UFF) |
 | `--seed`, `--num-threads` | |
-| `--energy-threshold`, `--rmsd-threshold`, `--rmsd-hydrogens` | pruning |
+| `--energy-threshold`, `--rmsd-threshold`, `--rmsd-hydrogens` | pruning (`prune.energy_threshold`, `prune.rmsd_threshold`, `prune.include_hs`) |
 | `--check-stereo`, `--no-check-stereo` | drop conformers whose stereo differs from the graph after refinement |
 | `-o`, `--output` | output file (default `conformer_ensemble.xyz`) |
 | `--crest-energies` | only the energy (Hartree) on each comment line, as CREST does |
 | `-v`, `-vv` | progress (INFO) or details (DEBUG) on stderr |
+
+Wrong input (an invalid setting, a missing file, an invalid SMILES) ends with a message
+and exit status 2; `-vv` shows the traceback.
 
 ## racerts filename.xyz (legacy)
 
@@ -47,7 +53,7 @@ The command is:
 ```bash
 $ racerts filename.xyz [options]
 ```
-where the `filename.xyz` is the path to an .xyz file containing a single TS conformer.
+where the `filename.xyz` is the path to an .xyz file (or .sdf/.mol with bonds) containing a single TS conformer.
 
 ### General inputs
 
@@ -121,8 +127,8 @@ where the `filename.xyz` is the path to an .xyz file containing a single TS conf
 
 ### optimizer options
 
-| Command | Explanation |
-| --- | --- |
+| Command | Options | Explanation |
+| --- | --- | --- |
 | `--force_constant` | &lt;FLOAT&gt; [1e6] | Distance-constraint force constant used during<br>FF optimization |
 
 ### RMSDPruner options
@@ -149,7 +155,8 @@ Basic run
 $ racerts example.xyz --charge 0 --reacting_atoms 2 3 4
 ```
 
-Use SMILES-defined topology and coordinate-map embedding
+Use SMILES-defined topology (one SMILES per fragment of the TS, here benzene and water)
+and coordinate-map embedding
 ```bash
 $ racerts example.xyz --charge 0 \
   --reacting_atoms 2 3 4 \
@@ -161,7 +168,7 @@ Increase diversity by allowing more initial conformers
 ```bash
 $ racerts example.xyz --charge 0 --reacting_atoms 2 3 4 --conf_factor 120
 ```
-Faster refinement on many conformers with threads (if using multithreaded optimizers)
+More threads for the embedding
 ```bash
 $ racerts example.xyz --charge 0 --reacting_atoms 2 3 4 --num_threads 4
 ```

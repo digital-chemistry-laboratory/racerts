@@ -7,6 +7,9 @@ Constructor parameters:
 - `conf_id_ref: int = -1` : reference conformer ID on the TS molecule
 - `force_constant: float = 1e6` : force constant of distance constraints to TS reference points
 
+Further settings (`converge`, `anchor_free_energies`, the MMFF dielectric) are described
+with the [settings](../pipeline.md#settings).
+
 <a id="mmff_optimizer"></a>
 ### MMFFOptimizer
 Optimizes each conformer with MMFF94:
@@ -17,10 +20,10 @@ Optimizes each conformer with MMFF94:
 
 <a id="uff_optimizer"></a>
 ### UFFOptimizer
-Same flow as `MMFF_optimizer` using the RDKit implementation of UFF.
+Same flow as `MMFFOptimizer` using the RDKit implementation of UFF.
 
 
-!!! note MMFF vs UFF
+!!! note "MMFF vs UFF"
     - MMFF: Good general-purpose performance, if MMFF parameters are available.
     - UFF: Use if no MMFF parameters available or as fallback.
 
@@ -38,7 +41,7 @@ Same flow as `MMFF_optimizer` using the RDKit implementation of UFF.
 Charge and multiplicity are the `charge` and `multiplicity` arguments, else the values stored on the molecule by [`generate_conformers`](./conformer_generator.md#generate_conformers), else the sum of the formal charges and the lowest multiplicity for the number of electrons. They reach the calculator in two forms: in `atoms.info` (`charge`, `spin` = multiplicity, as read by UMA/fairchem) and as initial charges and magnetic moments (whose sums tblite and xtb-python read). Calculators that take charge and multiplicity as their own arguments (e.g. ASE's `ORCA(charge=..., mult=...)`, PySCF) need them passed there.
 A conformer whose calculation fails (e.g. SCF not converged) is left without an energy and is dropped when pruning; if all conformers fail, an error is raised.
 
-!!! note Index convention
+!!! note "Index convention"
     `align_indices` follow standard Python indexing (0-based), consistent with RDKit and ASE atom indices.
 
 Install ASE support with:

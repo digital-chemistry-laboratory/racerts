@@ -1,9 +1,12 @@
 # Pipelines and tasks
 
 racerts splits a conformer search into a **task** (what stays fixed), a **pipeline**
-of stages (what is done), and a **context** that carries the molecule, the task and the
-settings through the stages. The defaults reproduce legacy racerts exactly;
-`PipelineConfig.legacy()` does so whatever the defaults.
+of stages (what is done), and a **context** that carries the molecule, the task, the
+seed and the restraints through the stages. The defaults reproduce legacy racerts
+exactly; `PipelineConfig.legacy()` does so whatever the defaults.
+
+See also: [restraints](restraints.md), [active-bond windows](active-bonds.md) and
+[swaps](swap.md).
 
 ```python
 import racerts
@@ -27,12 +30,13 @@ ensemble = racerts.generate(mol, racerts.TransitionState([3, 4, 5]))
 | `TransitionState(reacting_atoms, frozen_atoms=None)` | reacting atoms and their neighbours (or `frozen_atoms`) | yes |
 | `TransitionState.from_endpoints(reactant, product)` | the same, with the reacting atoms from the bonds that form or break between two atom-aligned endpoints | yes |
 | `GroundState()` | none | no |
-| `Constrained(hard)` | the `hard` atoms | yes |
+| `Constrained(hard, soft=(), core=None)` | the `hard` atoms; `soft` atoms start at the reference and are held near it | yes |
 
 A task returns a `FrozenSet`: `hard` atoms are placed at the reference positions during
-embedding and held there during refinement. In the bounds-matrix embedder
-(`embed.mode = "bounds"`), the distances between the `core` atoms (for a TS the reacting
-atoms) and all hard atoms are fixed.
+embedding and held there during refinement; `soft` atoms are placed there too and held
+within 0.3 Å by position restraints in MMFF/UFF refinement (e.g. the kept atoms of a
+[swap](swap.md)). In the bounds-matrix embedder (`embed.mode = "bounds"`), the distances
+between the `core` atoms (for a TS the reacting atoms) and all hard atoms are fixed.
 
 ```python
 # Ground states (ETKDGv3 embedding, nothing frozen, stereocentres kept)
@@ -69,25 +73,38 @@ ensemble = racerts.generate_ts("ts.xyz", [3, 4, 5], config=config)
 | | `use_random_coords` | true | |
 | | `count_policy` | `legacy` | how -1 is counted: `legacy`; `fragments` (adds 3 or 6 rigid-body degrees of freedom per fragment without frozen atoms, e.g. a solvent molecule); `per_bond` (max(7, 10 × rotatable bonds)) |
 | | `sequential_seeds` | false | one seed per conformer, in a stream that starts at a value derived from `seed` (different seeds do not overlap); legacy racerts embeds its first 3 conformers twice |
-| | `chirality_fallback` | `legacy` | when the frozen atoms make the chirality checks fail: `legacy` (drop all chiral tags, or stop enforcing chirality; free stereocentres can invert) or `frozen_first` (drop the tags of the frozen atoms first; afterwards the frozen atoms take the configuration of the reference, and conformers with inverted stereo are removed; a free substituent that alone sets the configuration of a frozen stereocentre is held at the reference in embedding and refinement) |
+| | `chirality_fallback` | `legacy` | what happens when the frozen atoms make the chirality checks fail: `legacy` or `frozen_first` (see below) |
 | `refine` | `backend` | `mmff` | `mmff` or `uff` |
 | | `fallback` | true | UFF if MMFF has no parameters |
 | | `force_constant` | 1e6 | kcal/mol/Å² on the frozen atoms |
 | | `converge` | false | minimize until the energy stops dropping; legacy racerts stops early next to the frozen atoms |
-| | `anchor_free_energies` | false | energies without the terms that hold the frozen atoms (they add 0.02–0.18 kcal/mol) |
+| | `anchor_free_energies` | false | energies without the terms that hold the frozen atoms (always left out with restraints, soft atoms or active-bond windows) |
 | | `dielectric_model`, `dielectric_constant` | `constant`, 1.0 | MMFF electrostatics; e.g. `distance`, 4.0 damps salt bridges in vacuum |
 | `prune` | `energy_threshold` | 20.0 | kcal/mol above the lowest conformer |
 | | `eht_energies` | false | rank by extended Hückel energies (deprecated: use `Rescore`) |
 | | `rmsd_threshold` | 0.125 | Å, heavy atoms |
-| | `check_stereo` | false | after refinement, drop conformers whose specified stereo (outside the core atoms of the task, e.g. the reacting atoms) differs from the graph; needs `frozen_first` when the embedding falls back (the legacy fallback drops the tags) |
+| | `check_stereo` | false | after refinement, drop conformers whose specified stereo differs from the graph (see below) |
 | | `method` | `rmsd` | `rmsd` (duplicates, as legacy racerts) or `cluster` (one conformer per cluster) |
 | | `cluster_method`, `cluster_threshold` | `butina`, 1.5 | `butina`, `hierarchical` or `leader`; Å, heavy-atom RMSD after superposition |
-| | `include_hs`, `filter_energies`, `filter_rotations`, `rmsd_energy_threshold`, `rot_fraction_threshold`, `max_matches` | | see [pruner](modules/pruner.md) |
+| | `include_hs`, `filter_energies`, `filter_rotations`, `rmsd_energy_threshold`, `rot_fraction_threshold`, `max_matches` | false, true, true, 0.1, 0.03, 10000 | of `method = rmsd`, see [pruner](modules/pruner.md) (there: `energy_threshold`, `maxMatches`) |
+| `restraints` | | | see [restraints](restraints.md) |
+
+**Chirality fallback.** `legacy` drops all chiral tags, or stops enforcing chirality, so
+free stereocentres can come out inverted. `frozen_first` first drops only the tags of
+the frozen atoms whose configuration the reference fixes (those with at most one free
+neighbour); afterwards these atoms take the configuration of the reference, and
+conformers with inverted stereo are removed. A free substituent that alone sets the
+configuration of a frozen stereocentre is held at the reference in embedding and
+refinement.
+
+**Stereo check.** `check_stereo` compares the stereo outside the core atoms of the task
+(e.g. the reacting atoms) with the graph. After the `legacy` fallback there is nothing
+left to compare with (it drops the tags): use `frozen_first`.
 
 `PipelineConfig.legacy(**settings)` gives the settings of legacy racerts whatever the
 defaults, updated by the settings given (`racerts ts --legacy`, and
 `PipelineConfig.from_file(path, legacy=True)` for files). `ConformerGenerator` and the
-legacy command line always use them.
+legacy command line always use them. At present the defaults are the legacy settings.
 
 ## Pipelines and stages
 
@@ -95,20 +112,23 @@ The default pipeline is `Embed → Refine → PruneEnergy → PruneRMSD` (with
 `prune.check_stereo`, a stereo check follows `Refine`). Each stage takes the
 context and the ensemble so far and returns an ensemble; stages built without arguments
 use the legacy racerts defaults. A pipeline can be put together by hand, e.g. to refine
-with an ASE calculator:
+with an ASE calculator (here Lennard-Jones, which stands in for a real one such as
+GFN2-xTB or a machine-learned potential):
 
 ```python
 from ase.calculators.lj import LennardJones
 from racerts.refine import ASEOptimizer
 
 pipeline = racerts.Pipeline([
-    racerts.Embed(n_conformers=50),
+    racerts.Embed(n_conformers=10),
     racerts.Refine(ASEOptimizer(calculator=LennardJones(), fmax=0.1)),
     racerts.PruneEnergy(),
     racerts.PruneRMSD(),
 ])
 ensemble = racerts.generate_ts("ts.xyz", [3, 4, 5], pipeline=pipeline)
 ```
+
+With `pipeline=`, `generate` uses only the seed and the restraints of `config`.
 
 Any object with a `name` and a `run(ctx, ensemble)` method is a stage:
 
@@ -122,6 +142,15 @@ class KeepLowest:
     def run(self, ctx, ensemble):
         order = sorted(ensemble.conf_ids, key=ensemble.energy)
         return ensemble.filter(order[: self.n])
+```
+
+The context gives a stage the molecule with its reference geometry (`ctx.mol`,
+`ctx.reference`), the task and its frozen atoms (`ctx.task`, `ctx.frozen`), the seed
+and the restraints. `generate` makes it; to run a pipeline directly:
+
+```python
+ctx = racerts.Context.create(mol, racerts.TransitionState([3, 4, 5]), seed=12)
+ensemble = pipeline.run(ctx)
 ```
 
 Components are the objects that stages call. A new embedder subclasses
@@ -140,8 +169,8 @@ More stages:
 | `Refine(optimizer, anchors=False)` | refines all atoms freely, e.g. a saddle-point search from TS-like conformers |
 | `Rescore(calculator)` or `Rescore(batch=fn)` | replaces the energies by single points of an ASE calculator (xTB, MLIPs), or of a function that evaluates a list of Atoms at once; the replaced energy goes into the provenance |
 | `PruneCount(n_max, renumber=False)` | keeps the `n_max` lowest conformers |
-| `PruneCluster(ClusterPruner(...))` | keeps one conformer per cluster: Butina, hierarchical (scipy) or leader clustering, on the RMSD after superposition with fixed atoms (`kernel="aligned"`, e.g. for TS graphs without bonds), the symmetry-aware RMSD (`"symmetric"`), or any `metric(mol, a, b)`; the lowest or the central member |
-| `FamilySelector(n_max, clusterer)` | up to `n_max` conformers spread over the clusters: the best of each, then the second best, ... (families ordered by their best member) |
+| `PruneCluster(ClusterPruner(...))` | keeps one conformer per cluster (`ClusterPruner` from `racerts.prune`): Butina, hierarchical (scipy) or leader clustering, on the RMSD after superposition with fixed atoms (`kernel="aligned"`, e.g. for TS graphs without bonds), the symmetry-aware RMSD (`"symmetric"`), or any `metric(mol, a, b)`; the lowest or the central member |
+| `racerts.prune.FamilySelector(n_max, clusterer)` | up to `n_max` conformers spread over the clusters: the best of each, then the second best, ... (families ordered by their best member) |
 | `Validate(*validators, on_fail="drop" or "flag")` | checks the conformers (see below) |
 
 `Pipeline.run(ctx, ensemble)` continues an ensemble (e.g. to refine it with another
@@ -174,17 +203,21 @@ Calculators, optimizers and checks from other packages go into the stages unchan
   in eV.
 - **Validators:** any object with a `name` and `validate(ctx, ensemble)`, returning the
   reason for each conformer that fails; `racerts.validate.validator(fn)` turns a
-  function `fn(mol, conf_id)` into one. Built in:
-  - `Connectivity()`: the bonds perceived from the geometry and the specified stereo are
-    those of the graph (bonds between reacting atoms exempt); `IdentityFilter()` drops
-    the conformers that fail it;
-  - `FrozenCore(tolerance)`: the frozen atoms are at the reference;
-  - `ImaginaryModes(calculator, expected=1)`: finite-difference frequencies, for
-    stationary points;
-  - `ReactionCore(tolerance=0.5)`: the distances between the reacting atoms are those
-    of the reference TS within tolerance (Å). After a free saddle search it tells a TS
-    of the reaction from other saddles of the same atoms, which pass the two checks
-    above.
+  function `fn(mol, conf_id)` into one. The validators of one `Validate` stage need
+  distinct names.
+
+Built-in validators (`racerts.validate`):
+
+- `Connectivity()`: the bonds perceived from the geometry and the specified stereo are
+  those of the graph (bonds between reacting atoms exempt); `IdentityFilter()` drops
+  the conformers that fail it.
+- `FrozenCore(tolerance)`: the frozen atoms are at the reference.
+- `ImaginaryModes(calculator, expected=1)`: finite-difference frequencies, for
+  stationary points.
+- `ReactionCore(tolerance=0.5)`: the distances between the reacting atoms are those of
+  the reference TS within tolerance (Å). After a free saddle search it tells a TS of the
+  reaction from other saddles of the same atoms, which pass the two checks above.
+- `AttackFace()`: for [active-bond windows](active-bonds.md).
 
 From TS-like conformers to transition states with GFN2-xTB (tblite) and Sella:
 
@@ -222,7 +255,7 @@ the legacy classes see the same data:
 | --- | --- | --- |
 | `energy` | each conformer | energy in kcal/mol |
 | `provenance` | each conformer | JSON, e.g. `{"embedder": "CmapEmbedder", "seed": 12, "etkdg": false}` |
-| `energy_method` | the molecule | the optimizer that gave the energies |
+| `energy_method` | the molecule | the optimizer or calculator that gave the energies |
 | `charge`, `multiplicity` | the molecule | total charge and spin multiplicity |
 
 Conformer ids are those of the embedding; pruning leaves gaps, so use `conf_ids`:

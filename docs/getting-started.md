@@ -6,6 +6,9 @@ racer<sup>TS</sup> generates conformer ensembles for transition states (TS) usin
 
 This documentation covers how to install and use racer<sup>TS</sup>, the command-line interface, and how to configure the individual components.
 
+- [Pipelines and tasks](pipeline.md): transition states, ground states, settings
+- [Restraints](restraints.md), [active-bond windows](active-bonds.md) and
+  [swaps](swap.md)
 - [Command-line interface](cli.md)
 - [Modules overview](modules/README.md)
 

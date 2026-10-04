@@ -51,7 +51,7 @@ cg.optimizer = ASEOptimizer(calculator=LennardJones())
 ### Functions
 
 <a id="generate_conformers"></a>
-###### generate_conformers(file_name, charge=0, reacting_atoms=[], frozen_atoms=[], input_smiles=[], number_of_conformers=-1, conf_factor=80, auto_fallback=True, multiplicity=None)
+###### generate_conformers(file_name, charge=0, reacting_atoms=[], frozen_atoms=[], input_smiles=None, number_of_conformers=-1, conf_factor=80, auto_fallback=True, multiplicity=None)
 End-to-end ensemble generation:
 >1. Build mol ([`get_mol`](#get_mol))
 >2. Embed conformers ([`embed_TS`](#embed_TS))
@@ -76,8 +76,8 @@ Additional options to configure the workflow:
 - `frozen_atoms` : optional way to override the set to constrained atoms <br>(if omitted, `reacting_atoms` and neighboring atoms are used)
 
 <a id="get_mol"></a>
-###### get_mol(file_name, charge, reacting_atoms, input_smiles=[], auto_fallback=True)
-Builds the starting molecule using the configured getter. If that fails (and `auto_fallback=True`) a fallback mechanism automatically tries alternative options in with priority:
+###### get_mol(file_name, charge, reacting_atoms, input_smiles=None, auto_fallback=True)
+Builds the starting molecule using the configured getter. If that fails (and `auto_fallback=True`), the alternatives are tried in this order:
 >1. [`MolGetterSMILES`](./conformer_generator.md#get_mol)<br>
 >2. [`MolGetterBonds`](./conformer_generator.md#get_mol)<br>
 >3. [`MolGetterConnectivity`](./conformer_generator.md#get_mol)<br>
@@ -90,7 +90,7 @@ Otherwise, it is calculated using the `conf_factor`, proportional to the number 
 > `number_of_conformers =  #rotatable_bonds * conf_factor + 30`.
 
 <a id="optimize"></a>
-###### force_field(new_mol, mol_ts, frozen_atoms, auto_fallback=True)
+###### optimize(new_mol, mol_ts, frozen_atoms, auto_fallback=True)
 Refines conformers with constraints on `frozen_atoms`. If the `MMFFOptimizer` fails (e.g. missing MMFF parameters), it automatically falls back to `UFFOptimizer` and logs a warning; errors of other optimizers are raised. The optimizer used is stored in the `energy_method` property of the molecule.
 
 <a id="prune"></a>

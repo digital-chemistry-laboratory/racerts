@@ -26,7 +26,7 @@ racerTS can be imported as a Python module that is easily integrated into
 workflows for transition state conformer ensemble generation.
 For further information, see the separate [documentation](https://digital-chemistry-laboratory.github.io/racerts/).
 
-```shell
+```python
 >>> import racerts
 >>> ensemble = racerts.generate_ts("example.xyz", reacting_atoms=[2, 3, 4], charge=0)
 >>> ensemble.write_xyz("ensemble.xyz")

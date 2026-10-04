@@ -11,12 +11,14 @@ settings when the defaults of `racerts.embed` and `racerts.refine` change.
 
 The legacy API keeps working; all of it lives in `racerts.compat`:
 
-- Every module path and name of racerts 0.1.7: `from racerts import ConformerGenerator,
+- The module paths and names of racerts 0.1.7: `from racerts import ConformerGenerator,
   embedders, mol_getters, optimizers, pruners`, `racerts.embedder`, `racerts.optimizer`,
   `racerts.pruner`, `racerts.mol_getter`, `racerts.conformer_generator`,
   `racerts.embedder.utils`, `racerts.optimizer.ase`, `racerts.utils.get_frozen_atoms`,
   `racerts.visualizer`, and so on (`tests/test_compat.py` checks them against the 0.1.7
-  release).
+  release). A few names that were imports of other packages or unused are gone
+  (`CHANGED_SINCE_0_1_7` in that test lists them), e.g.
+  `ConformerGenerator.bounds_generator` and `racerts.optimizer.ase.BFGS`.
 - Custom subclasses of the legacy base classes. The legacy embedders and optimizers are
   subclasses of the current ones in `racerts.embed` and `racerts.refine` that add the
   legacy methods `embed_TS` and `tune_ts_conformers`; the current classes do not have
@@ -28,16 +30,18 @@ The legacy API keeps working; all of it lives in `racerts.compat`:
 
 - Output files: the comment lines are extended XYZ (energy in eV, charge, spin,
   `energy_method`) instead of charge and multiplicity (`0 1`); `write_xyz(path,
-  comment="0 1")` writes such a line as given. CREST-style energies (`use_energy=True`, `--out_energies`) leave out conformers
-  without an energy and use the CODATA 2022 Hartree (627.5094740629 kcal/mol instead of
-  627.509), so the sixth decimal can differ.
+  comment="0 1")` writes such a line as given. CREST-style energies (`use_energy=True`,
+  `--out_energies`) leave out conformers without an energy and use the CODATA 2022
+  Hartree (627.5094740629 kcal/mol instead of 627.509), so the sixth decimal can differ.
 - Messages go through Python `logging` (logger `racerts`) instead of stdout: warnings to
   stderr, progress with `verbose=True` or `-v`/`-vv`.
 - `generate_conformers` uses `conf_factor=80` by default, as the command line always did
   (it was 30 in the Python API).
-- Stricter input: invalid SMILES, SMILES whose formal charges disagree with `charge`, and an
-  embedding without conformers raise errors; errors of optimizers other than MMFF are raised
-  instead of being retried silently with UFF.
+- Stricter input: an invalid SMILES, or one whose formal charges disagree with `charge`,
+  is an error of the SMILES getter (with the default fallback: a warning and the next
+  graph method; with `auto_fallback=False` or `--no_fallback` it is raised). An embedding
+  without conformers raises; errors of optimizers other than MMFF are raised instead of
+  being retried silently with UFF.
 - The default multiplicity is the lowest one for the number of electrons (not the radical
   count of the TS graph), which reaches ASE calculators as their spin.
 - The chirality fallback of the embedders (for TS geometries that contradict a chiral tag)

@@ -22,10 +22,10 @@ The new fragment is a SMILES with one dummy per attachment (`[*]`, or `[*:1]`,
 
 | Selector | Leaves | The fragment binds to |
 | --- | --- | --- |
-| `site=n` | the terminal H or dummy with map number n (`label_hydrogen` labels the only H of an atom) | its neighbour |
+| `site=n` | the terminal H or dummy with map number n (`racerts.system.swap.label_hydrogen` labels the only H of an atom) | its neighbour |
 | `remove_atoms=[...]` | these atoms and their hydrogens; `[]` with `attach_map`: an addition | the atoms where bonds were cut (by index, in dummy order) |
 | `center=c, substructure=k` | the k-th group bound to atom c (groups by their lowest atom index) | c |
-| `old_fragment="[CH3][c:1]"` | the unmapped atoms of a SMARTS match and everything bound to them beyond the mapped atoms; the match must be unique | the mapped atom of the dummy's number |
+| `old_fragment="[CH3][c:1]"` | the unmapped atoms of a SMARTS match and everything bound to them beyond the mapped atoms; the group must be unique (if it matches in several ways, the first is used, with a warning; `attach_map` chooses) | the mapped atom of the dummy's number |
 
 - `attach_map={dummy: atom}` sets the attachments explicitly, e.g. a bidentate ligand
   with both dummies on the metal.
@@ -37,8 +37,9 @@ The new fragment is a SMILES with one dummy per attachment (`[*]`, or `[*:1]`,
   atoms keep their indices when the fragment has at least as many atoms as leave;
   otherwise the unused slots close up (`SwapResult.ref_to_new`; the CLI logs changed
   indices). `mode="renumber"` puts the kept atoms first.
-- Stereo: the chiral tags and double-bond stereo of the kept atoms and of the fragment
-  are carried over by the order of their neighbours, so a swap never inverts them.
+- Stereo: the tetrahedral chiral tags and double-bond stereo of the kept atoms and of
+  the fragment are carried over by the order of their neighbours, so a swap never
+  inverts them (other tags, e.g. square planar, are dropped when the order changes).
   Stereo that the swap creates (CH₂ → CH(R), cis/trans on a ring, E/Z of a double bond)
   takes the configuration of the reference where the reference geometry defines it
   (the atoms around it are kept or replace a removed atom): which hydrogen is replaced
@@ -52,12 +53,11 @@ The new fragment is a SMILES with one dummy per attachment (`[*]`, or `[*:1]`,
 A swap that cannot be done as given (no or several matches, a fragment that is not
 one piece, valences that do not work out, settings a swap does not take) raises
 `SwapError`, a `ValueError`. `apply_swap(mol, swap)` returns a `SwapResult` with the
-new molecule (every reference
-conformer, same IDs), the kept atoms (`conserved`, `ref_to_new`), `new_atoms`, the
-`junction` (kept atoms at an attachment and their kept neighbours) and diagnostics. For
-a single attachment that replaces a bond, the fragment is grafted rigidly (along
-the removed bond; `placed`), at the removed bond's length scaled by
-the covalent radii, so that a bond stretched in a TS (a leaving group) stays
+new molecule (every reference conformer, same IDs), the kept atoms (`conserved`,
+`ref_to_new`), `new_atoms`, the `junction` (kept atoms at an attachment and their kept
+neighbours) and diagnostics. For a single attachment that replaces a bond, the fragment
+is grafted rigidly (along the removed bond; `placed`), at the removed bond's length
+scaled by the covalent radii, so that a bond stretched in a TS (a leaving group) stays
 stretched.
 
 ## Sampling (`racerts.swap`)
@@ -78,8 +78,10 @@ default refinement and pruning run.
 
 With `task` (in reference indices, e.g. the `TransitionState` of a TS), its frozen
 atoms stay hard; an atom that the fragment replaces passes its role on (a leaving group
-Cl swapped for Br stays a reacting atom). A swap at or next to the frozen atoms is
-warned about: the new group may change the TS.
+Cl swapped for Br stays a reacting atom). Further new atoms that the task would freeze
+(the neighbours of such an atom) have no position from the reference: they are sampled,
+with a warning. A swap at or next to the frozen atoms is warned about: the new group
+may change the TS.
 
 Restraints of the reference (`restraints=`, a `RestraintSet` in reference indices, e.g.
 its hydrogen bonds) carry over where both atoms are kept, and hold in embedding and
@@ -95,10 +97,9 @@ distance geometry nor UFF knows: dmpe → dppe on cis-PdCl₂ keeps P–Pd–P a
 square plane, and samples the phenyl groups. An added ligand (`remove_atoms=[]`) has no
 position to start from.
 
-Measured on 2-methylbiphenyl → 2-butylbiphenyl (30 conformers): with `"soft"`, the
-biphenyl skeleton stays within 0.13 Å RMSD of the reference and the ring torsion within
-15°, with 17 distinct butyl positions; `"free"` finds the same lowest conformer but
-moves the ring torsion freely.
+For example, on 2-methylbiphenyl → 2-butylbiphenyl `"soft"` keeps the biphenyl skeleton
+within 0.13 Å RMSD of the reference while the butyl group is sampled; `"free"` also
+turns the ring torsion.
 
 On the command line:
 
@@ -110,7 +111,7 @@ $ racerts swap ref.xyz -s "Cc1ccccc1-c1ccccc1" --new "[*:1]CCCC" --old "[CH3][c:
 Options: `--new`, one of `--old`, `--remove`, `--site`, `--center ATOM GROUP`;
 `--attach DUMMY ATOM`, `--bond-type DUMMY TYPE`, `--mode`, `-r/--reacting-atoms`,
 `--conserve`, `--routes`, `--hard`, and the options of `racerts ts` for the conformer
-count, refinement and pruning (not `--embed`, `--chirality-fallback` or restraints: a
-swap embeds with the coordinate map and the `frozen_first` fallback). The new indices
+count, refinement and pruning (a swap embeds with the coordinate map and the
+`frozen_first` fallback, and takes no restraints from the command line). The new indices
 of the reference atoms are in the molecule property `swap_index_map`; the CLI logs
 those that change.

@@ -4,10 +4,13 @@ Embedding strategies for TS-constrained conformer generation.
 
 Constructor parameters:
 
-- `remove_all_conformers: bool = True` : Removes all prior conformers, *i.e.*, the .xyz structure.
 - `useRandomCoords: bool = True` : Use random coordinates for the embedding.
 - `ETversion: int = 2` : Used for the RDKit embedding parameters.
-- `pruneRmsThresh: float = -1` : RMSD threshold for pruning directly after embedding. (default: remove identical conformers with RMSD = 0)
+- `pruneRmsThresh: float = -1` : RMSD threshold for pruning directly after embedding (default -1: none).
+- `remove_all_conformers: bool = True` : Legacy embedders only (`racerts.embedder`); it has no effect.
+
+`etkdg`, `chirality_fallback`, `sequential_seeds` and `num_threads` are described with the
+[settings](../pipeline.md#settings).
 
 
 ### CmapEmbedder

@@ -1,6 +1,8 @@
 """ConformerEnsemble reads and writes the conformer properties of its molecule."""
 
+import logging
 import math
+import shlex
 
 import numpy as np
 import pytest
@@ -84,6 +86,28 @@ def test_write_xyz_is_the_io_writer(ethanol, tmp_path):
     write_xyz(ethanol.mol, str(tmp_path / "b.xyz"))
 
     assert (tmp_path / "a.xyz").read_text() == (tmp_path / "b.xyz").read_text()
+
+
+def test_write_xyz_quotes_values_with_spaces(ethanol, tmp_path):
+    ethanol.mol.SetProp("energy_method", "GFN2 xTB")
+    ethanol.write_xyz(str(tmp_path / "a.xyz"))
+    comment = (tmp_path / "a.xyz").read_text().splitlines()[1]
+    fields = dict(field.split("=", 1) for field in shlex.split(comment))
+    assert fields["energy_method"] == "GFN2 xTB"
+
+
+def test_write_xyz_warns_about_missing_energies_only_among_others(
+    ethanol, tmp_path, caplog
+):
+    with caplog.at_level(logging.WARNING):
+        ethanol.write_xyz(str(tmp_path / "a.xyz"))  # conformer 1 has no energy
+    assert "Conformers [1] have no energy" in caplog.text
+    caplog.clear()
+    for conf in ethanol.mol.GetConformers():
+        conf.ClearProp("energy")
+    with caplog.at_level(logging.WARNING):
+        ethanol.write_xyz(str(tmp_path / "b.xyz"))  # e.g. embedded only: expected
+    assert "no energy" not in caplog.text
 
 
 def test_summary(ethanol):

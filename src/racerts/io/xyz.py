@@ -29,7 +29,10 @@ def write_xyz(
         file_name (str): Output path.
         use_energy (bool): Instead, write only the energy in Hartree, as in CREST
             ensembles; conformers without an energy are left out.
-        comment (str): Instead, write this comment line.
+        comment (str): Instead, write this comment line (use_energy comes first).
+
+    Conformers without an energy are reported if others have one (not for an
+    ensemble without any energies, e.g. embedded only).
     """
     info = infer_charge_and_multiplicity(mol)
     extxyz = [
@@ -38,10 +41,14 @@ def write_xyz(
         f"multiplicity={info['multiplicity']}",
     ]
     if mol.HasProp("energy_method"):
-        extxyz.append(f"energy_method={mol.GetProp('energy_method')}")
+        method = mol.GetProp("energy_method")
+        if any(c.isspace() for c in method):  # extended XYZ: quoted
+            method = '"' + method.replace('"', "'") + '"'
+        extxyz.append(f"energy_method={method}")
     extxyz.append('pbc="F F F"')
 
     missing_energy = []
+    any_energy = any(conf.HasProp("energy") for conf in mol.GetConformers())
     with open(file_name, "w") as f:
         for conf in mol.GetConformers():
             energy = conf.GetDoubleProp("energy") if conf.HasProp("energy") else None
@@ -64,7 +71,7 @@ def write_xyz(
 
             f.write("\n".join(lines) + "\n")
 
-    if missing_energy:
+    if missing_energy and (any_energy or use_energy):
         logger.warning(
             "Conformers %s have no energy%s.",
             missing_energy,

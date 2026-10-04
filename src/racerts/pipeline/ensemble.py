@@ -224,9 +224,10 @@ class ConformerEnsemble:
 
     def write_sdf(self, file_name: str) -> None:
         """
-        Write all conformers to an SDF file: one record per conformer, with the graph,
-        and the properties conf_id, energy (kcal/mol), energy_method and provenance
-        (JSON). V3000 for molecules with dative bonds.
+        Write all conformers to an SDF file: one record per conformer, with the graph
+        (aromatic bonds as such, not kekulized), and the properties conf_id, energy
+        (kcal/mol), energy_method and provenance (JSON). V3000 for molecules with
+        dative bonds.
         """
         mol = self.mol
         writer = Chem.SDWriter(file_name)
@@ -239,8 +240,6 @@ class ConformerEnsemble:
                 record.SetIntProp("conf_id", conf.GetId())
                 if conf.HasProp("energy"):
                     record.SetDoubleProp("energy", conf.GetDoubleProp("energy"))
-                if self.energy_method:
-                    record.SetProp("energy_method", self.energy_method)
                 if conf.HasProp(PROVENANCE):
                     record.SetProp(PROVENANCE, conf.GetProp(PROVENANCE))
                 writer.write(record)
@@ -254,6 +253,11 @@ class ConformerEnsemble:
         return rdkit_conformer_to_ase_atoms(self.mol, conf_id)
 
     def summary(self) -> str:
+        """
+        One line: the number of conformers, the lowest energy (kcal/mol) with its
+        conformer and method, the energy window (highest minus lowest) and, for a
+        windowed TS, the lengths of the active bonds (A).
+        """
         energies = self.energies()
         if np.isnan(energies).all():
             text = f"{len(self)} conformers"

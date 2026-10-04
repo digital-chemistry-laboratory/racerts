@@ -1,4 +1,4 @@
-"""The subcommands racerts ts and racerts gs (the legacy form: tests/legacy)."""
+"""The subcommands racerts ts, gs and swap (the legacy form: tests/legacy)."""
 
 import os
 
@@ -42,21 +42,46 @@ def test_ts_options_override_the_config_file(tmp_path):
     assert float(_frames(out)[0][1]) < 0.1  # Hartree only, as in CREST files
 
 
-def test_ts_rejects_invalid_settings(tmp_path):
+def test_ts_rejects_invalid_settings(tmp_path, capsys):
     config = tmp_path / "config.json"
     config.write_text('{"embed": {"mode": "dm"}}')
 
-    with pytest.raises(ValueError, match="embed.mode"):
+    with pytest.raises(SystemExit):
         main(["ts", EX, "-r", "3", "4", "5", "--config", str(config)])
+    assert "racerts: error: embed.mode must be one of" in capsys.readouterr().err
     with pytest.raises(SystemExit):
         main(["ts", EX])  # the reacting atoms are required
+    with pytest.raises(SystemExit):
+        main(["ts", EX, "-r", "3", "--config", str(tmp_path / "missing.json")])
+    assert "No such file" in capsys.readouterr().err
+    with pytest.raises(ValueError, match="embed.mode"):  # -vv: the traceback
+        main(["ts", EX, "-r", "3", "4", "5", "--config", str(config), "-vv"])
+
+
+@pytest.mark.parametrize(
+    "argv, message",
+    [
+        (["gs", "CCO", "--keep-hbonds"], "unrecognized arguments: --keep-hbonds"),
+        (["gs", "CCO", "--contact", "0", "2"], "unrecognized arguments: --contact"),
+        (["gs", "CCO", "--chirality-fallback", "legacy"], "unrecognized arguments"),
+        (["ts", EX, "-r", "3", "--link-fragments"], "unrecognized arguments"),
+        (["ts", EX, "-r", "3", "--neighbor-window", "0.5"], "need --active-window"),
+        (["ts", EX, "-r", "300", "-n", "2"], "Invalid reacting atoms"),
+        (["gs", "C1CC", "-n", "2"], "Invalid SMILES"),
+    ],
+)
+def test_options_a_subcommand_cannot_use_are_errors(argv, message, capsys):
+    with pytest.raises(SystemExit):
+        main(argv)
+    assert message in capsys.readouterr().err
 
 
 def test_legacy_help_points_to_the_subcommands(capsys):
     with pytest.raises(SystemExit):
         main(["-h"])
 
-    assert "racerts ts -h" in capsys.readouterr().out
+    out = " ".join(capsys.readouterr().out.split())  # the help text is wrapped
+    assert all(f"racerts {name} -h" in out for name in ("ts", "gs", "swap"))
 
 
 def test_the_console_script_exits_with_status_0(tmp_path):
@@ -94,7 +119,7 @@ def test_python_m_racerts_cli(tmp_path):
     assert out.exists()
 
 
-def test_ts_options_for_the_new_settings(tmp_path, monkeypatch):
+def test_ts_options_for_the_new_settings(monkeypatch, capsys):
     import racerts.cli
 
     seen = {}
@@ -129,11 +154,12 @@ def test_ts_options_for_the_new_settings(tmp_path, monkeypatch):
 
     assert config_of("--legacy") == PipelineConfig.legacy()
     assert config_of("--legacy", "--converge").refine.converge is True
-    with pytest.raises(ValueError, match="not a number"):
+    with pytest.raises(SystemExit):
         run_subcommand(["ts", EX, "-r", "3", "--dielectric", "distance", "four"])
+    assert "'four' is not a number" in capsys.readouterr().err
 
 
-def test_ts_restraint_options(tmp_path, monkeypatch):
+def test_ts_restraint_options(monkeypatch, capsys):
     import racerts.cli
 
     seen = {}
@@ -155,8 +181,9 @@ def test_ts_restraint_options(tmp_path, monkeypatch):
     assert restraints.hbonds and restraints.keep_fragments
     assert restraints.contacts == [[0, 9]]
     assert (restraints.half_width, restraints.force_constant) == (0.3, 50.0)
-    with pytest.raises(ValueError, match="--restraint takes"):
+    with pytest.raises(SystemExit):
         run_subcommand(["ts", EX, "-r", "3", "--restraint", "a", "6", "4.6"])
+    assert "--restraint takes two atom indices" in capsys.readouterr().err
 
 
 def test_gs_links_fragments(tmp_path):
@@ -186,7 +213,7 @@ def test_swap_command_rejects_what_it_does_not_use(tmp_path, sn2_ts, capsys):
             ["swap", sn2_ts, "-s", "CCl", "[Cl-]", "-c", "-1", "--new", "[*]C",
              "--remove", "3", "--keep-hbonds", "--embed", "bounds"]
         )  # fmt: skip
-    assert "does not take --keep-hbonds, --embed" in capsys.readouterr().err
+    assert "unrecognized arguments: --keep-hbonds --embed" in capsys.readouterr().err
     with pytest.raises(SystemExit):
         run_subcommand(["swap", sn2_ts, "--new", "[*]C"])  # no selector
     with pytest.raises(SystemExit):
@@ -210,13 +237,9 @@ def test_swap_command_rejects_hard_with_sampling(sn2_ts, capsys):
         "--remove",
         "3",
     ]
-    for extra in (
-        ["--conserve", "hard", "-n", "5"],
-        ["--chirality-fallback", "legacy"],
-    ):
-        with pytest.raises(SystemExit):
-            run_subcommand(base + extra)
-    assert "does not take --chirality-fallback" in capsys.readouterr().err
+    with pytest.raises(SystemExit):
+        run_subcommand(base + ["--conserve", "hard", "-n", "5"])
+    assert "--conserve hard samples nothing" in capsys.readouterr().err
 
 
 def test_swap_command_reports_config_errors(tmp_path, sn2_ts, capsys):

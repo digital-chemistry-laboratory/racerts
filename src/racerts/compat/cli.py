@@ -17,7 +17,7 @@ def main(argv=None) -> None:
         prog="racerts",
         description="Rapid conformer ensemble generation for transition states. "
         "This is the legacy racerts command line (also `racerts run ...`); see "
-        "`racerts ts -h` and `racerts gs -h` for the subcommands.",
+        "`racerts ts -h`, `racerts gs -h` and `racerts swap -h` for the subcommands.",
         epilog="Remember to cite the racerts paper :)",
     )
 

@@ -58,6 +58,12 @@ def test_superposition_can_be_left_out():
     assert RMSDPruner(align=False).prune(Chem.Mol(mol)).GetNumConformers() == 2
 
 
+def test_threshold_zero_keeps_every_conformer():
+    # The keeper's RMSD to itself is a rounding error above zero.
+    mol = _conformers("CCCCO", 3)
+    assert RMSDPruner(threshold=0.0).prune(Chem.Mol(mol)).GetNumConformers() == 3
+
+
 def test_calc_rmsd_gives_rdkits_best_rms():
     mol = Chem.RemoveHs(_conformers("CC(C)(C)CC(=O)[O-]", 4))
     pruner = RMSDPruner()

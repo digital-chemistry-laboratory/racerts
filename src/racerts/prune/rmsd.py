@@ -83,8 +83,12 @@ class RMSDPruner(BasePruner):
         keep_list = []
 
         while len(candidates) > 0:
-            keeper = candidates[0]
+            # The keeper is not compared with itself: its RMSD to itself is a
+            # rounding error above zero, which threshold 0 would not remove.
+            keeper, candidates = candidates[0], candidates[1:]
             keep_list.append(keeper)
+            if not len(candidates):
+                break
 
             similarity = self.check_similarity(
                 mol=mol,

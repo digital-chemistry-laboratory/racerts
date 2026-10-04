@@ -12,11 +12,12 @@ of the graph).
 """
 
 import logging
-from numbers import Integral
 from typing import List, NamedTuple, Optional, Sequence
 
 import numpy as np
 from rdkit import Chem
+
+from racerts.utils.checks import is_integer
 
 logger = logging.getLogger(__name__)
 
@@ -193,7 +194,7 @@ def _selected(positions_a, positions_b, atoms):
     if atoms is None:
         return a, b
     indices = list(atoms)
-    if any(isinstance(i, bool) or not isinstance(i, Integral) for i in indices):
+    if not all(is_integer(i) for i in indices):
         raise TypeError("RMSD atom indices must be integers.")
     if not indices or len(set(indices)) != len(indices):
         raise ValueError("RMSD atom indices must be nonempty and unique.")

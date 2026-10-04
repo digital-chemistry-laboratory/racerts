@@ -19,6 +19,7 @@ from racerts.system.graph import radical_multiplicity
 from racerts.system.spec import set_charge_and_multiplicity
 from racerts.system.swap import Swap, SwapError, apply_swap
 from racerts.task import Constrained, FrozenSet, GroundState, Task, TransitionState
+from racerts.utils.checks import is_integer
 from racerts.utils.log import verbose_logging
 
 logger = logging.getLogger(__name__)
@@ -270,13 +271,7 @@ def swap(
         )
     if config.embed.mode != "cmap":
         raise SwapError("Swaps embed with the coordinate map: embed.mode 'cmap'.")
-    invalid = [
-        i
-        for i in hard
-        if isinstance(i, bool)
-        or not isinstance(i, (int, np.integer))
-        or not 0 <= i < mol.GetNumAtoms()
-    ]
+    invalid = [i for i in hard if not (is_integer(i) and 0 <= i < mol.GetNumAtoms())]
     if invalid:
         raise SwapError(f"Invalid hard atoms {invalid}.")
     if "rigid" not in routes and (n_rigid_conformers, n_rotations) != (3, 12):

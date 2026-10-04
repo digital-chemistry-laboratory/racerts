@@ -15,6 +15,8 @@ import numpy as np
 from rdkit import Chem, rdBase
 from rdkit.Chem import AllChem
 
+from racerts.utils.checks import is_integer
+
 from .spec import infer_charge_and_multiplicity
 from .stereo import TETRAHEDRAL, UNSPECIFIED_BOND
 
@@ -352,9 +354,7 @@ def _removed_atoms(mol: Chem.Mol, swap: Swap):
         removed = {_site(mol, swap.site)}
     elif swap.remove_atoms is not None:
         atoms = list(swap.remove_atoms)
-        invalid = [
-            i for i in atoms if not (isinstance(i, (int, np.integer)) and 0 <= i < n)
-        ]
+        invalid = [i for i in atoms if not _is_atom(mol, i)]
         if invalid:
             raise SwapError(f"Invalid atoms to remove: {invalid}.")
         removed = set(int(i) for i in atoms)
@@ -366,6 +366,11 @@ def _removed_atoms(mol: Chem.Mol, swap: Swap):
             )
     elif swap.center is not None:
         groups = _groups(mol, swap.center)
+        if not is_integer(swap.substructure):
+            raise SwapError(
+                f"substructure must be an integer (the number of a group of atom "
+                f"{swap.center}), not {swap.substructure!r}."
+            )
         if not 0 <= swap.substructure < len(groups):
             raise SwapError(
                 f"Atom {swap.center} has {len(groups)} groups (substructure 0 to "
@@ -394,6 +399,11 @@ def _removed_atoms(mol: Chem.Mol, swap: Swap):
     return sorted(removed), cuts, anchors
 
 
+def _is_atom(mol: Chem.Mol, index) -> bool:
+    """Whether index is an integer and an atom of mol."""
+    return is_integer(index) and 0 <= index < mol.GetNumAtoms()
+
+
 def _site(mol: Chem.Mol, label: int) -> int:
     """The terminal hydrogen or dummy atom with the map number label."""
     sites = [a for a in mol.GetAtoms() if a.GetAtomMapNum() == label]
@@ -408,8 +418,8 @@ def _site(mol: Chem.Mol, label: int) -> int:
 
 def _groups(mol: Chem.Mol, center: int) -> List[List[int]]:
     """The groups bound to center: connected pieces without it, by lowest index."""
-    if not 0 <= center < mol.GetNumAtoms():
-        raise SwapError(f"Invalid center atom {center}.")
+    if not _is_atom(mol, center):
+        raise SwapError(f"Invalid center atom {center!r}.")
     seen = {center}
     groups = []
     for start in sorted(n.GetIdx() for n in mol.GetAtomWithIdx(center).GetNeighbors()):
@@ -491,11 +501,7 @@ def _pair(mol, swap, fragment, dummies, removed, cuts, anchors) -> List[_Attachm
     attachments = []
     for number in numbers:
         kept = attach_map[number]
-        if (
-            isinstance(kept, bool)
-            or not isinstance(kept, (int, np.integer))
-            or not 0 <= kept < mol.GetNumAtoms()
-        ):
+        if not _is_atom(mol, kept):
             raise SwapError(
                 f"Dummy {number} would bind to atom {kept!r}, which the molecule does "
                 "not have."

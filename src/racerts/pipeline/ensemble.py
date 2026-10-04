@@ -2,13 +2,13 @@
 
 import json
 from dataclasses import dataclass, field
-from numbers import Integral
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 import numpy as np
 from rdkit import Chem
 
 from racerts.io.xyz import write_xyz
+from racerts.utils.checks import is_integer
 from racerts.utils.units import ENERGY_UNITS
 
 PROVENANCE = "provenance"
@@ -119,7 +119,7 @@ class ConformerEnsemble:
         They keep their ids, or with renumber get the ids 0, 1, ... in that order.
         """
         conf_ids = list(conf_ids)
-        if any(isinstance(i, bool) or not isinstance(i, Integral) for i in conf_ids):
+        if not all(is_integer(i) for i in conf_ids):
             raise TypeError("Conformer ids must be integers.")
         conf_ids = [int(i) for i in conf_ids]
         if len(set(conf_ids)) != len(conf_ids):
@@ -194,7 +194,7 @@ class ConformerEnsemble:
         if not n_atoms or 0 in numbers:
             raise ValueError("The template must contain real atoms, not placeholders.")
         order = list(range(n_atoms)) if atom_order is None else list(atom_order)
-        if any(isinstance(i, bool) or not isinstance(i, Integral) for i in order):
+        if not all(is_integer(i) for i in order):
             raise TypeError("atom_order must contain integer indices.")
         if sorted(order) != list(range(n_atoms)):
             raise ValueError("atom_order must be a permutation of the atom indices.")

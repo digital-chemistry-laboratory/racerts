@@ -6,7 +6,7 @@ import re
 import typing
 import warnings
 from dataclasses import asdict, dataclass, field, fields
-from numbers import Integral, Real
+from numbers import Real
 from typing import Any, Dict, Optional
 
 from racerts.embed import (
@@ -34,6 +34,7 @@ from racerts.restraints import build_restraints
 from racerts.restraints.model import DEFAULT_FORCE_CONSTANT, DEFAULT_HALF_WIDTH
 from racerts.restraints.sources import LINK_SEED, MAX_HINTS
 from racerts.task import Task
+from racerts.utils.checks import is_integer
 from racerts.utils.optional import require
 from racerts.validate import AttackFace, Connectivity, Validate
 
@@ -284,12 +285,9 @@ class RestraintConfig:
 def _is_restraint_item(item, size: int) -> bool:
     """[atom, atom] or [atom, atom, distance] with integer atoms and a number."""
 
-    def is_index(value):
-        return isinstance(value, Integral) and not isinstance(value, bool)
-
     if not isinstance(item, (list, tuple)) or len(item) != size:
         return False
-    if not (is_index(item[0]) and is_index(item[1])):
+    if not (is_integer(item[0]) and is_integer(item[1])):
         return False
     return size == 2 or (isinstance(item[2], Real) and not isinstance(item[2], bool))
 

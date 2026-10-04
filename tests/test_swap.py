@@ -184,6 +184,22 @@ def test_ambiguous_and_invalid_selectors(methylbiphenyl):
         apply_swap(mol, Swap("[*:1]C", remove_atoms=[1]))  # three cut bonds
 
 
+@pytest.mark.parametrize(
+    "selector, message",
+    [
+        (dict(remove_atoms=[True]), "Invalid atoms to remove"),  # not atom 1
+        (dict(remove_atoms=[1.0]), "Invalid atoms to remove"),
+        (dict(center=1.0, substructure=0), "Invalid center atom 1.0"),
+        (dict(center=99, substructure=0), "Invalid center atom 99"),
+        (dict(center=1, substructure="0"), "substructure must be an integer"),
+        (dict(center=1, substructure=True), "substructure must be an integer"),
+    ],
+)
+def test_atom_indices_of_a_selector_are_integers(methylbiphenyl, selector, message):
+    with pytest.raises(SwapError, match=message):
+        apply_swap(methylbiphenyl, Swap("[*]C", **selector))
+
+
 # substitute_groups and label_hydrogen.
 
 

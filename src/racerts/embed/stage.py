@@ -2,7 +2,6 @@
 
 import copy
 import logging
-from numbers import Integral
 from typing import Callable, Optional, Sequence, Union
 
 from rdkit import Chem
@@ -19,6 +18,7 @@ from racerts.restraints.active import (
 from racerts.restraints.model import accepts_restraints
 from racerts.system.spec import rigid_body_dof
 from racerts.task import FrozenSet
+from racerts.utils.checks import is_integer
 
 from .base import BaseEmbedder
 from .bounds import InconsistentRestraints, windows_fit
@@ -148,7 +148,7 @@ class Embed:
         references: Union[None, str, Sequence[int]] = None,
         hint_share: float = DEFAULT_HINT_SHARE,
     ):
-        if isinstance(n_conformers, bool) or not isinstance(n_conformers, Integral):
+        if not is_integer(n_conformers):
             raise TypeError(f"n_conformers must be an integer, not {n_conformers!r}.")
         if n_conformers != -1 and n_conformers < 1:
             raise ValueError("n_conformers must be positive, or -1 for the default.")

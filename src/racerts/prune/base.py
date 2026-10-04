@@ -3,9 +3,11 @@
 import logging
 import math
 from abc import abstractmethod
-from numbers import Integral, Real
+from numbers import Real
 
 from rdkit import Chem
+
+from racerts.utils.checks import is_integer
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +22,7 @@ def check_threshold(value, name: str) -> None:
 
 def check_n_max(n_max) -> int:
     """n_max as an int; raises unless it is a positive integer."""
-    if isinstance(n_max, bool) or not isinstance(n_max, Integral):
+    if not is_integer(n_max):
         raise TypeError(f"n_max must be an integer, not {n_max!r}.")
     if n_max < 1:
         raise ValueError("n_max must be positive.")

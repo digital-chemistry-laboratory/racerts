@@ -9,6 +9,7 @@ import numpy as np
 from rdkit import Chem
 
 from racerts.system.spec import split_fragments
+from racerts.utils.checks import is_integer
 
 # Hydrogen bonds D-H...A: donor atoms of the hydrogen and acceptor elements.
 HBOND_DONORS = ("N", "O")
@@ -34,7 +35,7 @@ def check_pair(mol: Chem.Mol, pair: Sequence, what: str) -> Tuple[int, int]:
         raise ValueError(f"{what} {pair!r} is not a pair of atoms.")
     first, second = pair
     for atom in (first, second):
-        if isinstance(atom, bool) or not isinstance(atom, (int, np.integer)):
+        if not is_integer(atom):
             raise TypeError(f"{what} {tuple(pair)}: atom indices must be integers.")
     if first == second:
         raise ValueError(f"{what} {tuple(pair)} needs two different atoms.")

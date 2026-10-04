@@ -1,4 +1,7 @@
-"""Helpers: logging (log), optional dependencies (optional), unit conversions (units)."""
+"""
+Helpers: logging (log), optional dependencies (optional), unit conversions (units),
+checks of argument values (checks).
+"""
 
 # racerts.utils of legacy racerts had these functions; they live in racerts.compat.
 _LEGACY = (

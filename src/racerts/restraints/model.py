@@ -4,10 +4,12 @@ import inspect
 import json
 import math
 from dataclasses import asdict, dataclass, replace
-from numbers import Integral, Real
+from numbers import Real
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
+
+from racerts.utils.checks import is_integer
 
 DEFAULT_HALF_WIDTH = 0.25  # A
 DEFAULT_FORCE_CONSTANT = 20.0  # kcal/(mol A^2)
@@ -20,10 +22,6 @@ def accepts_restraints(method) -> bool:
         return "restraints" in inspect.signature(method).parameters
     except (TypeError, ValueError):
         return False
-
-
-def _is_index(value) -> bool:
-    return isinstance(value, Integral) and not isinstance(value, bool)
 
 
 @dataclass(frozen=True)
@@ -52,7 +50,7 @@ class DistanceRestraint:
     label: str = ""
 
     def __post_init__(self):
-        if not (_is_index(self.first) and _is_index(self.second)):
+        if not (is_integer(self.first) and is_integer(self.second)):
             raise TypeError("Restraint atom indices must be integers.")
         if min(self.first, self.second) < 0 or self.first == self.second:
             raise ValueError("A restraint needs two different, non-negative atoms.")
@@ -136,7 +134,7 @@ class PositionRestraint:
     source: str = "soft"
 
     def __post_init__(self):
-        if not _is_index(self.atom):
+        if not is_integer(self.atom):
             raise TypeError("A position restraint needs an integer atom index.")
         if self.atom < 0:
             raise ValueError("A position restraint needs a non-negative atom index.")

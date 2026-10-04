@@ -83,30 +83,31 @@ class Rescore:
         conf_ids = ensemble.conf_ids
         if not conf_ids:
             raise ValueError("Rescore got an ensemble without conformers.")
-        previous_method = ensemble.energy_method
-        for conf_id in conf_ids:
-            energy = ensemble.energy(conf_id)
-            if energy is not None:
-                ensemble.add_provenance(
-                    conf_id,
-                    previous_energy=energy,
-                    previous_energy_method=previous_method,
-                )
-
         energies, errors = self._energies(ctx, mol, conf_ids)
-        failed = []
-        for conf_id, energy in zip(conf_ids, energies):
-            conf = mol.GetConformer(conf_id)
-            if energy is None or not math.isfinite(energy):
-                conf.ClearProp("energy")
-                failed.append(conf_id)
-            else:
-                conf.SetDoubleProp("energy", energy * EV_TO_KCAL_MOL)
-        if len(failed) == len(conf_ids):
+        failed = [
+            conf_id
+            for conf_id, energy in zip(conf_ids, energies)
+            if energy is None or not math.isfinite(energy)
+        ]
+        if len(failed) == len(conf_ids):  # before anything changes
             detail = f": {errors[0]}" if errors else ""
             raise RuntimeError(
                 f"Rescoring failed for all {len(conf_ids)} conformers{detail}"
             )
+        previous_method = ensemble.energy_method
+        for conf_id, energy in zip(conf_ids, energies):
+            previous = ensemble.energy(conf_id)
+            if previous is not None:
+                ensemble.add_provenance(
+                    conf_id,
+                    previous_energy=previous,
+                    previous_energy_method=previous_method,
+                )
+            conf = mol.GetConformer(conf_id)
+            if conf_id in failed:
+                conf.ClearProp("energy")
+            else:
+                conf.SetDoubleProp("energy", energy * EV_TO_KCAL_MOL)
         if failed:
             logger.warning(
                 "Rescoring failed for %d of %d conformers %s; they are %s.%s",

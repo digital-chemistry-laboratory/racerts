@@ -110,8 +110,14 @@ def test_rescore_failures(refined, on_fail, caplog):
 
 def test_rescore_raises_if_every_conformer_fails(refined):
     ensemble, ctx = refined
+    before = ensemble.copy()
     with pytest.raises(RuntimeError, match="all 4 conformers: RuntimeError: SCF"):
         Rescore(AlwaysFails).run(ctx, ensemble)
+
+    # The ensemble is as before: its energies still belong to its energy method.
+    assert ensemble.energy_method == "MMFFOptimizer"
+    assert ensemble.energies().tolist() == before.energies().tolist()
+    assert "previous_energy" not in ensemble.provenance(ensemble.conf_ids[0])
 
 
 def test_rescore_with_a_batch_function(refined):

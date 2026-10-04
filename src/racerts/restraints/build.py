@@ -48,7 +48,7 @@ def build_restraints(
         keep_fragments: Keep every fragment without core atoms (e.g. solvent) at the
             core by its closest contact in the reference geometry.
         fragment_links, link_fragments: For molecules of several fragments without a
-            reference (catmlp's reactant complexes): windows [1.0, 1.3] x the vdW sum
+            reference (e.g. reactant complexes): windows [1.0, 1.3] x the vdW sum
             for the given links (fragment_links), and with link_fragments for links
             chosen to join every fragment (user pairs between fragments first, then
             charged pairs, then the least buried atoms). If the windows cannot be

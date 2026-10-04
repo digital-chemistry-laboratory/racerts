@@ -1,4 +1,4 @@
-"""Swaps: graph surgery (apply_swap) and catmlp's substitutions."""
+"""Swaps: graph surgery (apply_swap), substitute_groups and racerts.swap."""
 
 import json
 
@@ -173,8 +173,7 @@ def test_ambiguous_and_invalid_selectors(methylbiphenyl):
         apply_swap(mol, Swap("[*:1]C", remove_atoms=[1]))  # three cut bonds
 
 
-# Ported from catmlp (tests/test_templates.py, draft d9381f1): substitute_groups and
-# label_hydrogen; the graph-level tests (substitute_graph) stay in catmlp.
+# substitute_groups and label_hydrogen.
 
 
 def quinoline():
@@ -347,7 +346,7 @@ def test_ambiguous_sites_and_invalid_indices_are_not_guessed():
 
 
 def test_charged_graft():
-    # catmlp: a charged group changes the charge of what follows (here the context).
+    # A charged group changes the charge of what follows (here the context).
     mol, _ = quinoline()
     grafted = substitute_groups(mol, {100: "[*][N+](C)(C)C"})
     assert Chem.GetFormalCharge(grafted) == 1
@@ -627,7 +626,7 @@ def test_swap_free_and_hard(methylbiphenyl):
 
 
 def test_swap_in_a_transition_state(sn2_ts, caplog):
-    # As in catmlp: SN2 TS, H -> 4-hydroxybutyl on the reacting carbon. The first chain
+    # SN2 TS, H -> 4-hydroxybutyl on the reacting carbon. The first chain
     # atom is a neighbour of a reacting atom: it is held where the graft puts it.
     from racerts.system import build_mol
 
@@ -841,7 +840,7 @@ def test_a_dative_bond_type_keeps_the_donor_stereo():
 
 
 def test_new_stereo_at_the_attachment_comes_from_the_reference():
-    # Which hydrogen is replaced chooses the configuration (catmlp): the graph takes it
+    # Which hydrogen is replaced chooses the configuration: the graph takes it
     # from the reference, so embedding cannot mix the two.
     mol = embedded("OCc1ccccc1")
     hydrogens = [

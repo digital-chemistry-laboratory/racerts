@@ -312,7 +312,7 @@ def test_restraints_between_frozen_atoms_are_dropped(sn2_ts, caplog):
     assert len(ensemble) > 0 and "both atoms are frozen" in caplog.text
 
 
-# ---- fragment links (catmlp) ----
+# ---- fragment links ----
 
 
 def test_fragment_links_join_every_fragment():
@@ -429,7 +429,7 @@ def test_generated_windows_that_do_not_fit_are_left_out(sn2_ts_water, caplog):
     assert "contact:2-6" in caplog.text and "left out" in caplog.text
 
 
-# ---- ported from catmlp test_embedding_constraints (e1547eb) ----
+# ---- windows in embedding: complexes of several fragments ----
 
 
 def test_user_triplets_become_windows_and_flat_bottom_terms():

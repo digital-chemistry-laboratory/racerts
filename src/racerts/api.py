@@ -221,7 +221,7 @@ def swap(
             fragment atom passes its role on (SwapResult.index_map).
         conserve: What happens to the kept atoms:
             - "hard": nothing is sampled; the fragment is grafted rigidly on each
-              reference (catmlp's transfer; single attachments only);
+              reference (single attachments only);
             - "soft": the kept atoms outside the junction (see SwapResult) start at
               the reference and are held near it by position restraints (0.3 A, k 5
               kcal/(mol A^2)) in MMFF/UFF refinement; the junction and the new atoms

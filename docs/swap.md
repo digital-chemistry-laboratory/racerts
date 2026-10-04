@@ -22,7 +22,7 @@ The new fragment is a SMILES with one dummy per attachment (`[*]`, or `[*:1]`,
 
 | Selector | Leaves | The fragment binds to |
 | --- | --- | --- |
-| `site=n` | the terminal H or dummy with map number n (catmlp's form; `label_hydrogen` labels the only H of an atom) | its neighbour |
+| `site=n` | the terminal H or dummy with map number n (`label_hydrogen` labels the only H of an atom) | its neighbour |
 | `remove_atoms=[...]` | these atoms and their hydrogens; `[]` with `attach_map`: an addition | the atoms where bonds were cut (by index, in dummy order) |
 | `center=c, substructure=k` | the k-th group bound to atom c (groups by their lowest atom index) | c |
 | `old_fragment="[CH3][c:1]"` | the unmapped atoms of a SMARTS match and everything bound to them beyond the mapped atoms; the match must be unique | the mapped atom of the dummy's number |
@@ -55,8 +55,8 @@ one piece, valences that do not work out, settings a swap does not take) raises
 new molecule (every reference
 conformer, same IDs), the kept atoms (`conserved`, `ref_to_new`), `new_atoms`, the
 `junction` (kept atoms at an attachment and their kept neighbours) and diagnostics. For
-a single attachment that replaces a bond, the fragment is grafted rigidly (catmlp's
-placement, along the removed bond; `placed`), at the removed bond's length scaled by
+a single attachment that replaces a bond, the fragment is grafted rigidly (along
+the removed bond; `placed`), at the removed bond's length scaled by
 the covalent radii, so that a bond stretched in a TS (a leaving group) stays
 stretched.
 
@@ -66,7 +66,7 @@ stretched.
 
 | conserve | kept atoms | new atoms |
 | --- | --- | --- |
-| `"hard"` | as in the reference | the graft only (catmlp's transfer; one conformer per reference, checked for clashes) |
+| `"hard"` | as in the reference | the graft only (one conformer per reference, checked for clashes) |
 | `"soft"` (default) | start at the reference; held within 0.3 Å by position restraints (k = 5 kcal/(mol Å²)) in MMFF/UFF; the junction is free | sampled |
 | `"free"` | only the frozen atoms of `task` held | sampled with everything else |
 

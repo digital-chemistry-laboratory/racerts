@@ -188,7 +188,7 @@ class RestraintConfig:
         hbonds: Keep the hydrogen bonds of the reference geometry.
         contacts: [atom, atom] non-covalent contacts to keep as in the reference.
         keep_fragments: Keep fragments without core atoms (solvent) at the core.
-        fragment_links: [atom, atom] links between fragments (catmlp): windows
+        fragment_links: [atom, atom] links between fragments: windows
             [1.0, 1.3] x the vdW sum.
         link_fragments: Also choose links that join every fragment.
         hints: Candidate hydrogen bonds from the graph (at most max_hints) as

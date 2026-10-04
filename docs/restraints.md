@@ -5,7 +5,7 @@ A restraint keeps the distance of two atoms in a window `[lower, upper]` (Å):
 - in embedding, the window replaces the bounds of the pair (distance geometry places the
   atoms in it, in most conformers);
 - in MMFF/UFF refinement, a flat-bottom term ½·k·(d − bound)² outside the window holds it
-  (k in kcal/(mol Å²), as in RDKit; the default 20 with ±0.25 Å windows follows catmlp).
+  (k in kcal/(mol Å²), as in RDKit; default 20, with ±0.25 Å windows).
 
 Reported energies never include the restraint terms (nor the terms that hold the frozen
 atoms). Refinements with ASE calculators (xTB, MLIPs) run without restraints: the

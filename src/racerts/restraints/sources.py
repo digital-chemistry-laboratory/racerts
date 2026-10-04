@@ -13,7 +13,7 @@ from racerts.system.spec import split_fragments
 # Hydrogen bonds D-H...A: donor atoms of the hydrogen and acceptor elements.
 HBOND_DONORS = ("N", "O")
 HBOND_ACCEPTORS = ("N", "O", "F", "S", "Cl", "Br", "I")
-# catmlp's windows for fragment links, in units of the sum of the vdW radii.
+# The windows of fragment links, in units of the sum of the vdW radii.
 LINK_LOWER_FACTORS = (1.0, 0.8)
 LINK_UPPER_FACTOR = 1.3
 
@@ -169,7 +169,7 @@ def fragment_contacts(
 def link_window(
     mol: Chem.Mol, pair: Tuple[int, int], lower_factor: float
 ) -> Tuple[float, float]:
-    """catmlp's contact window for a fragment link: [lower_factor, 1.3] x the vdW sum."""
+    """The contact window of a fragment link: [lower_factor, 1.3] x the vdW sum."""
     table = Chem.GetPeriodicTable()
     vdw = sum(table.GetRvdw(mol.GetAtomWithIdx(i).GetAtomicNum()) for i in pair)
     return lower_factor * vdw, LINK_UPPER_FACTOR * vdw
@@ -179,7 +179,7 @@ def fallback_links(
     mol: Chem.Mol, active_atoms: Optional[Sequence[int]] = None, seed: int = 0xF00D
 ) -> List[Tuple[int, int]]:
     """
-    Candidate links between fragments (catmlp): first between fragments of opposite
+    Candidate links between fragments: first between fragments of opposite
     charge (their least buried atoms of the fragment's charge sign), then between
     representatives of every pair of fragments (active atoms first, else heavy atoms,
     the least buried; ties broken by a seeded random choice).
@@ -234,7 +234,7 @@ def carrier_links(
 ) -> List[Tuple[int, int]]:
     """
     Links that join all fragments, taken from the candidates in order: a spanning
-    tree over the fragments (catmlp). Raises if the candidates do not join them all.
+    tree over the fragments. Raises if the candidates do not join them all.
     """
     fragments = Chem.GetMolFrags(mol, asMols=False)
     if len(fragments) < 2:

@@ -1,10 +1,10 @@
 """
 Swaps: replace a group of a molecule by a new fragment (graph surgery), keeping the
-geometry of the other atoms (as catmlp's substitutions do).
+geometry of the other atoms.
 
 apply_swap returns the new graph with every conformer of the reference: the kept atoms
 at their coordinates and, for a single attachment, the fragment grafted rigidly along
-the removed bond (as catmlp). racerts.swap then samples the new atoms (api.py).
+the removed bond. racerts.swap then samples the new atoms (api.py).
 """
 
 import logging
@@ -54,7 +54,7 @@ class Swap:
         bond_types: Dummy number -> "single", "double", "triple" or "dative" (from the
             fragment atom), overriding the bond of the SMILES.
         mode: "append": new atoms take the slots of removed ones and the rest are
-            appended (catmlp's layout), so the kept atoms keep their indices when the
+            appended, so the kept atoms keep their indices when the
             fragment has at least as many atoms as leave; otherwise the unused slots
             close up and later atoms move down (see SwapResult.ref_to_new).
             "renumber" puts the kept atoms first, in their order.
@@ -786,7 +786,7 @@ def _settle_new_stereo(mol, result, ref_to_new, anchored, carried_atoms, carried
     geometry where it defines them: the element and all its neighbours are anchored
     (kept atoms or atoms that replace one), and every reference conformer agrees on
     it (else a warning). Which hydrogen is replaced thus chooses the configuration
-    (catmlp's prochiral sites). Other new elements stay unspecified. New elements are
+    (prochiral sites). Other new elements stay unspecified. New elements are
     those of the result that the reference does not have.
     """
     if not anchored:
@@ -1005,7 +1005,7 @@ def _root_position(mol, fragment, attachment, positions) -> np.ndarray:
 
 
 def rotation_between(source: np.ndarray, target: np.ndarray) -> np.ndarray:
-    """The proper rotation taking the direction source onto target (catmlp)."""
+    """The proper rotation taking the direction source onto target."""
     source = source / np.linalg.norm(source)
     target = target / np.linalg.norm(target)
     cosine = float(np.clip(source @ target, -1, 1))
@@ -1024,7 +1024,7 @@ def label_hydrogen(mol: Chem.Mol, anchor: int, label: int) -> Chem.Mol:
     """
     A copy of mol whose only hydrogen on anchor carries the map number label (a site
     for Swap(site=label)). An anchor with several hydrogens raises: prochiral sites are
-    chosen by the caller (catmlp).
+    chosen by the caller.
     """
     if isinstance(label, bool) or not isinstance(label, int):
         raise TypeError("Site labels are positive integers.")

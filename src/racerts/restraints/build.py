@@ -29,9 +29,9 @@ def build_restraints(
     keep_fragments: bool = False,
     fragment_links: Optional[Iterable[Sequence[int]]] = None,
     link_fragments: bool = False,
-    seed: int = 0xF00D,
+    seed: int = sources.LINK_SEED,
     hints: bool = False,
-    max_hints: int = 8,
+    max_hints: int = sources.MAX_HINTS,
 ) -> RestraintSet:
     """
     The distance restraints for mol, which carries the reference geometry if a source

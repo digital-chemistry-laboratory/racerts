@@ -4,13 +4,16 @@ import json
 import os
 import re
 import typing
+import warnings
 from dataclasses import asdict, dataclass, field, fields
+from numbers import Integral, Real
 from typing import Any, Dict, Optional
 
 from racerts.embed import (
     CHIRALITY_FALLBACK_MODES,
     COUNT_POLICIES,
     DEFAULT_CONF_FACTOR,
+    DEFAULT_HINT_SHARE,
     EMBED_MODES,
     Embed,
     default_embedder,
@@ -27,6 +30,9 @@ from racerts.prune import (
 from racerts.prune.cluster import METHODS as CLUSTER_METHODS
 from racerts.refine import REFINE_BACKENDS, Refine
 from racerts.refine.forcefield import DIELECTRIC_MODELS
+from racerts.restraints import build_restraints
+from racerts.restraints.model import DEFAULT_FORCE_CONSTANT, DEFAULT_HALF_WIDTH
+from racerts.restraints.sources import LINK_SEED, MAX_HINTS
 from racerts.task import Task
 from racerts.utils.optional import require
 from racerts.validate import AttackFace, Connectivity, Validate
@@ -128,7 +134,9 @@ class PruneConfig:
     """
     Attributes:
         energy_threshold: Energy window (kcal/mol) above the lowest conformer.
-        eht_energies: Rank by extended Hueckel (YAeHMOP) energies instead.
+        eht_energies: Rank by extended Hueckel (YAeHMOP) energies instead (deprecated:
+            rescore with an ASE calculator, the Rescore stage; not with active-bond
+            windows).
         rmsd_threshold: Heavy-atom RMSD (A) below which conformers are duplicates.
         include_hs: Include hydrogens in the RMSD.
         filter_energies: Conformers further apart in energy than
@@ -136,6 +144,7 @@ class PruneConfig:
         filter_rotations: Neither are conformers whose principal moments of inertia
             differ by more than rot_fraction_threshold.
         max_matches: Maximum number of symmetry-equivalent atom maps for the RMSD.
+            (These six RMSD settings act with method "rmsd" only.)
         check_stereo: After refinement, drop conformers whose specified stereo
             (outside the core atoms of the task, e.g. the reacting atoms) differs from
             the graph, e.g. after a chirality fallback of the embedding. After the
@@ -178,6 +187,13 @@ class PruneConfig:
                 raise ValueError(f"prune.{name} must not be negative.")
         if self.max_matches < 1:
             raise ValueError("prune.max_matches must be positive.")
+        if self.eht_energies:
+            warnings.warn(
+                "prune.eht_energies is deprecated; rescore the ensemble with an ASE "
+                "calculator instead (the Rescore stage).",
+                FutureWarning,  # shown by default, unlike DeprecationWarning
+                stacklevel=3,
+            )
 
 
 @dataclass
@@ -202,16 +218,16 @@ class RestraintConfig:
     """
 
     user: list = field(default_factory=list)
-    half_width: float = 0.25
-    force_constant: float = 20.0
+    half_width: float = DEFAULT_HALF_WIDTH
+    force_constant: float = DEFAULT_FORCE_CONSTANT
     hbonds: bool = False
     contacts: list = field(default_factory=list)
     keep_fragments: bool = False
     fragment_links: list = field(default_factory=list)
     link_fragments: bool = False
     hints: bool = False
-    max_hints: int = 8
-    hint_share: float = 0.3
+    max_hints: int = MAX_HINTS
+    hint_share: float = DEFAULT_HINT_SHARE
 
     def __post_init__(self):
         _check_types(self, "restraints")
@@ -221,12 +237,13 @@ class RestraintConfig:
             raise ValueError("restraints.max_hints must be positive.")
         for name, size in (("user", 3), ("contacts", 2), ("fragment_links", 2)):
             items = getattr(self, name)
-            if not isinstance(items, (list, tuple)) or any(
-                not isinstance(item, (list, tuple)) or len(item) != size
-                for item in items
+            if not isinstance(items, (list, tuple)) or not all(
+                _is_restraint_item(item, size) for item in items
             ):
+                shape = "[atom, atom, distance]" if size == 3 else "[atom, atom]"
                 raise ValueError(
-                    f"restraints.{name} must be a list of {size}-element lists."
+                    f"restraints.{name} must be a list of {shape} lists (atom "
+                    "indices as integers)."
                 )
             setattr(self, name, [list(item) for item in items])
         for name in ("half_width", "force_constant"):
@@ -244,10 +261,8 @@ class RestraintConfig:
             or self.hints
         )
 
-    def build(self, mol, frozen, seed: int = 0xF00D):
+    def build(self, mol, frozen, seed: int = LINK_SEED):
         """The RestraintSet for mol (with the reference geometry) and its frozen set."""
-        from racerts.restraints import build_restraints
-
         return build_restraints(
             mol,
             frozen,
@@ -263,6 +278,19 @@ class RestraintConfig:
             hints=self.hints,
             max_hints=self.max_hints,
         )
+
+
+def _is_restraint_item(item, size: int) -> bool:
+    """[atom, atom] or [atom, atom, distance] with integer atoms and a number."""
+
+    def is_index(value):
+        return isinstance(value, Integral) and not isinstance(value, bool)
+
+    if not isinstance(item, (list, tuple)) or len(item) != size:
+        return False
+    if not (is_index(item[0]) and is_index(item[1])):
+        return False
+    return size == 2 or (isinstance(item[2], Real) and not isinstance(item[2], bool))
 
 
 _SECTIONS = {
@@ -281,7 +309,8 @@ class PipelineConfig:
 
     Attributes:
         seed: Random seed (the RDKit embedding seed).
-        num_threads: Threads for embedding, force-field refinement and RMSDs.
+        num_threads: Threads for embedding and force-field refinement (the latter
+            gains little: RDKit's minimizer does not release Python's lock).
     """
 
     seed: int = 12
@@ -356,14 +385,18 @@ class PipelineConfig:
         """
         with open(path) as handle:
             data = _load_yaml(handle) if _is_yaml(path) else json.load(handle)
-        data = data or {}
+        if data is None:  # an empty YAML file
+            data = {}
         if legacy:
             _check_keys(data, cls, "config")
             return cls.legacy(**data)
         return cls.from_dict(data)
 
     def build(self, task: Task) -> Pipeline:
-        """The default pipeline with these settings for the task."""
+        """
+        The default pipeline with these settings for the task. The restraints section
+        is not part of it: generate builds the restraints into the Context.
+        """
         embed, refine = self.embed, self.refine
         embedder = default_embedder(
             task,
@@ -388,8 +421,18 @@ class PipelineConfig:
             )
         optimizer = REFINE_BACKENDS[refine.backend](**options)
         prune = self.prune
+        windowed = getattr(task, "windowed", False)
+        if prune.eht_energies and windowed:  # windows are pruned per target, on copies
+            raise ValueError(
+                "prune.eht_energies does not combine with active-bond windows."
+            )
+        with warnings.catch_warnings():  # PruneConfig has warned about eht_energies
+            warnings.simplefilter("ignore", FutureWarning)
+            energy_pruner = EnergyPruner(
+                threshold=prune.energy_threshold, YAeHMOP_energies=prune.eht_energies
+            )
         faces = []
-        if getattr(task, "windowed", False) and getattr(task, "stereo_filter", False):
+        if windowed and getattr(task, "stereo_filter", False):
             faces.append(Validate(AttackFace()))
         checks = []
         if prune.check_stereo:
@@ -410,12 +453,7 @@ class PipelineConfig:
                 ),
                 *faces,
                 *checks,
-                PruneEnergy(
-                    EnergyPruner(
-                        threshold=prune.energy_threshold,
-                        YAeHMOP_energies=prune.eht_energies,
-                    )
-                ),
+                PruneEnergy(energy_pruner),
                 self._duplicates(),
             ]
         )
@@ -425,9 +463,7 @@ class PipelineConfig:
         if prune.method == "cluster":
             return PruneCluster(
                 ClusterPruner(
-                    threshold=prune.cluster_threshold,
-                    method=prune.cluster_method,
-                    max_matches=prune.max_matches,
+                    threshold=prune.cluster_threshold, method=prune.cluster_method
                 )
             )
         return PruneRMSD(

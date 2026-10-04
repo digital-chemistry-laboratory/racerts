@@ -15,7 +15,11 @@ logger = logging.getLogger(__name__)
 
 
 class EnergyPruner(BasePruner):
-    """Drops conformers more than threshold (kcal/mol) above the lowest one."""
+    """
+    Drops conformers more than threshold (kcal/mol) above the lowest one. With
+    YAeHMOP_energies (deprecated) the energies are first replaced by extended-Hueckel
+    ones (energy_method "EHT").
+    """
 
     def __init__(self, threshold: float = 20.0, verbose: bool = False, **kwargs):
         check_threshold(threshold, "threshold")
@@ -92,6 +96,7 @@ class EnergyPruner(BasePruner):
 
         if self.YAeHMOP_energies:
             self.set_QM_energies(mol, self.verbose)
+            mol.SetProp("energy_method", "EHT")
 
         min_energy = self.get_minimal_energy(mol, self.verbose)
         drop_conformers_without_energy(mol)

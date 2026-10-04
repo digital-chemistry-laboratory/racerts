@@ -24,10 +24,16 @@ from .compat import (
     pruners,
     visualizer,
 )
-from .config import EmbedConfig, PipelineConfig, PruneConfig, RefineConfig
+from .config import (
+    EmbedConfig,
+    PipelineConfig,
+    PruneConfig,
+    RefineConfig,
+    RestraintConfig,
+)
 from .embed import Embed
 from .pipeline import ConformerEnsemble, ConformerRecord, Context, Pipeline, Stage
-from .prune import PruneCount, PruneEnergy, PruneRMSD
+from .prune import PruneCluster, PruneCount, PruneEnergy, PruneRMSD
 from .refine import Refine, Rescore
 from .system.swap import Swap, SwapError, SwapResult, apply_swap
 from .task import Constrained, FrozenSet, GroundState, Task, TransitionState
@@ -44,6 +50,7 @@ __all__ = [
     "GroundState",
     "Pipeline",
     "PipelineConfig",
+    "PruneCluster",
     "PruneConfig",
     "PruneCount",
     "PruneEnergy",
@@ -51,6 +58,7 @@ __all__ = [
     "Refine",
     "RefineConfig",
     "Rescore",
+    "RestraintConfig",
     "Stage",
     "Swap",
     "SwapError",

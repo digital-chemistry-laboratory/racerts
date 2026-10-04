@@ -16,6 +16,8 @@ HBOND_ACCEPTORS = ("N", "O", "F", "S", "Cl", "Br", "I")
 # The windows of fragment links, in units of the sum of the vdW radii.
 LINK_LOWER_FACTORS = (1.0, 0.8)
 LINK_UPPER_FACTOR = 1.3
+LINK_SEED = 0xF00D  # breaks ties between equally exposed atoms of fragment links
+MAX_HINTS = 8
 
 Triplet = Tuple[int, int, float]
 
@@ -176,7 +178,7 @@ def link_window(
 
 
 def fallback_links(
-    mol: Chem.Mol, active_atoms: Optional[Sequence[int]] = None, seed: int = 0xF00D
+    mol: Chem.Mol, active_atoms: Optional[Sequence[int]] = None, seed: int = LINK_SEED
 ) -> List[Tuple[int, int]]:
     """
     Candidate links between fragments: first between fragments of opposite
@@ -272,7 +274,7 @@ HINT_WINDOW = (1.7, 2.3)  # A, H...acceptor
 
 def graph_hints(
     mol: Chem.Mol,
-    max_hints: int = 8,
+    max_hints: int = MAX_HINTS,
     window: Tuple[float, float] = HINT_WINDOW,
     charged: bool = False,
     min_ring: int = 6,
@@ -306,7 +308,7 @@ def graph_hints(
         if hydrogen.GetAtomicNum() != 1 or len(neighbors) != 1:
             continue
         donor = neighbors[0]
-        if donor.GetSymbol() not in ("N", "O"):
+        if donor.GetSymbol() not in HBOND_DONORS:
             continue
         if not charged and donor.GetFormalCharge() != 0:
             continue

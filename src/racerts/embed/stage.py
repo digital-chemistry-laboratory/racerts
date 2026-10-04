@@ -26,6 +26,7 @@ from .dg import BoundsMatrixEmbedder, CmapEmbedder, DistanceGeometryEmbedder
 logger = logging.getLogger(__name__)
 
 DEFAULT_CONF_FACTOR = 80
+DEFAULT_HINT_SHARE = 0.3
 EMBED_MODES = {"cmap": CmapEmbedder, "bounds": BoundsMatrixEmbedder}
 COUNT_POLICIES = ("legacy", "fragments", "per_bond")
 
@@ -144,7 +145,7 @@ class Embed:
         conf_factor: int = DEFAULT_CONF_FACTOR,
         count_policy: CountPolicy = "legacy",
         references: Union[None, str, Sequence[int]] = None,
-        hint_share: float = 0.3,
+        hint_share: float = DEFAULT_HINT_SHARE,
     ):
         if isinstance(n_conformers, bool) or not isinstance(n_conformers, Integral):
             raise TypeError(f"n_conformers must be an integer, not {n_conformers!r}.")

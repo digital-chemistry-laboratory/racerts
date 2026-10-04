@@ -216,6 +216,56 @@ def test_new_settings_are_checked(section, settings, message):
         PipelineConfig.from_dict({section: settings})
 
 
+@pytest.mark.parametrize(
+    "restraints, message",
+    [
+        ({"user": [[0, 6, "4.6"]]}, "restraints.user"),
+        ({"user": [[0, 6.5, 4.6]]}, "restraints.user"),
+        ({"contacts": [["a", 1]]}, "restraints.contacts"),
+        ({"fragment_links": [[0, True]]}, "restraints.fragment_links"),
+    ],
+)
+def test_restraint_items_are_checked_when_the_config_is_made(restraints, message):
+    with pytest.raises(ValueError, match=message):
+        PipelineConfig.from_dict({"restraints": restraints})
+
+
+def test_a_config_file_holds_a_mapping(tmp_path):
+    path = tmp_path / "config.json"
+    for text in ("0", "[]"):
+        path.write_text(text)
+        with pytest.raises(ValueError, match="mapping"):
+            PipelineConfig.from_file(str(path))
+    empty = tmp_path / "empty.yaml"
+    empty.write_text("")
+    assert PipelineConfig.from_file(str(empty)) == PipelineConfig()
+
+
+def test_the_eht_setting_warns_by_its_name_and_labels_the_energies(hept_1_ene_ts):
+    import racerts
+
+    with pytest.warns(FutureWarning, match="prune.eht_energies is deprecated"):
+        config = PipelineConfig.from_dict(
+            {"embed": {"n_conformers": 3}, "prune": {"eht_energies": True}}
+        )
+    ensemble = racerts.generate(
+        hept_1_ene_ts, TransitionState([3, 4, 5]), config=config
+    )
+    assert ensemble.energy_method == "EHT"
+    with pytest.raises(ValueError, match="eht_energies"):
+        config.build(TransitionState([3, 4, 5], active_window=0.2))
+
+
+def test_the_sections_and_stages_of_the_default_pipeline_are_exported():
+    import racerts
+
+    for name in ("EmbedConfig", "RefineConfig", "PruneConfig", "RestraintConfig"):
+        assert name in racerts.__all__ and hasattr(racerts, name)
+    for name in ("Embed", "Refine", "PruneEnergy", "PruneRMSD", "PruneCluster"):
+        assert name in racerts.__all__ and hasattr(racerts, name)
+    assert set(racerts.__all__) <= set(dir(racerts))
+
+
 def test_cluster_pruning_setting():
     stages = (
         PipelineConfig.from_dict(

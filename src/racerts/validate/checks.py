@@ -16,19 +16,19 @@ from .base import Validate
 class Connectivity:
     """
     Whether each conformer still is the molecule of the graph: the bonds perceived
-    from its geometry (RDKit's DetermineConnectivity, by covalent radii) are those of
-    the graph, and the stereocentres and double bonds that the graph specifies have the
-    same configuration (unspecified stereo is a wildcard). The check goes by atom
-    index, since the conformers share the graph.
+    from its geometry (RDKit's DetermineConnectivity) are those of the graph, and the
+    stereocentres and double bonds that the graph specifies have the same
+    configuration (unspecified stereo is a wildcard). The check goes by atom index,
+    since the conformers share the graph. Close contacts that the graph does not
+    bond, e.g. of ions or coordinated metals, count as extra bonds.
 
     Args:
         exempt: Atoms whose bonds among each other and whose stereo are not checked;
             default: the core atoms of the task (FrozenSet.core): the reacting atoms
             of a TransitionState, whose bonds form or break; the hard atoms of
             Constrained, which the reference fixes; none for GroundState.
-        bonds: Check the bonds.
         stereo: Check the stereo.
-        cov_factor: Scale of the covalent radii for perceived bonds (RDKit default).
+        bonds: Check the bonds. Without them the validator is named "stereo".
     """
 
     name = "connectivity"
@@ -37,14 +37,12 @@ class Connectivity:
         self,
         exempt: Optional[Sequence[int]] = None,
         stereo: bool = True,
-        cov_factor: float = 1.3,
         bonds: bool = True,
     ):
         if not (bonds or stereo):
             raise ValueError("Connectivity needs bonds or stereo to check.")
         self.exempt = None if exempt is None else tuple(exempt)
         self.stereo = stereo
-        self.cov_factor = cov_factor
         self.bonds = bonds
         if not bonds:
             self.name = "stereo"
@@ -77,9 +75,7 @@ class Connectivity:
     def _bond_mismatch(self, bondless, conf, expected, exempt) -> Optional[str]:
         perceived = Chem.Mol(bondless)
         perceived.AddConformer(Chem.Conformer(conf), assignId=True)
-        rdDetermineBonds.DetermineConnectivity(
-            perceived, useHueckel=False, covFactor=self.cov_factor
-        )
+        rdDetermineBonds.DetermineConnectivity(perceived, useHueckel=False)
         found = _bonds(perceived, exempt)
         if found == expected:
             return None
@@ -242,24 +238,25 @@ class AttackFace:
             )
             for i, j in sides
         }
-        seed = ctx.reference.GetConformer().GetPositions()
-        expected = {}
-        for side in sides:
-            height = _height(seed, *side, neighbors[side])
-            if height is not None and abs(height) >= self.min_height:
-                expected[side] = np.sign(height)
         reasons = {}
-        for conf in mol.GetConformers():
-            positions = conf.GetPositions()
-            flipped = []
-            for (i, j), sign in expected.items():
-                height = _height(positions, i, j, neighbors[(i, j)])
-                if height is not None and sign * height <= -self.min_height:
-                    flipped.append(f"{j} on {i}")
-            if flipped:
-                reasons[conf.GetId()] = (
-                    f"attack from the other face ({', '.join(flipped)})"
-                )
+        for reference, conf_ids in ctx.by_reference(ensemble):
+            seed = reference.GetConformer().GetPositions()
+            expected = {}
+            for side in sides:
+                height = _height(seed, *side, neighbors[side])
+                if height is not None and abs(height) >= self.min_height:
+                    expected[side] = np.sign(height)
+            for conf_id in conf_ids:
+                positions = mol.GetConformer(conf_id).GetPositions()
+                flipped = []
+                for (i, j), sign in expected.items():
+                    height = _height(positions, i, j, neighbors[(i, j)])
+                    if height is not None and sign * height <= -self.min_height:
+                        flipped.append(f"{j} on {i}")
+                if flipped:
+                    reasons[conf_id] = (
+                        f"attack from the other face ({', '.join(flipped)})"
+                    )
         return reasons
 
 

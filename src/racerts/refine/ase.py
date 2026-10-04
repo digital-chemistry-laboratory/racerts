@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import warnings
-from collections.abc import Callable as ABCCallable
 from typing import Any, Callable, Dict, List, Optional, Sequence, Type
 
 from rdkit import Chem
@@ -69,12 +68,7 @@ class ASEOptimizer(BaseOptimizer):
             raise ValueError("`calculator` must be provided.")
 
         self.calculator = calculator
-        self._calculator_is_factory = self._is_calculator_factory(calculator)
-        if not self._calculator_is_factory and not hasattr(calculator, "get_property"):
-            raise ValueError(
-                "`calculator` must be an ASE calculator instance or a callable "
-                "returning one."
-            )
+        self._calculator_is_factory = ase_io.check_calculator(calculator)
         if optimizer_cls is None:
             optimizer_cls = require("ase.optimize", "ase").BFGS
         self.optimizer_cls = optimizer_cls
@@ -102,23 +96,6 @@ class ASEOptimizer(BaseOptimizer):
 
         if "logfile" not in self.optimizer_kwargs and not self.verbose:
             self.optimizer_kwargs["logfile"] = None
-
-    @staticmethod
-    def _is_calculator_factory(calculator) -> bool:
-        # Treat classes/callables passed via `calculator=...` as factories.
-        return isinstance(calculator, type) or (
-            isinstance(calculator, ABCCallable)
-            and not hasattr(calculator, "get_property")
-        )
-
-    def _get_calculator(self):
-        if self._calculator_is_factory:
-            calculator = self.calculator()
-            if calculator is None:
-                raise ValueError("`calculator` callable returned None.")
-            return calculator
-
-        return self.calculator
 
     def optimize(
         self,

@@ -4,8 +4,8 @@ from typing import Any, Dict
 
 import numpy as np
 
+from racerts.io.ase import check_calculator, rdkit_conformer_to_ase_atoms
 from racerts.pipeline import ConformerEnsemble
-from racerts.system.spec import infer_charge_and_multiplicity
 from racerts.utils.optional import require
 
 
@@ -22,8 +22,8 @@ class ImaginaryModes:
         threshold: Imaginary modes with |frequency| below this (cm^-1) are noise.
         delta: Displacement of the finite differences (A).
 
-    The frequencies (cm^-1, imaginary ones negative) go into the result: failed
-    conformers get the reason; see also frequencies().
+    The reason of a failed conformer lists its imaginary frequencies (cm^-1); see
+    frequencies() for all of them.
     """
 
     name = "imaginary_modes"
@@ -36,17 +36,15 @@ class ImaginaryModes:
         delta: float = 0.005,
     ):
         self.calculator = calculator
+        self._calculator_is_factory = check_calculator(calculator)
         self.expected = expected
         self.threshold = threshold
         self.delta = delta
 
     def validate(self, ctx, ensemble: ConformerEnsemble) -> Dict[int, str]:
-        from racerts.io.ase import rdkit_conformer_to_ase_atoms
-
-        state = infer_charge_and_multiplicity(ensemble.mol)
         reasons = {}
         for conf_id in ensemble.conf_ids:
-            atoms = rdkit_conformer_to_ase_atoms(ensemble.mol, conf_id, **state)
+            atoms = rdkit_conformer_to_ase_atoms(ensemble.mol, conf_id)
             atoms.calc = self._calculator()
             try:
                 frequencies = self.frequencies(atoms)
@@ -63,10 +61,7 @@ class ImaginaryModes:
         return reasons
 
     def _calculator(self):
-        calculator = self.calculator
-        if callable(calculator) and not hasattr(calculator, "get_property"):
-            calculator = calculator()
-        return calculator
+        return self.calculator() if self._calculator_is_factory else self.calculator
 
     def frequencies(self, atoms) -> np.ndarray:
         """Vibrational frequencies (cm^-1, imaginary negative), without the 5-6

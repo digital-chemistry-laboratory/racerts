@@ -136,8 +136,24 @@ def test_validate_raises_if_none_passes(ts_ensemble):
 
     with pytest.raises(TypeError, match="not a Validator"):
         Validate(lambda mol, conf_id: None)
+    with pytest.raises(TypeError, match="not a Validator"):
+        Validate(Connectivity)  # the class, not an instance
     with pytest.raises(ValueError, match="at least one"):
         Validate()
+
+
+def test_validators_of_one_stage_need_distinct_names(ts_ensemble):
+    # Results are recorded by name: a second "ok" would replace the first failure.
+    with pytest.raises(ValueError, match="Repeated validator names.*connectivity"):
+        Validate(Connectivity(), Connectivity(exempt=[3]))
+    ensemble, ctx = ts_ensemble
+    stage = Validate(Connectivity(), Connectivity(bonds=False), on_fail="flag")
+    assert set(
+        stage.run(ctx, ensemble).provenance(ensemble.conf_ids[0])["validation"]
+    ) == {
+        "connectivity",
+        "stereo",
+    }
 
 
 def test_identity_filter_in_a_pipeline(hept_1_ene_ts):
@@ -172,6 +188,36 @@ class Spring:
                 inner.results["forces"] = np.array([-f, f])
 
         self.calculator = _Spring()
+
+
+def _h2(n=1):
+    mol = Chem.MolFromSmiles("[H][H]")
+    for _ in range(n):
+        conf = Chem.Conformer(2)
+        conf.SetAtomPosition(1, Point3D(0.0, 0.0, 0.74))
+        mol.AddConformer(conf, assignId=True)
+    return racerts.ConformerEnsemble(mol)
+
+
+@pytest.mark.ase
+def test_imaginary_modes_counts_the_modes_of_every_conformer():
+    # A spring with a negative force constant: the stretch is imaginary.
+    pytest.importorskip("ase")
+    saddle = Spring(k=-36.0).calculator
+    assert ImaginaryModes(saddle, expected=1).validate(None, _h2(2)) == {}
+    reasons = ImaginaryModes(saddle, expected=0).validate(None, _h2(2))
+    assert sorted(reasons) == [0, 1]
+    assert reasons[0].startswith("1 imaginary modes (expected 0; cm^-1: -")
+    # A calculator class is a factory, as for ASEOptimizer.
+    minimum = ImaginaryModes(type(Spring().calculator), expected=0)
+    assert minimum.validate(None, _h2()) == {}
+
+
+def test_imaginary_modes_needs_a_calculator():
+    with pytest.raises(ValueError, match="calculator"):
+        ImaginaryModes(None)
+    with pytest.raises(ValueError, match="calculator"):
+        ImaginaryModes("GFN2-xTB")
 
 
 @pytest.mark.ase

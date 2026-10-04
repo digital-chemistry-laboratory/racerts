@@ -56,6 +56,28 @@ def rdkit_conformer_to_ase_atoms(
     return atoms
 
 
+def is_calculator_factory(calculator) -> bool:
+    """Whether calculator is a class or a callable that returns an ASE calculator,
+    not a calculator itself."""
+    return isinstance(calculator, type) or (
+        callable(calculator) and not hasattr(calculator, "get_property")
+    )
+
+
+def check_calculator(calculator) -> bool:
+    """
+    Whether calculator is a factory (see is_calculator_factory); raises ValueError if
+    it is neither a factory nor an ASE calculator.
+    """
+    factory = is_calculator_factory(calculator)
+    if not factory and not hasattr(calculator, "get_property"):
+        raise ValueError(
+            "`calculator` must be an ASE calculator instance or a callable "
+            "returning one."
+        )
+    return factory
+
+
 def set_positions(conf: Chem.Conformer, positions) -> None:
     """Write positions (one row of x, y, z per atom, in Angstrom) into a conformer."""
     for idx, xyz in enumerate(positions):

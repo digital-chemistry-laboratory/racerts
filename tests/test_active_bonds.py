@@ -5,6 +5,8 @@ import os
 
 import numpy as np
 import pytest
+from rdkit import Chem
+from rdkit.Geometry import Point3D
 
 import racerts
 from racerts import PipelineConfig, TransitionState
@@ -237,6 +239,23 @@ def test_attack_face_with_an_atom_in_two_active_bonds(sn2_ts):
     ctx = racerts.Context.create(mol, task)
     seed_copy = racerts.ConformerEnsemble(racerts.Context.create(mol, task).mol)
     assert AttackFace().validate(ctx, seed_copy) == {}
+
+
+def test_attack_face_compares_with_the_reference_of_each_conformer(aldol):
+    # Two references, the second the mirror image of the first: each is attacked
+    # from its own face.
+    mol = Chem.Mol(aldol)
+    mirrored = Chem.Conformer(mol.GetConformer())
+    for i, (x, y, z) in enumerate(mol.GetConformer().GetPositions()):
+        mirrored.SetAtomPosition(i, Point3D(-x, y, z))
+    ref_id = mol.AddConformer(mirrored, assignId=True)
+    ctx = racerts.Context.create(mol, TransitionState(REACTING, active_window=0.25))
+    ensemble = racerts.ConformerEnsemble(Chem.Mol(ctx.mol))  # the references themselves
+    ensemble.add_provenance(ref_id, reference=ref_id)
+    assert AttackFace().validate(ctx, ensemble) == {}
+    # Compared with the first reference, the mirror image is attacked from the other face.
+    ensemble.add_provenance(ref_id, reference=0)
+    assert list(AttackFace().validate(ctx, ensemble)) == [ref_id]
 
 
 @pytest.mark.parametrize(

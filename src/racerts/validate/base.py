@@ -76,11 +76,18 @@ class Validate:
         if not validators:
             raise ValueError("Validate needs at least one validator.")
         for item in validators:
-            if not isinstance(item, Validator):
+            if isinstance(item, type) or not isinstance(item, Validator):
                 raise TypeError(
                     f"{item!r} is not a Validator (an object with a name and "
                     "validate(ctx, ensemble)); wrap functions with validator()."
                 )
+        names = [item.name for item in validators]
+        repeated = sorted({name for name in names if names.count(name) > 1})
+        if repeated:  # the provenance records the results by name
+            raise ValueError(
+                f"Repeated validator names {repeated}: give each validator of a "
+                "stage its own name."
+            )
         if on_fail not in ON_FAIL:
             raise ValueError(f"on_fail must be one of {ON_FAIL}.")
         self.validators = validators

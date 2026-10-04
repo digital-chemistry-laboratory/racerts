@@ -64,6 +64,36 @@ INCONSISTENT_RESTRAINTS = (
 )
 
 
+class InconsistentRestraints(ValueError):
+    """The windows contradict each other or the distances that are fixed."""
+
+    def __init__(self, message: str = INCONSISTENT_RESTRAINTS):
+        super().__init__(message)
+
+
+def hard_pairs(frozen: FrozenSet, reference: Optional[Chem.Mol]) -> list:
+    """
+    All pairs of hard atoms, whose distances the coordinate map fixes (none without a
+    reference).
+    """
+    hard = list(frozen.hard) if reference is not None else []
+    return [(a, b) for k, a in enumerate(hard) for b in hard[k + 1 :]]
+
+
+def windows_fit(
+    mol: Chem.Mol, reference: Optional[Chem.Mol], frozen: FrozenSet, windows: Sequence
+) -> bool:
+    """
+    Whether the bounds of mol take the windows together, with the distances among the
+    hard atoms fixed at the reference.
+    """
+    try:
+        bounds_matrix(mol, reference, hard_pairs(frozen, reference), windows=windows)
+    except InconsistentRestraints:
+        return False
+    return True
+
+
 def bounds_matrix(
     mol: Chem.Mol,
     reference: Optional[Chem.Mol] = None,
@@ -82,7 +112,8 @@ def bounds_matrix(
     without them.
 
     Raises:
-        ValueError: If the windows need more tolerance than the bounds without them.
+        InconsistentRestraints (a ValueError): If the windows need more tolerance than
+            the bounds without them.
         Exception: If the triangle smoothing needs more than max_tolerance.
     """
     bounds = AllChem.GetMoleculeBoundsMatrix(mol)  # type: ignore[attr-defined]
@@ -113,13 +144,13 @@ def bounds_matrix(
         smoothing = DoTriangleSmoothing(bounds, tol=tol)
         if tol > max_tolerance:
             if windows and _smooths(without_windows, failed_tol):
-                raise ValueError(INCONSISTENT_RESTRAINTS)
+                raise InconsistentRestraints()
             raise Exception(
                 "Triangle smoothing error: tolerance above threshold "
                 f"({tol:.3f} > {max_tolerance})"
             )
     if windows and failed_tol is not None and _smooths(without_windows, failed_tol):
-        raise ValueError(INCONSISTENT_RESTRAINTS)
+        raise InconsistentRestraints()
     logger.debug("Triangle smoothing: %d failures, tolerance %s", failures, float(tol))
     return bounds
 

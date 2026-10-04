@@ -367,7 +367,7 @@ def test_frozen_first_holds_substituents_that_set_frozen_stereo():
     # Benchmark Ti_elimination: frozen stereocentres whose one free methyl sets their
     # configuration came out inverted in every conformer. With frozen_first, such a
     # substituent starts at the reference too (legacy mode is unchanged).
-    from racerts.embed.dg import stereo_anchors
+    from racerts.system.stereo import stereo_anchors
     from racerts.task import FrozenSet
 
     mol = Chem.AddHs(Chem.MolFromSmiles("C[C@H](O)CC"))
@@ -397,8 +397,8 @@ def test_frozen_first_holds_substituents_that_set_frozen_stereo():
 
 
 def test_refine_holds_stereo_anchors_when_asked():
-    from racerts.embed.dg import stereo_anchors
     from racerts.refine import MMFFOptimizer
+    from racerts.system.stereo import stereo_anchors
 
     mol = Chem.AddHs(Chem.MolFromSmiles("C[C@H](O)CC"))
     AllChem.EmbedMolecule(mol, randomSeed=3)

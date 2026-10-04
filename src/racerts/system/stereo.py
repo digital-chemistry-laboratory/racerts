@@ -1,6 +1,6 @@
 """Stereo of conformers compared with the stereo their graph specifies."""
 
-from typing import Collection, Dict, Optional
+from typing import Collection, Dict, List, Optional
 
 from rdkit import Chem
 
@@ -71,23 +71,47 @@ class StereoCheck:
         return f"stereo of {', '.join(wrong)} inverted" if wrong else None
 
 
-def stereo_mismatch(
-    graph: Chem.Mol, conf: Chem.Conformer, exempt: Collection[int] = ()
-) -> Optional[str]:
-    """
-    The specified stereo of graph (stereocentres and double bonds, except those of
-    the exempt atoms) that conformer conf does not have, as a reason ("stereo of
-    atom 1 inverted"), or None; see StereoCheck, which is faster for many conformers.
-    """
-    return StereoCheck(graph, exempt).mismatch(conf)
-
-
 def reference_tags(mol: Chem.Mol, reference: Chem.Mol, atoms: Collection[int]) -> dict:
     """The chiral tags that the reference geometry gives the atoms of mol."""
     probe = Chem.Mol(mol, True)
     probe.AddConformer(Chem.Conformer(reference.GetConformer()), assignId=True)
     Chem.AssignAtomChiralTagsFromStructure(probe, replaceExistingTags=True)
     return {i: probe.GetAtomWithIdx(i).GetChiralTag() for i in atoms}
+
+
+def reference_fixed(mol: Chem.Mol, frozen) -> List[int]:
+    """
+    The frozen (hard or soft) atoms whose configuration the reference fixes: those
+    with at most one neighbour that is not frozen. With two or more free neighbours
+    the configuration is open, and the chiral tag has to set it.
+    """
+    held = set(frozen.hard) | set(frozen.soft)
+    return [
+        i
+        for i in (*frozen.hard, *frozen.soft)
+        if sum(n.GetIdx() not in held for n in mol.GetAtomWithIdx(i).GetNeighbors())
+        <= 1
+    ]
+
+
+def stereo_anchors(mol: Chem.Mol, frozen) -> List[int]:
+    """
+    Free atoms that alone set the configuration of a frozen stereocentre: the only
+    neighbour of a tagged hard (or soft) atom that is not frozen. With the centre and
+    its other neighbours fixed, such a substituent on the wrong side is the other
+    stereoisomer; in "frozen_first" mode the coordinate-map embedder places it at the
+    reference too, and Refine(stereo_anchors=True) holds it there.
+    """
+    held = set(frozen.hard) | set(frozen.soft)
+    anchors = set()
+    for i in held:
+        atom = mol.GetAtomWithIdx(i)
+        if atom.GetChiralTag() not in TETRAHEDRAL:
+            continue
+        free = [n.GetIdx() for n in atom.GetNeighbors() if n.GetIdx() not in held]
+        if len(free) == 1:
+            anchors.add(free[0])
+    return sorted(anchors)
 
 
 def _bond_labels(mol: Chem.Mol) -> Dict[int, str]:

@@ -1,6 +1,5 @@
 """The optimizer interface."""
 
-import inspect
 import logging
 from abc import ABC, abstractmethod
 from typing import List, Optional, Sequence
@@ -8,7 +7,7 @@ from typing import List, Optional, Sequence
 from rdkit import Chem
 from rdkit.Chem.AllChem import AlignMol  # type: ignore
 
-from racerts.restraints.model import PositionRestraint
+from racerts.restraints.model import PositionRestraint, accepts_restraints
 
 logger = logging.getLogger(__name__)
 
@@ -93,11 +92,3 @@ class BaseOptimizer(ABC):
                 prbCid=conformer.GetId(),
                 refCid=self.conf_id_ref,
             )
-
-
-def accepts_restraints(method) -> bool:
-    """Whether a component method takes a restraints argument."""
-    try:
-        return "restraints" in inspect.signature(method).parameters
-    except (TypeError, ValueError):
-        return False

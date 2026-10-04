@@ -476,7 +476,7 @@ def test_hints_are_released_in_refinement():
 def test_generated_windows_that_do_not_fit_are_left_out(sn2_ts_water, caplog):
     # Cl2...O6 at 3.75 A does not fit with Cl2...H7 at 2.2 A (O6-H7 is a bond): from
     # the user it raises (test_inconsistent_windows_raise); generated, it is left out.
-    from racerts.restraints.build import _consistent
+    from racerts.restraints.build import consistent_restraints
 
     mol = _sn2_water(sn2_ts_water)
     frozen = TransitionState(REACTING).frozen_atoms(mol)
@@ -488,7 +488,7 @@ def test_generated_windows_that_do_not_fit_are_left_out(sn2_ts_water, caplog):
         ]
     )
     with caplog.at_level(logging.WARNING):
-        kept = _consistent(mol, frozen, user, generated)
+        kept = consistent_restraints(mol, frozen, user, generated)
     assert [r.pair for r in kept] == [(0, 6)]
     assert "contact:2-6" in caplog.text and "left out" in caplog.text
 

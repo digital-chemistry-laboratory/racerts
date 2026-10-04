@@ -153,4 +153,4 @@ def test_within_tries_the_identity_first(monkeypatch):
     assert evaluated == [1]  # the identity map is within: the others are not needed
     evaluated.clear()
     assert rmsd_within(a, _swapped(a, 0, 2), 0.125, symmetry.atoms, symmetry.maps)
-    assert evaluated == [1, 12]  # a duplicate by symmetry only: all maps
+    assert evaluated == [1, 11]  # a duplicate by symmetry only: the other maps

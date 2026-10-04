@@ -1,7 +1,7 @@
 """Distance-geometry embedders: coordinate map (CmapEmbedder) or bounds matrix."""
 
 import logging
-from typing import List, Optional, Sequence, Union
+from typing import Optional, Sequence, Union
 
 import numpy as np
 from rdkit import Chem
@@ -9,11 +9,21 @@ from rdkit.Chem import AllChem
 from rdkit.Chem.AllChem import EmbedMultipleConfs  # type: ignore
 from rdkit.Chem.rdDistGeom import EmbedFailureCauses
 
-from racerts.system.stereo import TETRAHEDRAL, StereoCheck, reference_tags
+from racerts.system.stereo import (
+    StereoCheck,
+    reference_fixed,
+    reference_tags,
+    stereo_anchors,
+)
 from racerts.task import FrozenSet
 
 from .base import BaseEmbedder
-from .bounds import bounds_matrix, fixed_distance_pairs, log_inconsistent_bounds
+from .bounds import (
+    bounds_matrix,
+    fixed_distance_pairs,
+    hard_pairs,
+    log_inconsistent_bounds,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +51,7 @@ class DistanceGeometryEmbedder(BaseEmbedder):
       is inverted are removed, with a warning (not checked: core atoms that are free
       or fixed by the reference, e.g. the reacting atoms). In this mode the
       coordinate-map embedder always places the free substituent that alone sets the
-      configuration of a frozen stereocentre (see stereo_anchors).
+      configuration of a frozen stereocentre (racerts.system.stereo.stereo_anchors).
     - False: no fallback (the ground-state default: stereocentres of the input are
       never given up).
 
@@ -286,42 +296,6 @@ class DistanceGeometryEmbedder(BaseEmbedder):
         )
 
 
-def reference_fixed(mol: Chem.Mol, frozen: FrozenSet) -> List[int]:
-    """
-    The frozen (hard or soft) atoms whose configuration the reference fixes: those
-    with at most one neighbour that is not frozen. With two or more free neighbours
-    the configuration is open, and the chiral tag has to set it.
-    """
-    held = set(frozen.hard) | set(frozen.soft)
-    return [
-        i
-        for i in (*frozen.hard, *frozen.soft)
-        if sum(n.GetIdx() not in held for n in mol.GetAtomWithIdx(i).GetNeighbors())
-        <= 1
-    ]
-
-
-def stereo_anchors(mol: Chem.Mol, frozen: FrozenSet) -> List[int]:
-    """
-    Free atoms that alone set the configuration of a frozen stereocentre: the only
-    neighbour of a tagged hard (or soft) atom that is not frozen. The coordinate-map
-    embedder places them at the reference too in "frozen_first" mode: with the
-    centre and its other neighbours fixed, a substituent on the wrong side is the
-    other stereoisomer, which the no-enforce fallback produces (benchmark
-    Ti_elimination: every conformer inverted).
-    """
-    held = set(frozen.hard) | set(frozen.soft)
-    anchors = set()
-    for i in held:
-        atom = mol.GetAtomWithIdx(i)
-        if atom.GetChiralTag() not in TETRAHEDRAL:
-            continue
-        free = [n.GetIdx() for n in atom.GetNeighbors() if n.GetIdx() not in held]
-        if len(free) == 1:
-            anchors.add(free[0])
-    return sorted(anchors)
-
-
 # Room for this many conformers after the start of a seed stream (RDKit seeds are
 # 31-bit integers).
 _STREAM_LENGTH = 2**24
@@ -368,8 +342,7 @@ class CmapEmbedder(DistanceGeometryEmbedder):
 
     def _configure(self, params, mol, reference, frozen, restraints=()):
         if restraints:
-            hard = frozen.hard if reference is not None else ()
-            pairs = [(a, b) for k, a in enumerate(hard) for b in hard[k + 1 :]]
+            pairs = hard_pairs(frozen, reference)
             params.SetBoundsMat(
                 bounds_matrix(mol, reference, pairs=pairs, windows=restraints)
             )

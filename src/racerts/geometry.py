@@ -101,6 +101,7 @@ def rmsd_within(
         first = np.sqrt(_msd(a, _mapped(b, maps[:1]), align)[0])
         if first <= threshold:
             return True
+        maps = maps[1:]
     return bool(np.sqrt(_msd(a, _mapped(b, maps), align).min()) <= threshold)
 
 

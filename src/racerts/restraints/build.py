@@ -95,7 +95,7 @@ def build_restraints(
     # The user's window stands for its pair: generated ones there are not checked.
     user_pairs = {r.pair for r in user_set}
     generated = RestraintSet(r for r in generated if r.pair not in user_pairs)
-    generated = _consistent(mol, frozen, user_set, generated)
+    generated = consistent_restraints(mol, frozen, user_set, generated)
     restraints = generated.merge(user_set).without_pairs_within(frozen.hard)
 
     if fragment_links is not None or link_fragments:
@@ -110,7 +110,9 @@ def build_restraints(
             for h, a, lower, upper in sources.graph_hints(mol, max_hints=max_hints)
             if (min(h, a), max(h, a)) not in taken and not (h in hard and a in hard)
         )
-        for hint in _consistent(mol, frozen, restraints, candidates, each=True):
+        for hint in consistent_restraints(
+            mol, frozen, restraints, candidates, each=True
+        ):
             restraints.add(hint)
     if restraints:
         logger.info(
@@ -125,7 +127,7 @@ def build_restraints(
 def _with_fragment_links(
     mol, restraints, user_set, fragment_links, link_fragments, frozen, seed, k
 ):
-    from racerts.embed.bounds import bounds_matrix
+    from racerts.embed.bounds import InconsistentRestraints, bounds_matrix
 
     explicit = [
         sources.check_pair(mol, pair, "Fragment link") for pair in fragment_links or ()
@@ -158,7 +160,7 @@ def _with_fragment_links(
         candidate = windows.merge(restraints)  # user and seed windows win
         try:
             bounds_matrix(mol, windows=candidate)
-        except ValueError:
+        except InconsistentRestraints:
             continue
         return candidate
     raise ValueError(
@@ -167,7 +169,7 @@ def _with_fragment_links(
     )
 
 
-def _consistent(mol, frozen, kept, generated, each=False) -> RestraintSet:
+def consistent_restraints(mol, frozen, kept, generated, each=False) -> RestraintSet:
     """
     The generated restraints that the bounds take with kept (e.g. the user's): one by
     one, each with the ones taken before (each=True: each with kept alone, e.g. hints,
@@ -175,25 +177,16 @@ def _consistent(mol, frozen, kept, generated, each=False) -> RestraintSet:
     window that smoothing could only fit by moving other bounds (e.g. a short-range
     contact against the covalent geometry) would otherwise make embedding raise.
     """
-    from racerts.embed.bounds import bounds_matrix
+    from racerts.embed.bounds import windows_fit
 
     if not generated:
         return generated
     reference = mol if mol.GetNumConformers() else None
-    hard = list(frozen.hard) if reference is not None else []
-    pairs = [(a, b) for k, a in enumerate(hard) for b in hard[k + 1 :]]
-
-    def fits(windows) -> bool:
-        try:
-            bounds_matrix(mol, reference, pairs=pairs, windows=windows)
-        except ValueError:
-            return False
-        return True
-
     taken, left_out = list(kept), []
     result = RestraintSet()
     for restraint in generated:
-        if fits((list(kept) if each else taken) + [restraint]):
+        windows = (list(kept) if each else taken) + [restraint]
+        if windows_fit(mol, reference, frozen, windows):
             result.add(restraint)
             taken.append(restraint)
         else:

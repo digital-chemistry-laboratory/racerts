@@ -364,10 +364,7 @@ def test_fewer_conformers_than_targets_is_reported(aldol, caplog):
     assert "3 conformers for 5 targets" in caplog.text
 
 
-def test_window_problems_are_explained(sn2_ts, monkeypatch, caplog):
-    import racerts.embed.dg as dg
-    from racerts.embed.bounds import INCONSISTENT_RESTRAINTS
-
+def test_window_problems_are_explained(sn2_ts, hept_1_ene_ts, caplog):
     mol = build_mol(sn2_ts, -1, [0, 1, 2], input_smiles=["CCl", "[Cl-]"])
     with caplog.at_level("WARNING"):  # a C-Cl window down to 0.5 A
         TransitionState(
@@ -375,12 +372,8 @@ def test_window_problems_are_explained(sn2_ts, monkeypatch, caplog):
         ).restraints(mol)
     assert "below 0.9 times its covalent length" in caplog.text
 
-    def inconsistent(*args, **kwargs):
-        raise ValueError(INCONSISTENT_RESTRAINTS)
-
-    monkeypatch.setattr(dg, "bounds_matrix", inconsistent)
-    ctx = racerts.Context.create(
-        mol, TransitionState([0, 1, 2], active_bonds=[(0, 2)], active_window=0.3)
-    )
+    # C3...C5 of the ring-forming TS cannot be 3.5-4.0 A apart with its neighbours.
+    task = TransitionState([3, 4, 5], active_bonds=[(3, 5)], active_window=(3.5, 4.0))
+    ctx = racerts.Context.create(hept_1_ene_ts, task)
     with pytest.raises(ValueError, match="narrower active_window"):
         racerts.Embed(n_conformers=2).run(ctx)

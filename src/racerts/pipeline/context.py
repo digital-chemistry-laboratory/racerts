@@ -131,7 +131,7 @@ def _with_task_windows(mol, task, restraints):
     restraint on one of their pairs raises; generated ones there are left out, and so
     are hints that do not fit with the windows.
     """
-    from racerts.restraints.build import _consistent
+    from racerts.restraints.build import consistent_restraints
 
     windows = task.restraints(mol)
     if not windows:
@@ -154,6 +154,6 @@ def _with_task_windows(mol, task, restraints):
     kept = windows.merge(r for r in others if r.source != "hint")
     if hints:
         frozen = task.frozen_atoms(mol)
-        for hint in _consistent(mol, frozen, list(kept), hints, each=True):
+        for hint in consistent_restraints(mol, frozen, list(kept), hints, each=True):
             kept.add(hint)
     return kept

@@ -1,5 +1,6 @@
 """Distance restraints: flat-bottom windows between atom pairs."""
 
+import inspect
 import json
 import math
 from dataclasses import asdict, dataclass, replace
@@ -11,6 +12,14 @@ import numpy as np
 DEFAULT_HALF_WIDTH = 0.25  # A
 DEFAULT_FORCE_CONSTANT = 20.0  # kcal/(mol A^2)
 STAGES = ("embed", "refine", "both")
+
+
+def accepts_restraints(method) -> bool:
+    """Whether a method of a component (embed, _refine) takes a restraints argument."""
+    try:
+        return "restraints" in inspect.signature(method).parameters
+    except (TypeError, ValueError):
+        return False
 
 
 def _is_index(value) -> bool:

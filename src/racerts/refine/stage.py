@@ -10,9 +10,10 @@ from racerts.restraints.active import (
     record_active_lengths,
     target_windows,
 )
-from racerts.restraints.model import position_restraints
+from racerts.restraints.model import accepts_restraints, position_restraints
+from racerts.system.stereo import stereo_anchors
 
-from .base import BaseOptimizer, accepts_restraints
+from .base import BaseOptimizer
 from .forcefield import MMFFOptimizer, UFFOptimizer
 
 logger = logging.getLogger(__name__)
@@ -74,7 +75,7 @@ class Refine:
             (ASEOptimizer with Sella); distance restraints and soft atoms still hold
             with MMFF/UFF.
         stereo_anchors: Also hold the free substituents that alone set the
-            configuration of a frozen stereocentre (racerts.embed.dg.stereo_anchors),
+            configuration of a frozen stereocentre (racerts.system.stereo),
             which the "frozen_first" embedding places at the reference; the default
             pipeline sets it with that fallback. Otherwise refinement can turn such a
             substituent through to the other stereoisomer.
@@ -109,8 +110,6 @@ class Refine:
             )
         anchors = ctx.frozen.hard if self.anchors else ()
         if self.anchors and self.stereo_anchors and ctx.reference is not None:
-            from racerts.embed.dg import stereo_anchors
-
             extra = [i for i in stereo_anchors(ctx.mol, ctx.frozen) if i not in anchors]
             anchors = (*anchors, *extra)
         restraints = ctx.restraints.for_stage("refine")

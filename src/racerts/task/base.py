@@ -1,7 +1,7 @@
 """What a conformer search keeps fixed: the Task protocol and FrozenSet."""
 
 from dataclasses import dataclass
-from typing import Optional, Protocol, Tuple, runtime_checkable
+from typing import Mapping, Optional, Protocol, Sequence, Tuple, runtime_checkable
 
 from rdkit import Chem
 
@@ -51,6 +51,14 @@ class Task(Protocol):
     needs_reference: bool
 
     def frozen_atoms(self, mol: Chem.Mol) -> FrozenSet: ...
+
+
+def remapped(index_map: Mapping[int, int], atoms: Sequence[int], what: str) -> list:
+    """The atoms in the indices of a new molecule (index_map: old -> new)."""
+    missing = [i for i in atoms if i not in index_map]
+    if missing:
+        raise ValueError(f"The {what} {missing} are not in the new molecule.")
+    return [int(index_map[i]) for i in atoms]
 
 
 def check_atom_indices(mol: Chem.Mol, atoms, what: str) -> None:

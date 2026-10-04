@@ -9,7 +9,6 @@ from rdkit import Chem
 from rdkit.Chem import Descriptors
 
 from racerts.pipeline import ConformerEnsemble
-from racerts.refine.base import accepts_restraints
 from racerts.restraints.active import (
     EMBED_TARGET_HALF_WIDTH,
     keep_embedded_lengths,
@@ -17,11 +16,12 @@ from racerts.restraints.active import (
     target_provenance,
     target_windows,
 )
+from racerts.restraints.model import accepts_restraints
 from racerts.system.spec import rigid_body_dof
 from racerts.task import FrozenSet
 
 from .base import BaseEmbedder
-from .bounds import INCONSISTENT_RESTRAINTS
+from .bounds import InconsistentRestraints, windows_fit
 from .dg import BoundsMatrixEmbedder, CmapEmbedder, DistanceGeometryEmbedder
 
 logger = logging.getLogger(__name__)
@@ -283,7 +283,9 @@ class Embed:
         if not hints:
             return [(n, base, {})]
         subsets = [[hint] for hint in hints]
-        if len(hints) > 1 and _compatible(ctx, base + hints):
+        if len(hints) > 1 and windows_fit(
+            ctx.graph(), ctx.reference, ctx.frozen, base + hints
+        ):
             subsets.append(hints)
         n_hint = round(self.hint_share * n)
         if n_hint == 0:
@@ -326,12 +328,10 @@ class Embed:
         if restraints:
             try:
                 embedder.embed(mol, reference, ctx.frozen, n, restraints=restraints)
-            except ValueError as error:
-                if str(error) != INCONSISTENT_RESTRAINTS or not getattr(
-                    ctx.task, "windowed", False
-                ):
+            except InconsistentRestraints as error:
+                if not getattr(ctx.task, "windowed", False):
                     raise
-                raise ValueError(
+                raise InconsistentRestraints(
                     f"{error} With active-bond windows: try a narrower active_window "
                     "(the TS core cannot take this one)."
                 ) from None
@@ -350,20 +350,3 @@ def _with_seed_offset(embedder, k: int):
     batch_embedder = copy.copy(embedder)
     batch_embedder.randomSeed = (seed + 7919 * k) % (2**31 - 1)  # RDKit: 31 bits
     return batch_embedder
-
-
-def _compatible(ctx, restraints) -> bool:
-    """
-    Whether the windows can be embedded together, with the distances among the hard
-    atoms fixed as the embedders fix them (see embed.bounds).
-    """
-    from .bounds import bounds_matrix
-
-    reference = ctx.reference
-    hard = list(ctx.frozen.hard) if reference is not None else []
-    pairs = [(a, b) for k, a in enumerate(hard) for b in hard[k + 1 :]]
-    try:
-        bounds_matrix(ctx.graph(), reference, pairs=pairs, windows=restraints)
-    except ValueError:
-        return False
-    return True

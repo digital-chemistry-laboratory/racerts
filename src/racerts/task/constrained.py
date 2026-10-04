@@ -4,7 +4,7 @@ from typing import Mapping, Optional, Sequence
 
 from rdkit import Chem
 
-from .base import FrozenSet
+from .base import FrozenSet, remapped
 
 
 class Constrained:
@@ -40,9 +40,9 @@ class Constrained:
     def remap(self, index_map: Mapping[int, int]) -> "Constrained":
         """The same task for a molecule whose atom i is index_map[i] (e.g. a swap)."""
         return Constrained(
-            _remap(index_map, self.hard, "hard atoms"),
-            _remap(index_map, self.soft, "soft atoms"),
-            None if self.core is None else _remap(index_map, self.core, "core atoms"),
+            remapped(index_map, self.hard, "hard atoms"),
+            remapped(index_map, self.soft, "soft atoms"),
+            None if self.core is None else remapped(index_map, self.core, "core atoms"),
         )
 
     def __repr__(self) -> str:
@@ -52,10 +52,3 @@ class Constrained:
         if self.core is not None:
             parts.append(f"core={list(self.core)}")
         return f"Constrained({', '.join(parts)})"
-
-
-def _remap(index_map: Mapping[int, int], atoms: Sequence[int], what: str) -> list:
-    missing = [i for i in atoms if i not in index_map]
-    if missing:
-        raise ValueError(f"The {what} {missing} are not in the new molecule.")
-    return [index_map[i] for i in atoms]

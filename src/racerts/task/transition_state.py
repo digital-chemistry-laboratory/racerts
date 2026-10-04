@@ -7,7 +7,7 @@ from typing import Dict, List, Mapping, Optional, Sequence, Tuple, Union
 import numpy as np
 from rdkit import Chem
 
-from .base import FrozenSet, check_atom_indices
+from .base import FrozenSet, check_atom_indices, remapped
 
 logger = logging.getLogger(__name__)
 
@@ -301,20 +301,14 @@ class TransitionState:
         every atom of the task must be in index_map.
         """
 
-        def mapped(atoms, what):
-            missing = [i for i in atoms if i not in index_map]
-            if missing:
-                raise ValueError(f"The {what} {missing} are not in the new molecule.")
-            return [int(index_map[i]) for i in atoms]
-
         def pairs(bonds, what):
             if bonds is None:
                 return None
-            return [tuple(mapped(bond, what)) for bond in bonds]
+            return [tuple(sorted(remapped(index_map, bond, what))) for bond in bonds]
 
         task = TransitionState(
-            mapped(self.reacting_atoms, "reacting atoms"),
-            mapped(self.user_frozen_atoms, "frozen atoms") or None,
+            remapped(index_map, self.reacting_atoms, "reacting atoms"),
+            remapped(index_map, self.user_frozen_atoms, "frozen atoms") or None,
             active_bonds=pairs(self.active_bonds, "active bond atoms"),
             active_window=self.active_window,
             neighbor_window=self.neighbor_window,
@@ -324,8 +318,6 @@ class TransitionState:
             target_force_constant=self.target_force_constant,
         )
         task.bond_changes = pairs(self.bond_changes, "bond change atoms")
-        if task.bond_changes is not None:
-            task.bond_changes = [tuple(sorted(b)) for b in task.bond_changes]
         return task
 
     def __repr__(self) -> str:

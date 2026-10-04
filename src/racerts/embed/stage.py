@@ -2,6 +2,7 @@
 
 import copy
 import logging
+from numbers import Integral
 from typing import Callable, Optional, Sequence, Union
 
 from rdkit import Chem
@@ -54,7 +55,7 @@ def conformer_count(
     if policy == "legacy":
         return n_rot * conf_factor + 30
     if policy == "fragments":
-        core = frozen.core if frozen else ()
+        core = frozen.core if frozen is not None else ()
         return (n_rot + rigid_body_dof(mol, core)) * conf_factor + 30
     if policy == "per_bond":
         return max(7, 10 * n_rot)
@@ -84,6 +85,10 @@ def default_embedder(
             ("legacy" or "frozen_first", see DistanceGeometryEmbedder).
         settings: Further arguments of the embedder, e.g. num_threads.
     """
+    if mode not in EMBED_MODES:
+        raise ValueError(
+            f"Unknown embed mode {mode!r}; use one of {tuple(EMBED_MODES)}."
+        )
     fixed = task.needs_reference
     return EMBED_MODES[mode](
         randomSeed=seed,
@@ -141,6 +146,10 @@ class Embed:
         references: Union[None, str, Sequence[int]] = None,
         hint_share: float = 0.3,
     ):
+        if isinstance(n_conformers, bool) or not isinstance(n_conformers, Integral):
+            raise TypeError(f"n_conformers must be an integer, not {n_conformers!r}.")
+        if n_conformers != -1 and n_conformers < 1:
+            raise ValueError("n_conformers must be positive, or -1 for the default.")
         if isinstance(references, str) and references != "all":
             raise ValueError("references must be None, 'all' or conformer ids.")
         if not 0 <= hint_share <= 1:

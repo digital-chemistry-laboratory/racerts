@@ -24,13 +24,13 @@ class Constrained:
         soft: Sequence[int] = (),
         core: Optional[Sequence[int]] = None,
     ):
-        if not hard and not soft:
-            raise ValueError("Constrained needs at least one hard or soft atom.")
-        for name, atoms in (("hard", hard), ("soft", soft)):
-            if len(set(atoms)) != len(atoms):
-                raise ValueError(f"Repeated atoms in {name}: {list(atoms)}.")
         self.hard = tuple(int(i) for i in hard)
         self.soft = tuple(int(i) for i in soft)
+        if not self.hard and not self.soft:
+            raise ValueError("Constrained needs at least one hard or soft atom.")
+        for name, atoms in (("hard", self.hard), ("soft", self.soft)):
+            if len(set(atoms)) != len(atoms):
+                raise ValueError(f"Repeated atoms in {name}: {list(atoms)}.")
         self.core = None if core is None else tuple(int(i) for i in core)
         FrozenSet(hard=self.hard, soft=self.soft)  # checks the overlap
 

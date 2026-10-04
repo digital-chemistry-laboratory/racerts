@@ -17,6 +17,11 @@ class BaseEmbedder(ABC):
     ):
         """
         Add n conformers to mol (a copy of the graph without conformers), keeping the
-        frozen atoms at the positions of the reference.
+        hard and soft atoms of frozen at the positions of the reference (None for
+        tasks without one). The return value is not used.
+
+        An embedder that supports distance restraints takes them as a further
+        argument, restraints=(): the Embed stage passes the DistanceRestraints of the
+        embedding to embedders with that argument and raises for the others.
         """
         raise NotImplementedError

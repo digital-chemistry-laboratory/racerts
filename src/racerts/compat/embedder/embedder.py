@@ -47,7 +47,11 @@ class BaseEmbedder(racerts.embed.BaseEmbedder):
 
 
 class _LegacyDefaults(racerts.embed.DistanceGeometryEmbedder):
-    """The settings of legacy racerts as defaults, whatever those of racerts.embed."""
+    """
+    The signature and the settings of legacy racerts, whatever those of racerts.embed:
+    remove_all_conformers is stored and unused, as it was; of the other keywords only
+    num_threads is read.
+    """
 
     def __init__(
         self,
@@ -66,14 +70,14 @@ class _LegacyDefaults(racerts.embed.DistanceGeometryEmbedder):
             verbose=verbose,
             randomSeed=randomSeed,
             pruneRmsThresh=pruneRmsThresh,
-            remove_all_conformers=remove_all_conformers,
             ETversion=ETversion,
             useRandomCoords=useRandomCoords,
             etkdg=etkdg,
             chirality_fallback=chirality_fallback,
             sequential_seeds=sequential_seeds,
-            **kwargs,
+            num_threads=kwargs.get("num_threads", 1),
         )
+        self.remove_all_conformers = remove_all_conformers
 
 
 class BoundsMatrixEmbedder(

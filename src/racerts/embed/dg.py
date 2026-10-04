@@ -17,11 +17,15 @@ from .bounds import bounds_matrix, fixed_distance_pairs, log_inconsistent_bounds
 
 logger = logging.getLogger(__name__)
 
+CHIRALITY_FALLBACK_MODES = ("legacy", "frozen_first")  # the choices of the config
+CHIRALITY_FALLBACKS = (True, False, *CHIRALITY_FALLBACK_MODES)  # True: "legacy"
+
 
 class DistanceGeometryEmbedder(BaseEmbedder):
     """
     Embedding with RDKit's EmbedMultipleConfs. Plain distance geometry by default;
-    etkdg=True uses ETKDGv3 (with the same settings otherwise).
+    etkdg=True uses ETKDGv3 (with the same settings otherwise, e.g. the torsion
+    preferences of small rings and macrocycles).
 
     The first min(n, 3) conformers check for chirality problems (the fixed atoms of a
     TS can contradict a chiral tag); then the other n - 3 are added. If most of the
@@ -53,13 +57,12 @@ class DistanceGeometryEmbedder(BaseEmbedder):
         verbose: bool = False,
         randomSeed: int = 12,
         pruneRmsThresh: Optional[float] = -1,
-        remove_all_conformers: bool = True,
         ETversion: int = 2,
         useRandomCoords: bool = True,
         etkdg: bool = False,
         chirality_fallback: Union[bool, str] = True,
         sequential_seeds: bool = False,
-        **kwargs,
+        num_threads: int = 1,
     ):
         if chirality_fallback not in CHIRALITY_FALLBACKS:
             raise ValueError(
@@ -69,13 +72,12 @@ class DistanceGeometryEmbedder(BaseEmbedder):
         self.verbose = verbose
         self.randomSeed = randomSeed
         self.pruneRmsThresh = pruneRmsThresh
-        self.remove_all_conformers = remove_all_conformers
         self.ETversion = ETversion
         self.useRandomCoords = useRandomCoords
         self.etkdg = etkdg
         self.chirality_fallback = chirality_fallback
         self.sequential_seeds = sequential_seeds
-        self.num_threads = kwargs.get("num_threads", 1)
+        self.num_threads = num_threads
 
     def _configure(
         self,
@@ -105,6 +107,11 @@ class DistanceGeometryEmbedder(BaseEmbedder):
         """
         if not isinstance(mol, Chem.rdchem.Mol):
             raise TypeError("Embedding: input for embedding is not a molecule!")
+        if self.randomSeed == 0 and not self.sequential_seeds and n > 1:
+            logger.warning(
+                "With randomSeed 0 all conformers are identical (RDKit seeds conformer "
+                "i with (i + 1) * seed): use another seed, or sequential seeds."
+            )
 
         params = AllChem.ETKDGv3() if self.etkdg else AllChem.EmbedParameters()
         params.verbose = self.verbose
@@ -274,12 +281,9 @@ class DistanceGeometryEmbedder(BaseEmbedder):
         """The legacy fallback that the first conformers call for (None: none)."""
         if not self.chirality_fallback:
             return None
-        return chirality_fallback(
+        return needed_fallback(
             len(result), params.GetFailureCounts(), chiral_check, params.maxIterations
         )
-
-
-CHIRALITY_FALLBACKS = (True, False, "legacy", "frozen_first")
 
 
 def reference_fixed(mol: Chem.Mol, frozen: FrozenSet) -> List[int]:
@@ -332,13 +336,15 @@ def stream_start(seed: int) -> int:
     return int(np.random.default_rng(seed).integers(0, 2**31 - 1 - _STREAM_LENGTH))
 
 
-def chirality_fallback(
+def needed_fallback(
     n_embedded: int, failure_counts, chiral_check: int, max_iterations: int
 ) -> Optional[str]:
     """
-    The legacy racerts rule after the first chiral_check conformers: if at most half of
-    them were embedded, "strip_tags" when the first minimization failed often, or
-    "no_enforce" when the final chirality checks failed often; otherwise None.
+    The legacy racerts rule after the first chiral_check conformers: if fewer than half
+    of them were embedded, "strip_tags" when the first minimization failed more than
+    max_iterations * chiral_check / 2 times, or "no_enforce" when the final chirality
+    checks did; otherwise None. RDKit's maxIterations is 0 unless set, so one such
+    failure is enough.
     """
     if n_embedded >= chiral_check / 2:
         return None

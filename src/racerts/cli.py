@@ -16,8 +16,7 @@ from dataclasses import replace
 
 from racerts.api import generate_gs, generate_ts, swap
 from racerts.config import PipelineConfig
-from racerts.embed import EMBED_MODES
-from racerts.embed.stage import COUNT_POLICIES
+from racerts.embed import CHIRALITY_FALLBACK_MODES, COUNT_POLICIES, EMBED_MODES
 from racerts.refine import REFINE_BACKENDS
 from racerts.refine.forcefield import DIELECTRIC_MODELS
 from racerts.system import GRAPH_METHODS, build_mol
@@ -261,7 +260,7 @@ def _subcommand_parser() -> argparse.ArgumentParser:
         )
         command.add_argument(
             "--chirality-fallback",
-            choices=["legacy", "frozen_first"],
+            choices=list(CHIRALITY_FALLBACK_MODES),
             help="When the frozen atoms contradict chiral tags: drop all tags (legacy) "
             "or those of the frozen atoms first (default "
             f"{defaults.embed.chirality_fallback}).",

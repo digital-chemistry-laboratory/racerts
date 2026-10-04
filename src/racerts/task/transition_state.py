@@ -72,8 +72,10 @@ class TransitionState:
         window_force_constant: float = 10000.0,
         target_force_constant: float = 10000.0,
     ):
-        self.reacting_atoms = list(reacting_atoms)
-        self.user_frozen_atoms = list(frozen_atoms) if frozen_atoms else []
+        self.reacting_atoms = [int(i) for i in reacting_atoms]
+        self.user_frozen_atoms = (
+            [] if frozen_atoms is None else [int(i) for i in frozen_atoms]
+        )
         # The bonds that form or break, if known (from_endpoints).
         self.bond_changes: Optional[List[Tuple[int, int]]] = None
         self.active_bonds = (
@@ -97,7 +99,7 @@ class TransitionState:
             raise ValueError(
                 "stratify: use 0 (anywhere in the window) or at least 2 targets."
             )
-        if active_window is not None and frozen_atoms:
+        if active_window is not None and self.user_frozen_atoms:
             raise ValueError("Give either frozen_atoms or an active_window.")
         self.active_window = active_window
         self.neighbor_window = neighbor_window
@@ -274,19 +276,22 @@ class TransitionState:
         reactant: Chem.Mol,
         product: Chem.Mol,
         frozen_atoms: Optional[Sequence[int]] = None,
+        **settings,
     ) -> "TransitionState":
         """
         The TS between two atom-aligned endpoints (atom i is the same atom in both):
         the reacting atoms are the atoms of the bonds that form or break. A bond
         whose order changes but that stays is not counted. The bonds are kept as
-        bond_changes.
+        bond_changes, the default active bonds of a window (settings: the further
+        arguments of TransitionState, e.g. active_window).
         """
         changes = formed_or_broken_bonds(reactant, product)
         if not changes:
             raise ValueError(
                 "The endpoints have the same bonds: no bond forms or breaks."
             )
-        task = cls(sorted({atom for bond in changes for atom in bond}), frozen_atoms)
+        reacting = sorted({atom for bond in changes for atom in bond})
+        task = cls(reacting, frozen_atoms, **settings)
         task.bond_changes = changes
         return task
 

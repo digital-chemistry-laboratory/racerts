@@ -7,8 +7,14 @@ import typing
 from dataclasses import asdict, dataclass, field, fields
 from typing import Any, Dict, Optional
 
-from racerts.embed import DEFAULT_CONF_FACTOR, EMBED_MODES, Embed, default_embedder
-from racerts.embed.stage import COUNT_POLICIES
+from racerts.embed import (
+    CHIRALITY_FALLBACK_MODES,
+    COUNT_POLICIES,
+    DEFAULT_CONF_FACTOR,
+    EMBED_MODES,
+    Embed,
+    default_embedder,
+)
 from racerts.pipeline import Pipeline
 from racerts.prune import (
     ClusterPruner,
@@ -63,9 +69,9 @@ class EmbedConfig:
             raise ValueError(f"embed.mode must be one of {sorted(EMBED_MODES)}.")
         if self.count_policy not in COUNT_POLICIES:
             raise ValueError(f"embed.count_policy must be one of {COUNT_POLICIES}.")
-        if self.chirality_fallback not in ("legacy", "frozen_first"):
+        if self.chirality_fallback not in CHIRALITY_FALLBACK_MODES:
             raise ValueError(
-                "embed.chirality_fallback must be 'legacy' or 'frozen_first'."
+                f"embed.chirality_fallback must be one of {CHIRALITY_FALLBACK_MODES}."
             )
         if self.n_conformers != -1 and self.n_conformers < 1:
             raise ValueError("embed.n_conformers must be -1 (default count) or > 0.")

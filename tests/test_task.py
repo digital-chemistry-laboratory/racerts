@@ -93,6 +93,25 @@ def test_transition_state_from_endpoints():
     assert TransitionState([0]).bond_changes is None
 
 
+def test_from_endpoints_takes_the_settings_of_the_task():
+    reactant = Chem.MolFromSmiles("C=CC=C.C=C")
+    product = Chem.RWMol(reactant)
+    product.AddBond(0, 4, Chem.BondType.SINGLE)
+    product.AddBond(3, 5, Chem.BondType.SINGLE)
+    task = TransitionState.from_endpoints(reactant, product, active_window=0.2)
+    assert task.windowed and task.active_pairs(reactant) == [(0, 4), (3, 5)]
+
+
+def test_atom_indices_may_be_numpy_integers(hept_1_ene_ts):
+    import numpy as np
+
+    plain = TransitionState([3, 4, 5]).frozen_atoms(hept_1_ene_ts)
+    assert TransitionState(np.array([3, 4, 5])).frozen_atoms(hept_1_ene_ts) == plain
+    given = TransitionState([3, 4, 5], frozen_atoms=np.array([3, 4, 5, 6]))
+    assert given.frozen_atoms(hept_1_ene_ts).hard == (3, 4, 5, 6)
+    assert Constrained(hard=np.array([3, 4])).frozen_atoms(hept_1_ene_ts).hard == (3, 4)
+
+
 def test_from_endpoints_needs_aligned_endpoints_with_bond_changes():
     ethene = Chem.MolFromSmiles("C=C")
     ethane_graph = Chem.RWMol(ethene)

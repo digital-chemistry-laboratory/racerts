@@ -33,12 +33,44 @@ def _counts(**failures):
 
 
 def test_the_legacy_chirality_rule():
-    rule = dg.chirality_fallback
+    rule = dg.needed_fallback
     assert rule(0, _counts(FIRST_MINIMIZATION=3), 3, 0) == "strip_tags"
     assert rule(1, _counts(FINAL_CHIRAL_BOUNDS=1), 3, 0) == "no_enforce"
     assert rule(0, _counts(FINAL_CENTER_IN_VOLUME=2), 3, 0) == "no_enforce"
     assert rule(2, _counts(FIRST_MINIMIZATION=3), 3, 0) is None  # enough embedded
     assert rule(0, _counts(), 3, 0) is None  # failed for other reasons
+    # With maxIterations set (RDKit's default is 0), more failures are needed.
+    assert rule(0, _counts(FIRST_MINIMIZATION=15), 3, 10) is None
+    assert rule(0, _counts(FIRST_MINIMIZATION=16), 3, 10) == "strip_tags"
+
+
+def test_embedders_do_not_swallow_unknown_settings(hept_1_ene_ts):
+    with pytest.raises(TypeError, match="sequential_seed"):
+        racerts.embed.CmapEmbedder(sequential_seed=True)  # misspelt
+    task = racerts.TransitionState([3, 4, 5])
+    with pytest.raises(TypeError, match="squential_seeds"):
+        racerts.embed.default_embedder(task, 12, squential_seeds=True)
+    with pytest.raises(ValueError, match="embed mode 'dm'"):
+        racerts.embed.default_embedder(task, 12, mode="dm")
+    assert racerts.embed.default_embedder(task, 12, num_threads=2).num_threads == 2
+
+
+def test_seed_zero_gives_identical_conformers_and_a_warning(hept_1_ene_ts, caplog):
+    # RDKit seeds conformer i with (i + 1) * seed, unless the seeds are sequential.
+    with caplog.at_level(logging.WARNING):
+        same = _embed(racerts.embed.CmapEmbedder(randomSeed=0), hept_1_ene_ts, 4)
+    assert len(_duplicates(same)) == 6 and "randomSeed 0" in caplog.text
+    caplog.clear()
+    sequential = racerts.embed.CmapEmbedder(randomSeed=0, sequential_seeds=True)
+    with caplog.at_level(logging.WARNING):
+        assert _duplicates(_embed(sequential, hept_1_ene_ts, 4)) == []
+    assert "randomSeed 0" not in caplog.text
+
+
+@pytest.mark.parametrize("n", [0, -3, 2.5, True])
+def test_embed_checks_the_number_of_conformers(n):
+    with pytest.raises((TypeError, ValueError), match="n_conformers"):
+        racerts.Embed(n_conformers=n)
 
 
 @pytest.fixture
@@ -55,7 +87,7 @@ def _chiral_tags(mol):
 
 def test_ground_states_never_give_up_stereocentres(butanol, monkeypatch, caplog):
     # Pretend every embedding fails on chirality: the legacy rule would strip the tags.
-    monkeypatch.setattr(dg, "chirality_fallback", lambda *args: "strip_tags")
+    monkeypatch.setattr(dg, "needed_fallback", lambda *args: "strip_tags")
 
     with caplog.at_level(logging.WARNING):
         ensemble = racerts.generate_gs(butanol, config=SMALL)
@@ -143,6 +175,8 @@ def test_neighbouring_seeds_give_different_streams(hept_1_ene_ts):
     ]
     assert shared == []
     assert dg.stream_start(1) != dg.stream_start(2) and dg.stream_start(1) >= 0
+    # The stream of a seed must not change with the NumPy version.
+    assert dg.stream_start(12) == 1305480652
 
 
 @pytest.fixture
@@ -237,7 +271,7 @@ def test_frozen_first_removes_conformers_with_inverted_stereo(
     # Pretend the chirality checks fail at the first minimization. No frozen atom has
     # a tag, so all tags are dropped (as in legacy racerts): the free C2 comes out
     # inverted in some conformers, which frozen_first then removes.
-    monkeypatch.setattr(dg, "chirality_fallback", lambda *args: "strip_tags")
+    monkeypatch.setattr(dg, "needed_fallback", lambda *args: "strip_tags")
     task = Constrained(hard=[3, 4, 12, 13])  # the ethyl CH2 and CH3 carbons, 2 H
     assert butanol.GetAtomWithIdx(1).GetChiralTag() != Chem.ChiralType.CHI_UNSPECIFIED
 
@@ -313,7 +347,7 @@ def test_frozen_first_explains_when_every_conformer_is_inverted(
     # the wrong stereoisomer); frozen_first removes them all and says why.
     from racerts.system.stereo import StereoCheck
 
-    monkeypatch.setattr(dg, "chirality_fallback", lambda *args: "strip_tags")
+    monkeypatch.setattr(dg, "needed_fallback", lambda *args: "strip_tags")
     monkeypatch.setattr(
         StereoCheck, "mismatch", lambda self, conf: "stereo of atom 1 inverted"
     )

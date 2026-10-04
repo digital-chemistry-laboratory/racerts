@@ -1,7 +1,7 @@
-"""Byte-identity references for the restructuring (racer 2.0 step 0).
+"""Byte-identity references for legacy racerts.
 
 The routes of tests/routes.py must write the files in data/baseline, which were made with
-Phase 1 (5b9216a) on RDKit 2025.03.2. Embedding results differ between RDKit versions, so
+the fixed legacy code (5b9216a) on RDKit 2025.03.2. Embedding results differ between RDKit versions, so
 these tests skip on others (CI runs them in a job of their own); tests/test_compat.py
 compares the routes with each other on any RDKit. To rewrite the files (only for a
 deliberate change of results):

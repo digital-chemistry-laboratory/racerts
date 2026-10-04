@@ -39,6 +39,9 @@ class TransitionState:
     refinement, with force constant window_force_constant).
 
     Args:
+        reacting_atoms: The atoms whose bonds form or break.
+        frozen_atoms: The atoms to hold, instead of the reacting atoms and their
+            neighbours (not with a window).
         active_bonds: The pairs whose length is sampled; default: the bonds that form
             or break (bond_changes, from from_endpoints), else the reacting pairs that
             the graph does not bond and that are closer than 1.6 times the sum of
@@ -57,6 +60,10 @@ class TransitionState:
             ("active_bond_targets") and the lengths ("active_bond_lengths").
         stereo_filter: In window mode, drop conformers whose reacting atoms are
             attacked from the other face than in the seed (see AttackFace).
+        window_force_constant: Of the windows of the reacting atoms to their
+            neighbours in refinement (kcal/(mol A^2)).
+        target_force_constant: Of the windows that hold the active bonds at their
+            targets in refinement.
     """
 
     needs_reference = True
@@ -102,6 +109,8 @@ class TransitionState:
             )
         if active_window is not None and self.user_frozen_atoms:
             raise ValueError("Give either frozen_atoms or an active_window.")
+        if not neighbor_window > 0:
+            raise ValueError("neighbor_window must be positive.")
         self.active_window = active_window
         self.neighbor_window = neighbor_window
         self.stratify = int(stratify)

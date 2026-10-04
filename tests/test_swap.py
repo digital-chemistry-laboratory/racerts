@@ -1135,8 +1135,8 @@ def test_swap_rejects_rigid_settings_without_the_route(methylbiphenyl):
 
 
 def test_a_reference_that_does_not_sanitize_is_swapped_like_it():
-    # Connectivity graphs of TSs can have hypervalent atoms (benchmark propargylation:
-    # Si with six bonds); the swap takes what the reference takes.
+    # Connectivity graphs of TSs can have hypervalent atoms (e.g. Si with six bonds);
+    # the swap takes what the reference takes.
     mol = Chem.MolFromSmiles("C[Si](F)(F)(F)(F)F", sanitize=False)
     mol.UpdatePropertyCache(strict=False)
     mol = Chem.AddHs(mol)
@@ -1152,8 +1152,8 @@ def test_a_reference_that_does_not_sanitize_is_swapped_like_it():
 
 
 def test_contacts_of_the_reference_are_no_clashes(caplog):
-    # Benchmark Pd_carbofluorination: an O...Pd contact of 2.08 A that the graph
-    # lacks (two fragments) is part of the reference, not a clash of the swap.
+    # An O...Pd contact of 2.08 A that the graph lacks (two fragments) is part of the
+    # reference, not a clash of the swap.
     from rdkit.Geometry import Point3D
 
     mol = Chem.RWMol(Chem.AddHs(Chem.MolFromSmiles("CCCCO.O")))

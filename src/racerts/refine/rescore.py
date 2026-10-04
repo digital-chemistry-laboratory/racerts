@@ -32,7 +32,8 @@ class Rescore:
             e.g. a model that evaluates many structures at once on a GPU; None or NaN
             for a structure that failed.
         method: The name of the energies ("energy_method"); default: the class name
-            of the calculator, or of the batch function.
+            of the calculator, or the name of the factory or batch function (give it
+            for a lambda).
         on_fail: For conformers whose calculation fails: "clear" leaves them without
             an energy (the pruners then drop them), "drop" removes them.
         num_workers, charge, multiplicity, prepare: As in ASEOptimizer (not used with

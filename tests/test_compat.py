@@ -64,7 +64,7 @@ def test_legacy_import_paths_are_kept(module):
 
 # The routes of tests/routes.py write identical files through the legacy API, the current
 # API and the command lines, on any RDKit (test_baseline also compares them with the stored
-# Phase 1 files, on RDKit 2025.03.2).
+# baseline files, on RDKit 2025.03.2).
 
 
 @pytest.mark.parametrize("name", [name for name in LEGACY if name != ASE_CASE])
@@ -423,7 +423,7 @@ def test_random_seed_minus_one_as_in_legacy_racerts(tmp_path):
 
 
 def test_legacy_classes_keep_the_legacy_settings():
-    # Whatever the defaults of racerts.embed and racerts.refine (D19).
+    # Whatever the defaults of racerts.embed and racerts.refine.
     from racerts.embedder import BoundsMatrixEmbedder, CmapEmbedder
     from racerts.optimizer import MMFFOptimizer as LegacyMMFF
     from racerts.optimizer import UFFOptimizer as LegacyUFF

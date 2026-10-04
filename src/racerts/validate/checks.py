@@ -134,9 +134,7 @@ class ReactionCore:
     between two core atoms of the task (for a TS the reacting atoms) may differ from the
     reference by more than tolerance (A). Meant after a free saddle search: an imaginary
     mode and the connectivity outside the reacting atoms do not tell another saddle of
-    the same atoms (e.g. the proton already on its acceptor) from the TS. In the UMA
-    benchmark, TSs of the reaction stayed within 0.12 A of DFT seeds and 0.31 A of a
-    constrained GFN2 guess (aldol); other saddles were 0.75-1.0 A off.
+    the same atoms (e.g. the proton already on its acceptor) from the TS.
     """
 
     name = "reaction_core"
@@ -191,17 +189,18 @@ MIN_PLANE_SINE = 0.17  # neighbours within 10 degrees of a line span no plane
 
 class AttackFace:
     """
-    Whether each forming bond approaches from the same face as in the seed: for every
-    active bond (i, j), the side of j relative to the plane of i's other neighbours
-    (three: their plane; two: their plane with i, unless nearly collinear), and the
-    same from j's side. A side
-    counts only where j lies at least min_height from the plane in the seed, and a
-    conformer is flagged only where j lies at least min_height on the other side: a
-    partner near the plane (e.g. in the plane of a ring) has no defined face. Atoms
-    with one other neighbour, or four and more, have no face either. Loosened active-bond windows let
-    distance geometry put the partner on the wrong face; in the default pipeline the
-    filter runs after refinement, since raw embedded geometries are too rough for it
-    (cyclization TS: 36 of 60 embedded conformers "flipped", none after MMFF).
+    Whether each forming bond approaches from the same face as in the reference: for
+    every active bond (i, j), the side of j relative to the plane of i's other
+    neighbours (three: their plane; two: their plane with i, unless nearly collinear),
+    and the same from j's side. A side counts only where j lies at least min_height
+    from the plane in the reference, and a conformer is flagged only where j lies at
+    least min_height on the other side: a partner near the plane (e.g. in the plane of
+    a ring) has no defined face. Atoms with one other neighbour, or four and more,
+    have no face either.
+
+    Loosened active-bond windows let distance geometry put the partner on the wrong
+    face. The default pipeline runs the filter after refinement: raw embedded
+    geometries are too rough for it.
 
     Args:
         pairs: The bonds; default: the active bonds of the task (TransitionState).

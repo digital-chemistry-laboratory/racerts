@@ -15,8 +15,11 @@ class FrozenSet:
         hard: Atoms fixed at the reference coordinates, in embedding (coordinate map)
             and refinement (fixed anchor points). The order is kept: it enters the
             force-field sums and the alignment.
-        core: Atoms whose distances to all hard atoms are fixed in the bounds-matrix
-            embedder (for a TS the reacting atoms); default: hard.
+        core: The atoms that define the task (for a TS the reacting atoms); default:
+            hard. The bounds-matrix embedder fixes their distances to all hard atoms;
+            the stereo and connectivity checks exempt them; fragments without a core
+            atom count as free (count policy "fragments", keep_fragments); and
+            ReactionCore compares their distances with the reference.
         soft: Atoms placed at the reference coordinates in embedding (coordinate map,
             like hard atoms) and held near them in MMFF/UFF refinement by a flat-bottom
             position restraint (see racerts.restraints.PositionRestraint), e.g. the
@@ -46,6 +49,11 @@ class Task(Protocol):
     """
     What is kept fixed. frozen_atoms gets the molecular graph (with the reference
     geometry as its conformer, if the task needs one) and returns the FrozenSet.
+
+    A task may also have: remap(index_map), the task for new atom indices (needed by
+    racerts.swap); restraints(mol), distance windows of its own; and, for sampled
+    active bonds as in TransitionState, windowed, stratify, stereo_filter, targets,
+    active_pairs, active_windows, active_lengths and target_force_constant.
     """
 
     needs_reference: bool

@@ -342,9 +342,9 @@ def test_embed_needs_named_references(hept_1_ene_ts):
 def test_frozen_first_explains_when_every_conformer_is_inverted(
     butanol, monkeypatch, caplog
 ):
-    # Benchmark Ti_elimination: frozen stereocentres whose one free methyl sets their
-    # configuration come out inverted in every conformer (legacy racerts returns only
-    # the wrong stereoisomer); frozen_first removes them all and says why.
+    # Frozen stereocentres whose one free methyl sets their configuration can come out
+    # inverted in every conformer (legacy racerts returns only the wrong
+    # stereoisomer); frozen_first removes them all and says why.
     from racerts.system.stereo import StereoCheck
 
     monkeypatch.setattr(dg, "needed_fallback", lambda *args: "strip_tags")
@@ -364,9 +364,8 @@ def test_frozen_first_explains_when_every_conformer_is_inverted(
 
 
 def test_frozen_first_holds_substituents_that_set_frozen_stereo():
-    # Benchmark Ti_elimination: frozen stereocentres whose one free methyl sets their
-    # configuration came out inverted in every conformer. With frozen_first, such a
-    # substituent starts at the reference too (legacy mode is unchanged).
+    # A frozen stereocentre whose one free methyl sets its configuration: with
+    # frozen_first, the methyl starts at the reference too (legacy mode is unchanged).
     from racerts.system.stereo import stereo_anchors
     from racerts.task import FrozenSet
 

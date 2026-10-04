@@ -140,6 +140,7 @@ def test_attack_face_filter(aldol):
     [
         (dict(stratify=3), "stratify needs an active_window"),
         (dict(active_window=(2.9, 2.0)), "active_window"),
+        (dict(active_window=0.2, neighbor_window=0.0), "neighbor_window"),
         (dict(active_window=-0.1), "active_window must be positive"),
         (dict(active_window=0.2, stratify=1), "at least 2 targets"),
         (dict(active_window=0.2, frozen_atoms=[1, 2]), "either frozen_atoms"),
@@ -278,8 +279,8 @@ def test_cli_stratify_needs_a_window():
 
 
 def test_ring_13_pairs_are_not_forming_bonds():
-    # Benchmark SNAr and cyclization TSs: reacting ring atoms 1,3 apart (2.4 A) were
-    # taken for forming bonds, and their in-plane "faces" flipped at random.
+    # SNAr and cyclization TSs: reacting ring atoms 1,3 apart (2.4 A) were taken for
+    # forming bonds, and their in-plane "faces" flipped at random.
     from rdkit import Chem
     from rdkit.Chem import AllChem
 

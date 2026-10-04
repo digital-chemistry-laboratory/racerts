@@ -318,9 +318,9 @@ def test_ring_stereo_without_cip_labels():
 
 
 def test_reaction_core_catches_another_saddle(ts_ensemble):
-    # UMA benchmark: free saddle searches from windowed conformers
-    # reached saddles of other steps (a proton on the other partner, 1.0 A off) that
-    # pass ImaginaryModes and Connectivity, which exempts the reacting atoms.
+    # Free saddle searches from windowed conformers can reach saddles of other steps
+    # (e.g. a proton on the other partner, 1.0 A off) that pass ImaginaryModes and
+    # Connectivity, which exempts the reacting atoms.
     from racerts.validate import ReactionCore
 
     ensemble, ctx = ts_ensemble

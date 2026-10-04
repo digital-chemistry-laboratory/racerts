@@ -179,8 +179,8 @@ def generate_gs(
 
 CONSERVE = ("hard", "soft", "free")
 SWAP_ROUTES = ("dg", "rigid")
-# In a benchmark at equal TS-search budget, the rigid poses crowded out better
-# starting points (SN2 +4.8 kcal/mol in 2 of 3 seeds), so they are opt-in.
+# The rigid poses are opt-in: at an equal TS-search budget they crowded out better
+# starting points.
 DEFAULT_SWAP_ROUTES = ("dg",)
 RESIDUAL_CLASH_FACTOR = 0.8  # of the vdW sum, heavy atoms beyond three bonds
 HYDROGEN_CLASH_FACTOR = 0.5  # of the vdW sum, pairs with a hydrogen

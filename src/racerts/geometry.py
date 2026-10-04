@@ -92,9 +92,10 @@ def rmsd_within(
     align: bool = True,
 ) -> bool:
     """
-    Whether rmsd(positions_a, positions_b, atoms, maps, align) <= threshold. The first
-    map (the identity of symmetry_maps) is compared first: if it is within the
-    threshold, so is the smallest RMSD over the maps, and the others are not needed.
+    Whether rmsd(positions_a, positions_b, atoms, maps, align) <= threshold (to about
+    1e-7 A: identical geometries are not within a threshold of 0). The first map (the
+    identity of symmetry_maps) is compared first: if it is within the threshold, so is
+    the smallest RMSD over the maps, and the others are not needed.
     """
     a, b = _selected(positions_a, positions_b, atoms)
     if maps is not None and len(maps) > 1:

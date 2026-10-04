@@ -1,7 +1,7 @@
 """
 The routes that must write identical files: each case runs one route (graph, embedder,
 optimizer, fallback) through the legacy API, the current API or the command line and
-writes its ensemble with write_xyz. test_baseline compares them with the stored Phase 1
+writes its ensemble with write_xyz. test_baseline compares them with the stored baseline
 files (RDKit 2025.03.2 only); test_compat compares the routes with each other on any
 RDKit.
 """

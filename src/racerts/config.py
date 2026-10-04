@@ -95,7 +95,8 @@ class RefineConfig:
         converge: Restart minimizations that stop early next to the frozen atoms;
             legacy racerts stops at the first converged call.
         anchor_free_energies: Report energies without the terms that hold the frozen
-            atoms; legacy racerts includes them.
+            atoms; legacy racerts includes them. With restraints, soft atoms or
+            active-bond windows they are always left out.
         dielectric_model: MMFF electrostatics, "constant" or "distance"-dependent.
         dielectric_constant: MMFF dielectric constant.
     """

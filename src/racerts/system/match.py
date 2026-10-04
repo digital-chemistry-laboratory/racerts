@@ -1,7 +1,7 @@
 """
 Matching the atoms of a SMILES template to a geometry, by atom map numbers or by a
 substructure search, and putting the template's bonds and charges on the geometry
-(apply_template). MolGetterSMILES uses these, and the swap will.
+(apply_template). MolGetterSMILES uses these.
 """
 
 import itertools

@@ -47,15 +47,8 @@ class RMSDPruner(BasePruner):
 
     def get_sorted_conf_energy(self, mol):
         """
-        Returns a list of molecule conformers sorted by their energy, if energy properties
-        are set.
-
-        Args:
-            mol (RDKit Mol): The molecule whose conformers to sort.
-
-        Returns:
-            list of RDKit Conformers: The sorted list of conformers, or None if any conformer
-                                    does not have an energy property set.
+        The conformers of mol sorted by energy, or in their own order if any of them
+        has no energy.
         """
         for conf in mol.GetConformers():
             if not conf.HasProp("energy"):
@@ -196,10 +189,10 @@ class RMSDPruner(BasePruner):
 
     def calc_rmsd(self, mol1, mol2, id_1, id_2, maxMatches=10000, maps=None):
         """
-        The RMSD between conformer id_1 of mol1 and id_2 of mol2 (graphs of the same
-        atoms) after superposition, the smallest over maps: lists of (index in mol1,
-        index in mol2) pairs, by default get_atom_maps(mol1, mol2). The pruner uses
-        racerts.geometry directly.
+        The RMSD between conformer id_1 of mol1 and id_2 of mol2 after superposition,
+        the smallest over maps: lists of index pairs as get_atom_maps gives them (the
+        default). Meant for mol1 and mol2 with the same atom order, as in legacy
+        racerts; the pruner uses racerts.geometry directly.
         """
         if maps is None or len(maps) == 0:
             maps = self.get_atom_maps(mol1, mol2, maxMatches)
@@ -211,7 +204,11 @@ class RMSDPruner(BasePruner):
         return min(rmsd(a[p[:, 0]], b[p[:, 1]]) for p in pairs)
 
     def get_atom_maps(self, mol1, mol2, maxMatches, symmetrize=True):
-        """The matches of mol2 in mol1 as lists of (index, index) pairs."""
+        """
+        The matches of mol2 in mol1 as lists of (mol2 index, mol1 index) pairs.
+        calc_rmsd reads the pairs the other way round, as legacy racerts does, which
+        is the same for two conformers of one molecule.
+        """
         matches = atom_matches(mol1, mol2, maxMatches, symmetrize)
         return [list(enumerate(match)) for match in matches]
 

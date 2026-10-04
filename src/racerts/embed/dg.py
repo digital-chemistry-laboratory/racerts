@@ -30,12 +30,13 @@ class DistanceGeometryEmbedder(BaseEmbedder):
       tags, or without enforcing chirality, with a warning; free stereocentres can
       then come out inverted.
     - "frozen_first": where legacy racerts drops all chiral tags (the first
-      minimization fails), only the tags of the frozen atoms are dropped first (the
-      reference fixes their configuration) and the check is repeated; the legacy
-      fallback follows only if it still fails. After any fallback, the graph keeps
-      its chiral tags, and conformers whose specified stereo (outside the core atoms,
-      e.g. the reacting atoms) is inverted are removed, with a warning. The
-      coordinate-map embedder also places the free substituent that alone sets the
+      minimization fails), only the tags of the frozen atoms whose configuration the
+      reference fixes (see reference_fixed) are dropped first and the check is
+      repeated; the legacy fallback follows only if it still fails. After any
+      fallback, the graph keeps its chiral tags, and conformers whose specified stereo
+      is inverted are removed, with a warning (not checked: core atoms that are free
+      or fixed by the reference, e.g. the reacting atoms). In this mode the
+      coordinate-map embedder always places the free substituent that alone sets the
       configuration of a frozen stereocentre (see stereo_anchors).
     - False: no fallback (the ground-state default: stereocentres of the input are
       never given up).
@@ -148,7 +149,7 @@ class DistanceGeometryEmbedder(BaseEmbedder):
         if fallback == "strip_tags" and self.chirality_fallback == "frozen_first":
             tagged = [
                 i
-                for i in (*frozen.hard, *frozen.soft)
+                for i in reference_fixed(mol, frozen)
                 if mol.GetAtomWithIdx(i).GetChiralTag()
                 != Chem.ChiralType.CHI_UNSPECIFIED
             ]
@@ -213,15 +214,16 @@ class DistanceGeometryEmbedder(BaseEmbedder):
         mol: Chem.Mol, original: Chem.Mol, reference: Chem.Mol, frozen: FrozenSet
     ) -> None:
         """
-        Restore the chiral tags of original, except that the frozen atoms get the
-        configuration of the reference (where its geometry defines one), and remove
-        the conformers whose stereo differs from these tags.
+        Restore the chiral tags of original, except that the frozen atoms whose
+        configuration the reference fixes get the tag that its geometry gives them, and
+        remove the conformers whose stereo differs from these tags.
         """
         for atom, before in zip(mol.GetAtoms(), original.GetAtoms()):
             atom.SetChiralTag(before.GetChiralTag())
+        fixed = reference_fixed(mol, frozen)
         tagged = [
             i
-            for i in (*frozen.hard, *frozen.soft)
+            for i in fixed
             if original.GetAtomWithIdx(i).GetChiralTag()
             != Chem.ChiralType.CHI_UNSPECIFIED
         ]
@@ -240,7 +242,10 @@ class DistanceGeometryEmbedder(BaseEmbedder):
                 )
             for i in changed:
                 mol.GetAtomWithIdx(i).SetChiralTag(from_reference[i])
-        check = StereoCheck(mol, exempt=frozen.core)
+        # Core atoms held with two or more free neighbours can invert: they are checked.
+        held = {*frozen.hard, *frozen.soft}
+        exempt = [i for i in frozen.core if i not in held or i in fixed]
+        check = StereoCheck(mol, exempt=exempt)
         reasons = {c.GetId(): check.mismatch(c) for c in mol.GetConformers()}
         inverted = [conf_id for conf_id, reason in reasons.items() if reason]
         if inverted and len(inverted) == len(reasons):
@@ -275,6 +280,21 @@ class DistanceGeometryEmbedder(BaseEmbedder):
 
 
 CHIRALITY_FALLBACKS = (True, False, "legacy", "frozen_first")
+
+
+def reference_fixed(mol: Chem.Mol, frozen: FrozenSet) -> List[int]:
+    """
+    The frozen (hard or soft) atoms whose configuration the reference fixes: those
+    with at most one neighbour that is not frozen. With two or more free neighbours
+    the configuration is open, and the chiral tag has to set it.
+    """
+    held = set(frozen.hard) | set(frozen.soft)
+    return [
+        i
+        for i in (*frozen.hard, *frozen.soft)
+        if sum(n.GetIdx() not in held for n in mol.GetAtomWithIdx(i).GetNeighbors())
+        <= 1
+    ]
 
 
 def stereo_anchors(mol: Chem.Mol, frozen: FrozenSet) -> List[int]:

@@ -285,6 +285,20 @@ def test_frozen_first_takes_frozen_stereo_from_the_reference(
         assert "contradict the reference geometry" in caplog.text
 
 
+def test_frozen_first_keeps_the_tag_of_a_frozen_atom_with_free_neighbours(
+    pentanediol_with_a_wrong_tag,
+):
+    # C4 (atom 4) is held as well, but not its neighbours: the reference does not fix
+    # its configuration, so its tag stays and no conformer comes out inverted.
+    mol, task = pentanediol_with_a_wrong_tag
+    config = PipelineConfig(
+        embed=EmbedConfig(n_conformers=20, chirality_fallback="frozen_first")
+    )
+    ensemble = racerts.generate(mol, Constrained(hard=[*task.hard, 4]), config=config)
+    assert set(_cip_codes(ensemble.mol, 4)) == {"R"}
+    assert set(_cip_codes(ensemble.mol, 1)) == {"R"}  # held with its neighbours
+
+
 def test_embed_needs_named_references(hept_1_ene_ts):
     ctx = racerts.Context.create(hept_1_ene_ts, racerts.TransitionState([3, 4, 5]))
     with pytest.raises(ValueError, match="at least one"):

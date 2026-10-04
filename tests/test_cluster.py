@@ -132,6 +132,8 @@ def test_family_selector_fills_round_robin():
     ensemble.mol.GetConformer(2).ClearProp("energy")
     with pytest.raises(ValueError, match="finite energy"):
         FamilySelector(2).run(None, ensemble)
+    with pytest.raises(ValueError, match="positive"):
+        FamilySelector(0)
 
 
 def test_prune_cluster_stage_and_edge_cases():
@@ -143,6 +145,24 @@ def test_prune_cluster_stage_and_edge_cases():
     assert ClusterPruner(threshold=0.1).clusters(hydrogen) == [[0, 1]]
 
 
+def test_a_conformer_without_energy_is_no_representative():
+    # As in RMSDPruner: conformers without a finite energy are dropped first.
+    geometry = RNG.normal(scale=2.0, size=(8, 3))
+    mol = _mol_with([geometry, geometry], energies=[np.nan, 1.0])
+    kept = ClusterPruner(threshold=0.3).prune(mol)
+    assert [c.GetId() for c in kept.GetConformers()] == [1]
+    # Without any energies the conformer order decides.
+    mol = _mol_with([geometry, geometry])
+    assert [c.GetId() for c in ClusterPruner().prune(mol).GetConformers()] == [0]
+
+
+@pytest.mark.parametrize("method", ["butina", "hierarchical", "leader"])
+def test_a_distance_equal_to_the_threshold_is_grouped(method):
+    mol = _mol_with([RNG.normal(size=(8, 3)) for _ in range(2)])
+    pruner = ClusterPruner(method=method, threshold=1.0, metric=lambda m, a, b: 1.0)
+    assert pruner.clusters(mol) == [[0, 1]]
+
+
 @pytest.mark.parametrize(
     "settings, error",
     [
@@ -151,6 +171,9 @@ def test_prune_cluster_stage_and_edge_cases():
         (dict(method="kmeans"), ValueError),
         (dict(kernel="euclid"), ValueError),
         (dict(representative="first"), ValueError),
+        (dict(linkage="nonsense"), ValueError),
+        (dict(max_matches=0), ValueError),
+        (dict(kernal="symmetric"), TypeError),  # a misspelt keyword is not swallowed
     ],
 )
 def test_settings_are_checked(settings, error):

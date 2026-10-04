@@ -1,13 +1,12 @@
 """The pruning stages."""
 
-from numbers import Integral
 from typing import Optional
 
 import numpy as np
 
 from racerts.pipeline import ConformerEnsemble
 
-from .base import BasePruner
+from .base import BasePruner, check_n_max
 from .cluster import ClusterPruner
 from .energy import EnergyPruner
 from .rmsd import RMSDPruner
@@ -24,6 +23,11 @@ class _Prune:
     default_pruner: type
 
     def __init__(self, pruner: Optional[BasePruner] = None):
+        if pruner is not None and not callable(getattr(pruner, "prune", None)):
+            raise TypeError(
+                f"{type(self).__name__} takes a pruner (an object with prune(mol)), "
+                f"not {pruner!r}."
+            )
         self.pruner = pruner
 
     def run(self, ctx, ensemble: ConformerEnsemble) -> ConformerEnsemble:
@@ -120,11 +124,7 @@ class PruneCount:
     name = "prune_count"
 
     def __init__(self, n_max: int, renumber: bool = False):
-        if isinstance(n_max, bool) or not isinstance(n_max, Integral):
-            raise TypeError(f"n_max must be an integer, not {n_max!r}.")
-        if n_max < 1:
-            raise ValueError("n_max must be positive.")
-        self.n_max = int(n_max)
+        self.n_max = check_n_max(n_max)
         self.renumber = renumber
 
     def run(self, ctx, ensemble: ConformerEnsemble) -> ConformerEnsemble:

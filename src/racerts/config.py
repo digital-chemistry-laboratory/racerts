@@ -421,7 +421,7 @@ class PipelineConfig:
                 ClusterPruner(
                     threshold=prune.cluster_threshold,
                     method=prune.cluster_method,
-                    maxMatches=prune.max_matches,
+                    max_matches=prune.max_matches,
                 )
             )
         return PruneRMSD(

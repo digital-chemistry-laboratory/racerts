@@ -9,23 +9,30 @@ from rdkit import Chem
 from racerts.geometry import heavy_atoms, rmsd, symmetry_maps
 from racerts.pipeline import ConformerEnsemble
 
-from .base import BasePruner, check_threshold
+from .base import (
+    BasePruner,
+    check_n_max,
+    check_threshold,
+    drop_conformers_without_energy,
+)
 
 logger = logging.getLogger(__name__)
 
 METHODS = ("butina", "hierarchical", "leader")
 KERNELS = ("aligned", "symmetric")
 REPRESENTATIVES = ("lowest_energy", "centroid")
+LINKAGES = ("single", "complete", "average", "weighted", "centroid", "median", "ward")
 
 Metric = Callable[[Chem.Mol, int, int], float]
 
 
 class ClusterPruner(BasePruner):
     """
-    Groups conformers whose distance is below threshold and keeps one per group.
+    Groups conformers whose distance is within threshold and keeps one per group.
+    Conformers without a finite energy are dropped first, if any conformer has one.
 
     Args:
-        threshold: The distance (A) below which conformers are grouped: for "butina"
+        threshold: The distance (A) up to which conformers are grouped: for "butina"
             the neighbourhood radius, for "hierarchical" the cut height of the tree,
             for "leader" the radius around each leader.
         method: "butina" (RDKit's Butina clustering),
@@ -39,11 +46,12 @@ class ClusterPruner(BasePruner):
             are none). The "symmetric" kernel always uses the atoms of symmetry_maps
             (the heavy atoms).
         representative: The conformer kept per cluster: "lowest_energy" (the first by
-            conformer order if an energy is missing) or "centroid" (the smallest sum
-            of distances to the other members).
+            conformer order without energies) or "centroid" (the smallest sum of
+            distances to the other members).
         linkage: The linkage of "hierarchical" (scipy method, e.g. "average").
         metric: Instead of the kernel: metric(mol, conf_id_a, conf_id_b) -> distance,
             e.g. a distance over paired reactant and product conformers.
+        max_matches: The most symmetry maps of the "symmetric" kernel.
     """
 
     def __init__(
@@ -55,14 +63,14 @@ class ClusterPruner(BasePruner):
         representative: str = "lowest_energy",
         linkage: str = "average",
         metric: Optional[Metric] = None,
-        verbose: bool = False,
-        **kwargs,
+        max_matches: int = 10000,
     ):
         check_threshold(threshold, "threshold")
         for value, allowed, name in (
             (method, METHODS, "method"),
             (kernel, KERNELS, "kernel"),
             (representative, REPRESENTATIVES, "representative"),
+            (linkage, LINKAGES, "linkage"),
         ):
             if value not in allowed:
                 raise ValueError(f"{name} must be one of {allowed}, not {value!r}.")
@@ -73,8 +81,7 @@ class ClusterPruner(BasePruner):
         self.representative = representative
         self.linkage = linkage
         self.metric = metric
-        self.verbose = verbose
-        self.max_matches = kwargs.get("maxMatches", 10000)
+        self.max_matches = check_n_max(max_matches)
 
     def distances(self, mol: Chem.Mol, conf_ids: Sequence[int]) -> np.ndarray:
         """The symmetric matrix of distances between the conformers conf_ids."""
@@ -117,7 +124,7 @@ class ClusterPruner(BasePruner):
             leaders: List[List[int]] = []
             for i in range(n):
                 for group in leaders:
-                    if matrix[i, group[0]] < self.threshold:
+                    if matrix[i, group[0]] <= self.threshold:
                         group.append(i)
                         break
                 else:
@@ -156,6 +163,8 @@ class ClusterPruner(BasePruner):
         return clusters, matrix, conf_ids
 
     def prune(self, mol: Chem.Mol) -> Chem.Mol:
+        if any(conf.HasProp("energy") for conf in mol.GetConformers()):
+            drop_conformers_without_energy(mol)
         clusters, matrix, conf_ids = self._cluster(mol)
         index = {conf_id: k for k, conf_id in enumerate(conf_ids)}
         keep = set()
@@ -204,10 +213,7 @@ class FamilySelector:
         clusterer: Optional[ClusterPruner] = None,
         renumber: bool = False,
     ):
-        from .stage import PruneCount
-
-        PruneCount(n_max)  # checks n_max
-        self.n_max = int(n_max)
+        self.n_max = check_n_max(n_max)
         self.clusterer = clusterer if clusterer is not None else ClusterPruner()
         self.renumber = renumber
 

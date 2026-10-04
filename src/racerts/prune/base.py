@@ -3,7 +3,7 @@
 import logging
 import math
 from abc import abstractmethod
-from numbers import Real
+from numbers import Integral, Real
 
 from rdkit import Chem
 
@@ -16,6 +16,15 @@ def check_threshold(value, name: str) -> None:
         raise TypeError(f"{name} must be a number, not {value!r}.")
     if not math.isfinite(value) or value < 0:
         raise ValueError(f"{name} must be finite and not negative, not {value!r}.")
+
+
+def check_n_max(n_max) -> int:
+    """n_max as an int; raises unless it is a positive integer."""
+    if isinstance(n_max, bool) or not isinstance(n_max, Integral):
+        raise TypeError(f"n_max must be an integer, not {n_max!r}.")
+    if n_max < 1:
+        raise ValueError("n_max must be positive.")
+    return int(n_max)
 
 
 def drop_conformers_without_energy(mol: Chem.Mol) -> None:
@@ -39,6 +48,8 @@ def drop_conformers_without_energy(mol: Chem.Mol) -> None:
 
 
 class BasePruner:
+    """Removes conformers of a molecule in place; subclasses implement prune."""
+
     @abstractmethod
     def __init__(self, threshold: float, verbose: bool = False, **kwargs):
         raise NotImplementedError

@@ -1,13 +1,17 @@
 """Pruning details: the RMSD of RMSDPruner (racerts.geometry), thresholds, energies."""
 
 import logging
+import math
 
 import numpy as np
+import pytest
 from rdkit import Chem
 from rdkit.Chem import AllChem, rdMolAlign
 
+import racerts
 import racerts.prune.rmsd
-from racerts.prune import RMSDPruner
+from racerts.geometry import symmetry_maps
+from racerts.prune import EnergyPruner, PruneCount, RMSDPruner
 
 
 def _conformers(smiles, n, seed=3):
@@ -42,7 +46,15 @@ def test_too_many_symmetry_matches_are_reported(caplog):
     mol = _conformers("O.O.O", 3)
     with caplog.at_level(logging.WARNING):
         RMSDPruner(include_hs=True, maxMatches=10).prune(Chem.Mol(mol))
-    assert "maxMatches=10" in caplog.text
+    assert "limit of 10" in caplog.text
+
+
+def test_as_many_symmetry_maps_as_the_limit_are_complete(caplog):
+    # 2-methylpropane: 3! = 6 maps of the heavy atoms.
+    mol = Chem.AddHs(Chem.MolFromSmiles("CC(C)C"))
+    with caplog.at_level(logging.WARNING):
+        assert len(symmetry_maps(mol, max_matches=6).maps) == 6
+    assert "limit" not in caplog.text
 
 
 def test_superposition_can_be_left_out():
@@ -70,17 +82,6 @@ def test_calc_rmsd_gives_rdkits_best_rms():
     for i, j in [(0, 1), (2, 3)]:
         best = rdMolAlign.GetBestRMS(Chem.Mol(mol), mol, prbId=i, refId=j)
         assert abs(pruner.calc_rmsd(mol, mol, i, j) - best) < 1e-6
-
-
-import math  # noqa: E402
-
-import pytest  # noqa: E402
-
-import racerts  # noqa: E402
-from racerts.prune import (  # noqa: E402
-    EnergyPruner,
-    PruneCount,
-)
 
 
 @pytest.fixture
@@ -130,6 +131,11 @@ def test_prune_count_needs_finite_energies(ensemble):
 def test_pruner_thresholds_are_checked(make, error):
     with pytest.raises(error):
         make()
+
+
+def test_prune_stages_take_a_pruner_object():
+    with pytest.raises(TypeError, match="pruner"):
+        racerts.PruneRMSD(0.2)  # a threshold: PruneRMSD(RMSDPruner(threshold=0.2))
 
 
 def test_energy_pruner_drops_non_finite_energies(ensemble, caplog):

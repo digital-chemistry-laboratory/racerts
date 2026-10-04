@@ -127,14 +127,16 @@ def symmetry_maps(
         except Exception:
             graph = Chem.RemoveHs(graph, sanitize=False)
     atoms = [atom.GetIntProp(_INDEX) for atom in graph.GetAtoms()]
-    matches = atom_matches(graph, graph, max_matches)
-    if len(matches) >= max_matches:
+    matches = atom_matches(graph, graph, max_matches + 1)
+    if len(matches) > max_matches:
         logger.warning(
-            "The symmetry matches reach maxMatches=%d, so the RMSD may miss "
-            "equivalent atom mappings, and duplicates of symmetric structures (e.g. "
-            "identical solvent molecules) can remain; increase maxMatches.",
+            "The graph has more symmetry maps than the limit of %d (max_matches), so "
+            "the RMSD may miss equivalent atom mappings, and duplicates of symmetric "
+            "structures (e.g. identical solvent molecules) can remain; raise the "
+            "limit.",
             max_matches,
         )
+        matches = matches[:max_matches]
     identity = np.arange(len(atoms))
     maps = np.array(matches, dtype=np.intp).reshape(-1, len(atoms))
     maps = np.vstack([identity, maps[(maps != identity).any(axis=1)]])

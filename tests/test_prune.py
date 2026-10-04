@@ -76,6 +76,33 @@ def test_threshold_zero_keeps_every_conformer():
     assert RMSDPruner(threshold=0.0).prune(Chem.Mol(mol)).GetNumConformers() == 3
 
 
+@pytest.mark.parametrize("smiles", ["C#C", "C#N", "[CH2]"])
+def test_copies_of_a_linear_molecule_are_duplicates(smiles):
+    # The moment of inertia about the axis of a linear molecule is rounding noise
+    # (1e-16 to 1e-10): its relative difference between two copies says nothing.
+    ensemble = racerts.generate_gs(smiles)
+    assert len(ensemble) == 1
+
+
+def test_a_bent_conformer_differs_from_a_linear_one():
+    mol = Chem.AddHs(Chem.MolFromSmiles("O"))
+    for positions in (
+        [[0, 0, 0], [0.96, 0, 0], [-0.96, 0, 0]],
+        [[0, 0, 0], [0.96, 0, 0], [-0.24, 0.93, 0]],
+    ):
+        conf = Chem.Conformer(3)
+        for i, p in enumerate(positions):
+            conf.SetAtomPosition(i, p)
+        conf.SetDoubleProp("energy", 0.0)
+        mol.AddConformer(conf, assignId=True)
+    for order in ((0, 1), (1, 0)):  # either one as the kept conformer
+        copy = Chem.Mol(mol)
+        for new_id, conf_id in enumerate(order):
+            copy.GetConformer(conf_id).SetId(10 + new_id)
+        pruned = RMSDPruner(include_hs=True).prune(copy)
+        assert pruned.GetNumConformers() == 2
+
+
 def test_calc_rmsd_gives_rdkits_best_rms():
     mol = Chem.RemoveHs(_conformers("CC(C)(C)CC(=O)[O-]", 4))
     pruner = RMSDPruner()

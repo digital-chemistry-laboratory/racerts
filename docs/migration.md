@@ -46,6 +46,9 @@ The legacy API keeps working; all of it lives in `racerts.compat`:
   count of the TS graph), which reaches ASE calculators as their spin.
 - The chirality fallback of the embedders (for TS geometries that contradict a chiral tag)
   now logs a warning.
+- Copies of a linear molecule (acetylene, HCN) are pruned as duplicates. Their moment of
+  inertia about the axis is rounding noise, which the rotational filter of `RMSDPruner`
+  took for a difference, so most copies were kept.
 
 ## For new code
 

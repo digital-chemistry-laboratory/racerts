@@ -18,6 +18,11 @@ from .base import BasePruner, check_threshold, drop_conformers_without_energy
 
 logger = logging.getLogger(__name__)
 
+# amu A^2: a principal moment of inertia below this is zero (the axis of a linear
+# molecule, a single atom). Computed moments of such axes are rounding noise (1e-16 to
+# 1e-10); the smallest real moment, of H2, is 0.28.
+ZERO_MOMENT = 1e-6
+
 
 class RMSDPruner(BasePruner):
     """
@@ -162,11 +167,10 @@ class RMSDPruner(BasePruner):
                 rot = self.calc_rotations(mol, id=int(j))
                 check = False
                 for i in range(3):
-                    difference = abs(ref_rotations[i] - rot[i])
-                    if ref_rotations[i] == 0.0:
-                        f_rot = 0.0 if rot[i] == 0.0 else np.inf
+                    if ref_rotations[i] <= ZERO_MOMENT:
+                        f_rot = 0.0 if rot[i] <= ZERO_MOMENT else np.inf
                     else:
-                        f_rot = difference / ref_rotations[i]
+                        f_rot = abs(ref_rotations[i] - rot[i]) / ref_rotations[i]
                     if f_rot > rot_fraction_threshold:
                         check = True
                         break

@@ -15,6 +15,9 @@ import numpy as np
 from rdkit import Chem, rdBase
 from rdkit.Chem import AllChem
 
+from .spec import infer_charge_and_multiplicity
+from .stereo import TETRAHEDRAL, UNSPECIFIED_BOND
+
 logger = logging.getLogger(__name__)
 
 BOND_TYPES = {
@@ -24,8 +27,20 @@ BOND_TYPES = {
     "dative": Chem.BondType.DATIVE,
 }
 MODES = ("append", "renumber")
-TETRAHEDRAL = (Chem.ChiralType.CHI_TETRAHEDRAL_CW, Chem.ChiralType.CHI_TETRAHEDRAL_CCW)
 MIN_KEPT_SHARE = 0.3  # below: warn, the swap is close to a new embedding
+FLIPPED_DIRECTIONS = {
+    Chem.BondDir.ENDUPRIGHT: Chem.BondDir.ENDDOWNRIGHT,
+    Chem.BondDir.ENDDOWNRIGHT: Chem.BondDir.ENDUPRIGHT,
+}
+FLIPPED_STEREO = {
+    Chem.BondStereo.STEREOCIS: Chem.BondStereo.STEREOTRANS,
+    Chem.BondStereo.STEREOTRANS: Chem.BondStereo.STEREOCIS,
+}
+# E/Z of stereo atoms that are the CIP-highest neighbours, as geometry: E = trans
+GEOMETRIC = {
+    Chem.BondStereo.STEREOE: Chem.BondStereo.STEREOTRANS,
+    Chem.BondStereo.STEREOZ: Chem.BondStereo.STEREOCIS,
+}
 
 
 class SwapError(ValueError):
@@ -37,7 +52,8 @@ class Swap:
     """
     What to replace, and by what. One selector:
 
-    - site: the map number of a terminal H or dummy atom that leaves; the fragment binds to its neighbour.
+    - site: the map number of a terminal H or dummy atom that leaves (see
+      label_hydrogen); the fragment binds to its neighbour.
     - remove_atoms: the atoms that leave (their hydrogens leave with them); the
       fragment binds where bonds were cut. [] with attach_map adds a fragment.
     - center, substructure: the substructure-th group bound to center (groups are
@@ -164,7 +180,7 @@ def apply_swap(
     replaces does not carry over, its distance would not fit.
 
     Raises:
-        ValueError: For a selector that does not match exactly once, a fragment that
+        SwapError: For a selector that does not match exactly once, a fragment that
             is not one connected piece with its dummies, radicals or atom maps in the
             fragment, or valences that do not work out.
     """
@@ -302,12 +318,6 @@ def _fragment(swap: Swap) -> Tuple[Chem.Mol, Dict[int, int]]:
     return with_h, dummies
 
 
-FLIPPED_DIRECTIONS = {
-    Chem.BondDir.ENDUPRIGHT: Chem.BondDir.ENDDOWNRIGHT,
-    Chem.BondDir.ENDDOWNRIGHT: Chem.BondDir.ENDUPRIGHT,
-}
-
-
 def _set_bond_type(fragment: Chem.RWMol, dummy: int, kind: str) -> None:
     """
     The dummy's bond as kind (dative: from the fragment atom). RDKit cannot turn a bond
@@ -339,16 +349,7 @@ def _removed_atoms(mol: Chem.Mol, swap: Swap):
     n = mol.GetNumAtoms()
     anchors = None
     if swap.site is not None:
-        sites = [a for a in mol.GetAtoms() if a.GetAtomMapNum() == swap.site]
-        if len(sites) != 1:
-            raise SwapError(
-                f"Expected exactly one atom with map number {swap.site}, found "
-                f"{len(sites)}."
-            )
-        site = sites[0]
-        if site.GetAtomicNum() not in (0, 1) or site.GetDegree() != 1:
-            raise SwapError("A site must be a terminal hydrogen or dummy atom.")
-        removed = {site.GetIdx()}
+        removed = {_site(mol, swap.site)}
     elif swap.remove_atoms is not None:
         atoms = list(swap.remove_atoms)
         invalid = [
@@ -372,7 +373,16 @@ def _removed_atoms(mol: Chem.Mol, swap: Swap):
             )
         removed = set(groups[swap.substructure])
     else:
-        removed, anchors = _match_old_fragment(mol, swap.old_fragment)
+        removed, ways = _match_old_fragment(mol, swap.old_fragment)
+        anchors = ways[0]
+        if len(ways) > 1 and swap.attach_map is None:
+            logger.warning(
+                "old_fragment %r matches the group in %d ways (dummy number: kept "
+                "atom): %s. The first is used; give attach_map to choose.",
+                swap.old_fragment,
+                len(ways),
+                ways,
+            )
     if len(removed) == n:
         raise SwapError("The swap would remove every atom.")
     cuts = sorted(
@@ -382,6 +392,18 @@ def _removed_atoms(mol: Chem.Mol, swap: Swap):
         if b.GetOtherAtomIdx(i) not in removed
     )
     return sorted(removed), cuts, anchors
+
+
+def _site(mol: Chem.Mol, label: int) -> int:
+    """The terminal hydrogen or dummy atom with the map number label."""
+    sites = [a for a in mol.GetAtoms() if a.GetAtomMapNum() == label]
+    if len(sites) != 1:
+        raise SwapError(
+            f"Expected exactly one atom with map number {label}, found {len(sites)}."
+        )
+    if sites[0].GetAtomicNum() not in (0, 1) or sites[0].GetDegree() != 1:
+        raise SwapError("A site must be a terminal hydrogen or dummy atom.")
+    return sites[0].GetIdx()
 
 
 def _groups(mol: Chem.Mol, center: int) -> List[List[int]]:
@@ -407,7 +429,10 @@ def _groups(mol: Chem.Mol, center: int) -> List[List[int]]:
 
 
 def _match_old_fragment(mol: Chem.Mol, smarts: str):
-    """The atoms that leave, and the kept atom of each map number of the SMARTS."""
+    """
+    The atoms that leave, and the ways the SMARTS matches them: for each, the kept
+    atom of every map number.
+    """
     query = Chem.MolFromSmarts(smarts)
     if query is None:
         raise SwapError(f"Invalid SMARTS {smarts!r}.")
@@ -428,19 +453,19 @@ def _match_old_fragment(mol: Chem.Mol, smarts: str):
                 if j not in removed and j not in kept:
                     removed.add(j)
                     stack.append(j)
-        if len(removed) + len(kept) >= mol.GetNumAtoms():
-            continue  # not a substituent at the mapped atoms (e.g. a ring)
         anchors = {number: match[i] for i, number in mapped.items()}
-        candidates.setdefault(frozenset(removed), anchors)
+        ways = candidates.setdefault(frozenset(removed), [])
+        if anchors not in ways:
+            ways.append(anchors)
     if not candidates:
-        raise SwapError(f"old_fragment {smarts!r} matches no substituent.")
+        raise SwapError(f"old_fragment {smarts!r} does not match the molecule.")
     if len(candidates) > 1:
         raise SwapError(
             f"old_fragment {smarts!r} matches {len(candidates)} different groups "
             f"{sorted(sorted(c) for c in candidates)}; use remove_atoms."
         )
-    removed, anchors = next(iter(candidates.items()))
-    return set(removed), anchors
+    removed, ways = next(iter(candidates.items()))
+    return set(removed), ways
 
 
 def _pair(mol, swap, fragment, dummies, removed, cuts, anchors) -> List[_Attachment]:
@@ -466,7 +491,16 @@ def _pair(mol, swap, fragment, dummies, removed, cuts, anchors) -> List[_Attachm
     attachments = []
     for number in numbers:
         kept = attach_map[number]
-        if not 0 <= kept < mol.GetNumAtoms() or kept in removed:
+        if (
+            isinstance(kept, bool)
+            or not isinstance(kept, (int, np.integer))
+            or not 0 <= kept < mol.GetNumAtoms()
+        ):
+            raise SwapError(
+                f"Dummy {number} would bind to atom {kept!r}, which the molecule does "
+                "not have."
+            )
+        if kept in removed:
             raise SwapError(f"Dummy {number} would bind to atom {kept}, which leaves.")
         cut = next((c for c in open_cuts if c[0] == kept), None)
         partner = None
@@ -475,7 +509,12 @@ def _pair(mol, swap, fragment, dummies, removed, cuts, anchors) -> List[_Attachm
             partner = cut[1]
         dummy = dummies[number]
         root = fragment.GetAtomWithIdx(dummy).GetNeighbors()[0].GetIdx()
-        attachments.append(_Attachment(number, dummy, root, kept, partner))
+        attachments.append(_Attachment(number, dummy, root, int(kept), partner))
+    bonds = [(a.kept, a.root) for a in attachments]
+    if len(set(bonds)) < len(bonds):
+        raise SwapError(
+            "Two dummies on one fragment atom would form the same bond to a kept atom."
+        )
     return attachments
 
 
@@ -581,7 +620,7 @@ def _build(mol, swap, fragment, attachments, slots, frag_to_new, ref_to_new):
                 continue
             target.SetStereoAtoms(*ends)
             target.SetStereo(stereo)
-            carried_bonds.add(frozenset(target_pair(target)))
+            carried_bonds.add(frozenset(_ends(target)))
     # Chiral tags refer to the order of the neighbours: carry them over by parity.
     for source, index_map, kind in (
         (mol, ref_map, "ref"),
@@ -590,7 +629,7 @@ def _build(mol, swap, fragment, attachments, slots, frag_to_new, ref_to_new):
         own = ref_to_new if kind == "ref" else frag_to_new
         for old, new_index in own.items():
             atom = source.GetAtomWithIdx(old)
-            if atom.GetChiralTag() not in TETRAHEDRAL:
+            if atom.GetChiralTag() == Chem.ChiralType.CHI_UNSPECIFIED:
                 continue
             expected = [index_map.get(n.GetIdx()) for n in atom.GetNeighbors()]
             target = result.GetAtomWithIdx(new_index)
@@ -602,6 +641,16 @@ def _build(mol, swap, fragment, attachments, slots, frag_to_new, ref_to_new):
                     new_index,
                 )
                 target.SetChiralTag(Chem.ChiralType.CHI_UNSPECIFIED)
+                continue
+            if atom.GetChiralTag() not in TETRAHEDRAL:
+                # e.g. square planar: only the parity of tetrahedral tags is remapped
+                if expected != actual:
+                    logger.warning(
+                        "Atom %d gets its neighbours in another order; its "
+                        "non-tetrahedral stereo is left unspecified.",
+                        new_index,
+                    )
+                    target.SetChiralTag(Chem.ChiralType.CHI_UNSPECIFIED)
                 continue
             if _odd([expected.index(k) for k in actual]):
                 target.InvertChirality()
@@ -627,15 +676,13 @@ def _charge_and_multiplicity(mol, result, fragment, frag_to_new, removed) -> Non
     charges of the fragment and of the removed atoms; the multiplicity of the
     reference, if it has one and the swap keeps the parity of the electrons.
     """
-    from .spec import infer_charge_and_multiplicity
-
-    charge = infer_charge_and_multiplicity(mol)["charge"]
+    reference_charge = infer_charge_and_multiplicity(mol)["charge"]
+    charge = reference_charge
     charge += sum(fragment.GetAtomWithIdx(j).GetFormalCharge() for j in frag_to_new)
     charge -= sum(mol.GetAtomWithIdx(i).GetFormalCharge() for i in removed)
     result.SetIntProp("charge", int(charge))
     if mol.HasProp("multiplicity"):
         multiplicity = mol.GetIntProp("multiplicity")
-        reference_charge = infer_charge_and_multiplicity(mol)["charge"]
         change = _electrons(result) - charge - (_electrons(mol) - reference_charge)
         if change % 2 == 0:  # the parity of the electrons is the same
             result.SetIntProp("multiplicity", multiplicity)
@@ -660,19 +707,7 @@ def _electrons(mol: Chem.Mol) -> int:
     return total
 
 
-UNSPECIFIED_BOND = (Chem.BondStereo.STEREONONE, Chem.BondStereo.STEREOANY)
-FLIPPED_STEREO = {
-    Chem.BondStereo.STEREOCIS: Chem.BondStereo.STEREOTRANS,
-    Chem.BondStereo.STEREOTRANS: Chem.BondStereo.STEREOCIS,
-}
-# E/Z of stereo atoms that are the CIP-highest neighbours, as geometry: E = trans
-GEOMETRIC = {
-    Chem.BondStereo.STEREOE: Chem.BondStereo.STEREOTRANS,
-    Chem.BondStereo.STEREOZ: Chem.BondStereo.STEREOCIS,
-}
-
-
-def target_pair(bond) -> Tuple[int, int]:
+def _ends(bond) -> Tuple[int, int]:
     return bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
 
 
@@ -690,7 +725,7 @@ def _perceive_stereo(mol: Chem.Mol, keep_bonds) -> None:
         if (
             bond.GetBondType() == Chem.BondType.DOUBLE
             and bond.GetStereo() not in UNSPECIFIED_BOND
-            and frozenset(target_pair(bond)) not in keep_bonds
+            and frozenset(_ends(bond)) not in keep_bonds
         ):
             bond.SetStereo(Chem.BondStereo.STEREONONE)
 
@@ -709,7 +744,7 @@ def _stereo_candidates(mol: Chem.Mol):
         if info.type == Chem.StereoType.Atom_Tetrahedral:
             atoms.add(info.centeredOn)
         elif info.type == Chem.StereoType.Bond_Double:
-            bonds.add(frozenset(target_pair(mol.GetBondWithIdx(info.centeredOn))))
+            bonds.add(frozenset(_ends(mol.GetBondWithIdx(info.centeredOn))))
     return atoms, bonds
 
 
@@ -730,7 +765,7 @@ def _stereo_3d(mol: Chem.Mol, conf_id: int, candidates):
         a.GetIdx() for a in probe.GetAtoms() if a.GetChiralTag() in TETRAHEDRAL
     }
     bonds_found = {
-        frozenset(target_pair(b))
+        frozenset(_ends(b))
         for b in probe.GetBonds()
         if b.GetBondType() == Chem.BondType.DOUBLE
         and b.GetStereo() not in UNSPECIFIED_BOND
@@ -758,6 +793,8 @@ def _stereo_3d(mol: Chem.Mol, conf_id: int, candidates):
             ends.append(min(neighbours))
         if len(ends) < 2:
             continue
+        if np.linalg.norm(positions[a] - positions[b]) < 1e-8:
+            continue  # atoms without coordinates yet (at the origin)
         dihedral = abs(_dihedral(positions, ends[0], a, b, ends[1]))
         if 80 < dihedral < 100:  # twisted: neither cis nor trans
             continue
@@ -1052,12 +1089,13 @@ def substitute_groups(
     mol: Chem.Mol, substitutions: Mapping[int, str], random_seed: int = 0xF00D
 ) -> Chem.Mol:
     """
-    each labelled terminal H or dummy (map number -> "[*]R")
-    becomes the group R, grafted rigidly on every conformer; "[H]" caps a site with a
-    hydrogen at the sum of the covalent radii along its bond. Kept atoms keep their
-    indices and coordinates; the group's first atom takes the label. Properties of the
-    molecule and its conformers are cleared (results do not carry over); without
-    substitutions, an unchanged copy.
+    Each labelled terminal H or dummy (map number -> "[*]R") becomes the group R,
+    grafted rigidly on every conformer; "[H]" caps a site with a hydrogen at the sum
+    of the covalent radii along its bond. Kept atoms keep their indices and
+    coordinates; the group's first atom takes the label. The properties of the
+    molecule and its conformers are cleared (results do not carry over), except its
+    charge and multiplicity as the swaps settle them; without substitutions, an
+    unchanged copy.
     """
     result = Chem.Mol(mol)
     if not substitutions:
@@ -1069,20 +1107,25 @@ def substitute_groups(
             result = _cap(result, label)
             continue
         result = apply_swap(result, Swap(smiles, site=label), seed=random_seed).mol
+    state = {
+        key: result.GetIntProp(key)
+        for key in ("charge", "multiplicity")
+        if result.HasProp(key)
+    }
     for carrier in [result, *result.GetConformers()]:
         for key in list(
             carrier.GetPropNames(includePrivate=True, includeComputed=False)
         ):
             carrier.ClearProp(key)
+    for key, value in state.items():
+        result.SetIntProp(key, value)
     return result
 
 
 def _cap(mol: Chem.Mol, label: int) -> Chem.Mol:
     """The site with map number label as a hydrogen, at the covalent distance."""
-    sites = [a for a in mol.GetAtoms() if a.GetAtomMapNum() == label]
-    if len(sites) != 1 or sites[0].GetDegree() != 1:
-        raise SwapError(f"Expected exactly one attachment with map number {label}.")
-    site, anchor = sites[0].GetIdx(), sites[0].GetNeighbors()[0].GetIdx()
+    site = _site(mol, label)
+    anchor = mol.GetAtomWithIdx(site).GetNeighbors()[0].GetIdx()
     capped = Chem.RWMol(mol)
     hydrogen = Chem.Atom(1)
     hydrogen.SetAtomMapNum(label)
@@ -1101,5 +1144,8 @@ def _cap(mol: Chem.Mol, label: int) -> Chem.Mol:
             site, (positions[anchor] + length * direction / norm).tolist()
         )
     result = capped.GetMol()
-    Chem.SanitizeMol(result)
+    try:
+        Chem.SanitizeMol(result)
+    except Exception as error:
+        raise SwapError(f"The capped molecule is invalid: {error}") from None
     return result

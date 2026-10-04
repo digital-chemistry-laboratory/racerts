@@ -297,13 +297,31 @@ def swap(
         missing = [i for i in hard if i not in index_map]
         if missing:
             raise SwapError(f"The hard atoms {missing} leave in the swap.")
-        held = tuple(dict.fromkeys((*frozen.hard, *(index_map[i] for i in hard))))
+        asked = [index_map[i] for i in hard]
+        held = tuple(dict.fromkeys((*frozen.hard, *asked)))
         unplaced = sorted(set(held) & set(result.new_atoms) - set(result.positioned))
         if unplaced:
             raise SwapError(
                 f"The frozen atoms {unplaced} are new atoms without coordinates; hold "
                 "only kept atoms, or atoms that replace one (SwapResult.positioned)."
             )
+        # The rest of a graft has coordinates, but its rotation about the new bond is
+        # arbitrary: only the atoms that replace one are where the reference puts them.
+        anchored = set(result.conserved) | set(result.replaced.values())
+        loose = [i for i in held if i not in anchored]
+        if set(loose) & set(asked):
+            raise SwapError(
+                f"The hard atoms {sorted(set(loose) & set(asked))} are new atoms whose "
+                "position the reference does not define; hold only kept atoms, or "
+                "atoms that replace one (SwapResult.replaced)."
+            )
+        if loose:  # e.g. the new neighbours of an atom that took a reacting atom's role
+            logger.warning(
+                "The frozen atoms %s of the task are new atoms whose position the "
+                "reference does not define; they are sampled, not held.",
+                loose,
+            )
+            held = tuple(i for i in held if i in anchored)
         _warn_near_core(result, held)
         if conserve == "hard":
             if not result.placed:

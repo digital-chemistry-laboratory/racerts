@@ -10,7 +10,7 @@ from rdkit.Chem import AllChem, rdDetermineBonds
 def mol_from_explicit_h_smiles(smiles: str) -> Chem.Mol:
     """
     Parse a SMILES keeping its explicit hydrogens, with no implicit hydrogens allowed
-    on any atom: a missing neighbour then stays a radical.
+    on any atom: an atom short of a neighbour is a radical, in brackets or not.
 
     Raises:
         ValueError: If the SMILES cannot be parsed.
@@ -23,6 +23,7 @@ def mol_from_explicit_h_smiles(smiles: str) -> Chem.Mol:
     for atom in mol.GetAtoms():
         atom.SetNoImplicit(True)
     mol.UpdatePropertyCache(strict=False)
+    Chem.AssignRadicals(mol)
     return mol
 
 
@@ -58,13 +59,14 @@ def mol_from_geometry(
     The molecule of an explicit-hydrogen SMILES on a geometry:
     the connectivity is perceived from the distances, and the SMILES' bond orders,
     charges and radicals are assigned onto it. The atoms keep the order of the
-    geometry.
+    geometry; the stereo comes from the geometry (that of the SMILES is not used).
 
     Args:
         structure: ASE Atoms, or a molecule with a conformer (e.g. from an xyz file).
         smiles: The molecule, with explicit hydrogens.
         charge, multiplicity: If given, they must agree with the SMILES (the sum of the
-            formal charges; 1 + the radical electrons).
+            formal charges; 1 + the radical electrons), and are stored as properties
+            of the molecule.
 
     Raises:
         ValueError: If the geometry does not have the connectivity of the SMILES, or
@@ -72,9 +74,7 @@ def mol_from_geometry(
     """
     template = mol_from_explicit_h_smiles(smiles)
     expected_charge = Chem.GetFormalCharge(template)
-    expected_multiplicity = 1 + sum(
-        a.GetNumRadicalElectrons() for a in template.GetAtoms()
-    )
+    expected_multiplicity = radical_multiplicity(template)
     if charge is not None and charge != expected_charge:
         raise ValueError(
             f"Charge mismatch: {charge} given, the SMILES has {expected_charge}."
@@ -129,6 +129,9 @@ def mol_from_geometry(
             f"The geometry does not have the connectivity of {smiles!r}: {error}"
         ) from error
     Chem.AssignStereochemistryFrom3D(mol)
+    for key, value in (("charge", charge), ("multiplicity", multiplicity)):
+        if value is not None:
+            mol.SetIntProp(key, int(value))
     return mol
 
 

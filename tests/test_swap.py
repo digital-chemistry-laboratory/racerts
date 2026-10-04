@@ -7,8 +7,19 @@ import pytest
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
+import racerts
+from racerts.embed.rigid_attach import rigid_attach
+from racerts.geometry import rmsd
+from racerts.restraints import PositionRestraint
 from racerts.system.stereo import StereoCheck
-from racerts.system.swap import Swap, apply_swap, label_hydrogen, substitute_groups
+from racerts.system.swap import (
+    Swap,
+    SwapError,
+    apply_swap,
+    label_hydrogen,
+    substitute_groups,
+)
+from racerts.task import Constrained, FrozenSet, TransitionState
 
 
 def embedded(smiles, n=1, seed=0):
@@ -157,7 +168,7 @@ def test_ambiguous_and_invalid_selectors(methylbiphenyl):
     mol = methylbiphenyl
     with pytest.raises(ValueError, match="different groups"):
         apply_swap(mol, Swap("[*:1]C", old_fragment="[H][c:1]"))
-    with pytest.raises(ValueError, match="no substituent"):
+    with pytest.raises(ValueError, match="does not match the molecule"):
         apply_swap(mol, Swap("[*:1]C", old_fragment="[N][c:1]"))
     with pytest.raises(ValueError, match="exactly one selector"):
         Swap("[*]C")
@@ -422,10 +433,6 @@ def test_small_kept_share_warns(caplog):
 
 # Tiers: soft atoms (coordinate map in embedding, position restraints in refinement).
 
-import racerts  # noqa: E402
-from racerts.restraints import PositionRestraint  # noqa: E402
-from racerts.task import Constrained, FrozenSet, TransitionState  # noqa: E402
-
 
 def test_frozen_set_and_constrained_with_soft_atoms():
     assert FrozenSet(soft=(2,)) and not FrozenSet()
@@ -532,8 +539,6 @@ def test_soft_atoms_need_the_coordinate_map_embedder():
 
 # racerts.swap: sampling after the swap.
 
-from racerts.embed.rigid_attach import rigid_attach  # noqa: E402
-from racerts.geometry import rmsd  # noqa: E402
 
 BUTYL_SWAP = Swap("[*:1]CCCC", old_fragment="[CH3][c:1]")
 
@@ -1331,3 +1336,93 @@ def test_restraints_are_remapped_and_lost_ones_reported(caplog):
     assert max(lengths) < 3.0
     with pytest.raises(ValueError, match="samples nothing"):
         racerts.swap(mol, change, restraints=restraints, conserve="hard")
+
+
+def test_square_planar_tags_do_not_survive_a_new_neighbour_order(caplog):
+    # The tag refers to the order of the neighbours, which the swap changes; unlike
+    # tetrahedral tags it is not remapped, so it is dropped rather than left wrong.
+    mol = Chem.MolFromSmiles("C[Pt@SP1](F)(Cl)Br")
+    fluorine = next(a.GetIdx() for a in mol.GetAtoms() if a.GetSymbol() == "F")
+    with caplog.at_level("WARNING"):
+        result = apply_swap(mol, Swap("[*]I", remove_atoms=[fluorine]))
+    platinum = next(a for a in result.mol.GetAtoms() if a.GetSymbol() == "Pt")
+    assert platinum.GetChiralTag() == Chem.ChiralType.CHI_UNSPECIFIED
+    assert "non-tetrahedral" in caplog.text
+
+
+def test_substitute_groups_keeps_charge_and_multiplicity():
+    mol = embedded("CO")
+    mol.SetIntProp("charge", -1)  # e.g. of a connectivity graph without formal charges
+    mol.SetIntProp("multiplicity", 2)
+    mol.SetProp("energy_method", "MMFFOptimizer")
+    grafted = substitute_groups(label_hydrogen(mol, 1, 100), {100: "[*]C"})
+    assert grafted.GetIntProp("charge") == -1
+    assert grafted.GetIntProp("multiplicity") == 2
+    assert not grafted.HasProp("energy_method")  # results do not carry over
+
+
+def test_a_terminal_group_can_be_named_by_old_fragment():
+    result = apply_swap(embedded("CBr"), Swap("[*:1]CC", old_fragment="[CH3][Br:1]"))
+    assert identity(result.mol) == canonical("CCBr")
+
+
+def test_an_ambiguous_old_fragment_is_reported(caplog):
+    # The CH2 between two rings matches either way round; the ester can go in both.
+    mol = embedded("Cc1ccccc1Cc1ccccc1")
+    change = Swap("[*:1]C(=O)O[*:2]", old_fragment="[c:1][CH2][c:2]")
+    with caplog.at_level("WARNING"):
+        first = apply_swap(mol, change)
+    assert "2 ways" in caplog.text and "attach_map" in caplog.text
+    caplog.clear()
+    ring_atoms = [kept for kept, _ in first.attachments]  # kept atoms keep indices
+    chosen = Swap(
+        "[*:1]C(=O)O[*:2]",
+        old_fragment="[c:1][CH2][c:2]",
+        attach_map={1: ring_atoms[1], 2: ring_atoms[0]},
+    )
+    with caplog.at_level("WARNING"):
+        other = apply_swap(mol, chosen)
+    assert "ways" not in caplog.text
+    assert identity(other.mol) != identity(first.mol)
+
+
+@pytest.mark.parametrize(
+    "attach_map, message",
+    [({1: 0, 2: 0}, "same bond"), ({1: 99, 2: 0}, "does not have")],
+)
+def test_attach_maps_are_checked(attach_map, message):
+    change = Swap("[*:1]C[*:2]", remove_atoms=[], attach_map=attach_map)
+    with pytest.raises(SwapError, match=message):
+        apply_swap(embedded("CC"), change)
+
+
+def test_only_hydrogens_and_dummies_are_capped():
+    labelled = label_hydrogen(embedded("CCO"), 2, 100)
+    fluoride = substitute_groups(labelled, {100: "[*]F"})  # the F carries the label
+    with pytest.raises(SwapError, match="terminal hydrogen or dummy"):
+        substitute_groups(fluoride, {100: "[H]"})
+
+
+def test_new_atoms_without_a_defined_position_are_not_held(sn2_ts, caplog):
+    # The leaving Cl becomes a mesylate: its O takes the place (and the role) of the
+    # Cl, but the S, a neighbour of a reacting atom, has no position from the
+    # reference. It is sampled, not held where the graft happened to put it.
+    from racerts.system import build_mol
+
+    mol = build_mol(sn2_ts, -1, [0, 1, 2], input_smiles=["CCl", "[Cl-]"])
+    chlorine = next(
+        n.GetIdx()
+        for n in mol.GetAtomWithIdx(0).GetNeighbors()
+        if n.GetSymbol() == "Cl"
+    )
+    change = Swap("[*]OS(C)(=O)=O", remove_atoms=[chlorine])
+    with caplog.at_level("WARNING"):
+        ensemble = racerts.swap(
+            mol, change, task=TransitionState([0, 1, 2]), n_conformers=12
+        )
+    assert "position the reference does not define" in caplog.text
+    sulfur = next(a.GetIdx() for a in ensemble.mol.GetAtoms() if a.GetSymbol() == "S")
+    positions = np.array(
+        [ensemble.mol.GetConformer(i).GetPositions()[sulfur] for i in ensemble.conf_ids]
+    )
+    assert len(ensemble) > 1 and np.ptp(positions, axis=0).max() > 0.1

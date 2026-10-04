@@ -22,11 +22,16 @@ def _geometry(smiles, seed=3):
     return Chem.RenumberAtoms(mol, order)
 
 
-def test_explicit_h_smiles_keeps_radicals():
-    mol = mol_from_explicit_h_smiles("[H]C([H])([H])[C]([H])[H]")  # ethyl radical
+@pytest.mark.parametrize(
+    "smiles", ["[H]C([H])([H])[C]([H])[H]", "[H]C([H])([H])C([H])[H]"]
+)
+def test_explicit_h_smiles_keeps_radicals(smiles):
+    # The ethyl radical, its CH2 carbon in brackets or not: no hydrogen is added.
+    mol = mol_from_explicit_h_smiles(smiles)
     assert mol.GetNumAtoms() == 7
     assert radical_multiplicity(mol) == 2
     assert all(atom.GetNoImplicit() for atom in mol.GetAtoms())
+    assert radical_multiplicity(mol_from_explicit_h_smiles("[H]C([H])([H])[H]")) == 1
     with pytest.raises(ValueError, match="Invalid SMILES"):
         mol_from_explicit_h_smiles("C(")
 
@@ -57,6 +62,10 @@ def test_graph_from_geometry_with_a_radical():
     mol = mol_from_geometry(radical, "[H]C([H])([H])[C]([H])[H]", multiplicity=2)
     assert radical_multiplicity(mol) == 2
     assert Chem.GetFormalCharge(mol) == 0
+    # The given state is stored, for the Context and the calculators.
+    assert mol.GetIntProp("multiplicity") == 2 and not mol.HasProp("charge")
+    ctx = racerts.Context.create(mol, racerts.GroundState())
+    assert ctx.mol.GetIntProp("multiplicity") == 2
 
 
 def test_graph_from_geometry_rejects_mismatches():

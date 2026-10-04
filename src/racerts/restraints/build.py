@@ -1,4 +1,4 @@
-"""build_restraints: the restraints of a task from the user and the seed geometry."""
+"""build_restraints: the restraints of a task from the user and the reference."""
 
 import logging
 from typing import Iterable, Optional, Sequence
@@ -157,7 +157,7 @@ def _with_fragment_links(
             )  # fmt: skip
             for pair in dict.fromkeys(tuple(sorted(p)) for p in links)
         )
-        candidate = windows.merge(restraints)  # user and seed windows win
+        candidate = windows.merge(restraints)  # the others win over links
         try:
             bounds_matrix(mol, windows=candidate)
         except InconsistentRestraints:

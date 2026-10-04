@@ -19,7 +19,7 @@ from .conftest import DATA
 ALDOL = os.path.join(DATA, "aldol_ts.xyz")  # tests/data/make_aldol_ts.py
 REACTING = [0, 10, 11, 12, 19]
 SMILES = ["OC(=O)[C@@H]1CCCN1C(C)=C", "O=Cc1ccccc1"]
-CC = (10, 12)  # the forming C-C bond, 2.2 A in the seed
+CC = (10, 12)  # the forming C-C bond, 2.2 A in the reference
 
 
 @pytest.fixture(scope="module")

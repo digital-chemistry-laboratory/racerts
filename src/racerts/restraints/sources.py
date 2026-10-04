@@ -1,4 +1,4 @@
-"""Where restraints come from: the user, the seed geometry, fragment links."""
+"""Where restraints come from: the user, the reference geometry, fragment links."""
 
 import random
 from itertools import combinations
@@ -80,7 +80,7 @@ def hydrogen_bonds(
     distances: two triplets each, H...A and D...A, which keep the contact and its
     direction. Donors are N-H and O-H; acceptors N, O, F, S and the heavier halogens.
     """
-    positions = reference_positions(mol, "Hydrogen bonds of the seed")
+    positions = reference_positions(mol, "Hydrogen bonds of the reference")
     acceptors = [a.GetIdx() for a in mol.GetAtoms() if a.GetSymbol() in HBOND_ACCEPTORS]
     triplets = []
     for hydrogen in mol.GetAtoms():

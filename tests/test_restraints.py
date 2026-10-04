@@ -149,7 +149,7 @@ def test_a_user_window_decides_what_fits_with_it(sn2_ts_water, caplog):
         restraints = build_restraints(mol, frozen, user=[(2, 7, 4.8)], hbonds=True)
     assert [r.label for r in restraints] == ["user:2-7"]
     assert "hbond:2-6" in caplog.text and "left out" in caplog.text
-    # Near the seed distance, both stay.
+    # Near the reference distance, both stay.
     kept = build_restraints(mol, frozen, user=[(2, 7, 2.5)], hbonds=True)
     assert sorted(r.label for r in kept) == ["hbond:2-6", "user:2-7"]
 

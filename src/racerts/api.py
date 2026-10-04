@@ -286,7 +286,7 @@ def swap(
         if getattr(base, "windowed", False):
             raise SwapError(
                 "Swaps of tasks with active-bond windows are not supported: swap, "
-                "then generate the windowed ensemble from the new seed."
+                "then generate the windowed ensemble from the new reference."
             )
         frozen = base.frozen_atoms(result.mol) if base is not None else FrozenSet()
         missing = [i for i in hard if i not in index_map]

@@ -32,11 +32,11 @@ class TransitionState:
     frozen atoms are fixed.
 
     Active-bond windows (active_window): the lengths of the active bonds are sampled
-    in a window instead of kept at the seed. Then only the neighbours of the reacting
-    atoms that are not reacting are held at the seed geometry; the reacting atoms are
-    placed by distance windows: [lo, hi] for the active bonds, the seed distance +/-
-    neighbor_window to their bonded neighbours (both in embedding and in MMFF/UFF
-    refinement, with force constant window_force_constant).
+    in a window instead of kept at the reference. Then only the neighbours of the
+    reacting atoms that are not reacting are held at the reference geometry; the
+    reacting atoms are placed by distance windows: [lo, hi] for the active bonds, the
+    reference distance +/- neighbor_window to their bonded neighbours (both in
+    embedding and in MMFF/UFF refinement, with force constant window_force_constant).
 
     Args:
         reacting_atoms: The atoms whose bonds form or break.
@@ -45,10 +45,10 @@ class TransitionState:
         active_bonds: The pairs whose length is sampled; default: the bonds that form
             or break (bond_changes, from from_endpoints), else the reacting pairs that
             the graph does not bond and that are closer than 1.6 times the sum of
-            their covalent radii in the seed, except 1,3-pairs at an angle of 80
+            their covalent radii in the reference, except 1,3-pairs at an angle of 80
             degrees or more (e.g. ring atoms; a narrow angle is a three-membered TS).
-        active_window: None (legacy: the seed length); a number d (the seed length +/-
-            d); or (lo, hi) in A, for every active bond.
+        active_window: None (legacy: the reference length); a number d (the reference
+            length +/- d); or (lo, hi) in A, for every active bond.
         neighbor_window: +/- A for the distances of the reacting atoms to their bonded
             neighbours, in window mode.
         stratify: 0: the embedding places the lengths in the window (not evenly:
@@ -59,7 +59,7 @@ class TransitionState:
             all conformers to one edge). The provenance records the targets
             ("active_bond_targets") and the lengths ("active_bond_lengths").
         stereo_filter: In window mode, drop conformers whose reacting atoms are
-            attacked from the other face than in the seed (see AttackFace).
+            attacked from the other face than in the reference (see AttackFace).
         window_force_constant: Of the windows of the reacting atoms to their
             neighbours in refinement (kcal/(mol A^2)).
         target_force_constant: Of the windows that hold the active bonds at their
@@ -248,7 +248,7 @@ class TransitionState:
         # The other distances of the reacting atoms within the core, e.g. O...O of a
         # proton transfer at 2.5 A, contradict RDKit's default (vdW) bounds, which the
         # coordinate map overrides in legacy mode. In window mode they get an
-        # embedding-only window around the seed distance, as wide as the active bonds
+        # embedding-only window around the reference distance, as wide as the active bonds
         # and the neighbour windows let them change.
         spread = 2 * self.neighbor_window + max(
             max(abs(lo - _length(positions, pair)), abs(hi - _length(positions, pair)))

@@ -239,10 +239,10 @@ class AttackFace:
         }
         reasons = {}
         for reference, conf_ids in ctx.by_reference(ensemble):
-            seed = reference.GetConformer().GetPositions()
+            reference_positions = reference.GetConformer().GetPositions()
             expected = {}
             for side in sides:
-                height = _height(seed, *side, neighbors[side])
+                height = _height(reference_positions, *side, neighbors[side])
                 if height is not None and abs(height) >= self.min_height:
                     expected[side] = np.sign(height)
             for conf_id in conf_ids:

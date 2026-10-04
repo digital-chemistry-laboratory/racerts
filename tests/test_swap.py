@@ -574,10 +574,8 @@ def test_swap_soft_samples_the_chain_around_the_kept_skeleton(methylbiphenyl):
     mol = methylbiphenyl
     grafted = apply_swap(mol, BUTYL_SWAP).mol.GetConformer().GetPositions()
     skeleton = [a.GetIdx() for a in mol.GetAtoms() if a.GetIsAromatic()]
-    assert {
-        racerts.swap(mol, BUTYL_SWAP, n_conformers=4).provenance(c)["route"]
-        for c in racerts.swap(mol, BUTYL_SWAP, n_conformers=4).conf_ids
-    } == {"dg"}  # the default route
+    default = racerts.swap(mol, BUTYL_SWAP, n_conformers=4)
+    assert {default.provenance(c)["route"] for c in default.conf_ids} == {"dg"}
     ensemble = racerts.swap(mol, BUTYL_SWAP, n_conformers=30, routes=["dg", "rigid"])
     assert identity(ensemble.mol) == BUTYL
     routes = {ensemble.provenance(c)["route"] for c in ensemble.conf_ids}
@@ -1001,12 +999,9 @@ def test_soft_atoms_dropped_by_an_optimizer_are_reported(caplog):
 
 
 def test_positioned_atoms_are_listed_once():
-    # One donor for two attachments (the P of two cut bonds): listed once.
-    mol, pd, cl, p = _square_planar_pd_dmpe()
-    change = Swap("[*:1]C", remove_atoms=[cl[0]])
-    assert apply_swap(mol, change).positioned == sorted(
-        set(apply_swap(mol, change).positioned)
-    )
+    # One new atom for two attachments (the O that replaces a ring CH2): listed once.
+    result = apply_swap(embedded("C1CCCCC1"), Swap("[*:1]O[*:2]", remove_atoms=[0]))
+    assert len(result.attachments) == 2 and result.positioned == [0]
 
 
 def _labels(mol):

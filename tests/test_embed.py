@@ -258,6 +258,11 @@ def test_conformer_count_policies():
     assert conformer_count(mol, conf_factor=10, policy="fragments") == (
         (n_rot + 6 + 3) * 10 + 30
     )
+    # With the chloride (atom 6) as the core, pentane and the water move: 6 + 6.
+    chloride = FrozenSet(hard=(6,))
+    assert conformer_count(
+        mol, conf_factor=10, policy="fragments", frozen=chloride
+    ) == ((n_rot + 6 + 6) * 10 + 30)
     assert conformer_count(mol, policy="per_bond") == max(7, 10 * n_rot)
     assert conformer_count(Chem.MolFromSmiles("C"), policy="per_bond") == 7
     assert conformer_count(mol, policy=lambda mol, frozen: 5) == 5

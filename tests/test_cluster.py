@@ -8,7 +8,11 @@ from rdkit.Chem import AllChem
 from racerts import ConformerEnsemble
 from racerts.prune import ClusterPruner, FamilySelector, PruneCluster
 
-RNG = np.random.default_rng(11)
+
+@pytest.fixture
+def rng():
+    """The same random numbers for every test, whatever ran before it."""
+    return np.random.default_rng(11)
 
 
 def _mol_with(geometries, energies=None, smiles="CCCCCCCC"):
@@ -24,15 +28,15 @@ def _mol_with(geometries, energies=None, smiles="CCCCCCCC"):
     return mol
 
 
-def _three_groups(size=4):
+def _three_groups(rng, size=4):
     """Three tight groups (0.1 A noise) around three distinct geometries (> 2 A)."""
-    bases = [RNG.normal(scale=3.0, size=(8, 3)) for _ in range(3)]
+    bases = [rng.normal(scale=3.0, size=(8, 3)) for _ in range(3)]
     geometries, groups = [], []
     for g, base in enumerate(bases):
         for _ in range(size):
-            geometries.append(base + RNG.normal(scale=0.1 / np.sqrt(3), size=(8, 3)))
+            geometries.append(base + rng.normal(scale=0.1 / np.sqrt(3), size=(8, 3)))
             groups.append(g)
-    energies = RNG.uniform(0, 10, size=len(geometries))
+    energies = rng.uniform(0, 10, size=len(geometries))
     return geometries, groups, energies
 
 
@@ -44,8 +48,8 @@ def _three_groups(size=4):
         dict(method="leader", threshold=1.0),
     ],
 )
-def test_three_groups_give_three_lowest_representatives(settings):
-    geometries, groups, energies = _three_groups()
+def test_three_groups_give_three_lowest_representatives(settings, rng):
+    geometries, groups, energies = _three_groups(rng)
     mol = _mol_with(geometries, energies)
     pruner = ClusterPruner(**settings)
 
@@ -63,8 +67,8 @@ def test_three_groups_give_three_lowest_representatives(settings):
     assert sorted(kept) == sorted(lowest)
 
 
-def test_rotations_cluster_but_mirror_images_stay_apart():
-    base = RNG.normal(scale=2.0, size=(8, 3))
+def test_rotations_cluster_but_mirror_images_stay_apart(rng):
+    base = rng.normal(scale=2.0, size=(8, 3))
     c, s = np.cos(0.9), np.sin(0.9)
     rotated = base @ np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]]).T + 4.0
     mirror = base * [-1, 1, 1]
@@ -72,8 +76,8 @@ def test_rotations_cluster_but_mirror_images_stay_apart():
     assert ClusterPruner(threshold=0.3).clusters(mol) == [[0, 1], [2]]
 
 
-def test_the_atom_selection_controls_alignment_and_distance():
-    base = RNG.normal(scale=2.0, size=(8, 3))
+def test_the_atom_selection_controls_alignment_and_distance(rng):
+    base = rng.normal(scale=2.0, size=(8, 3))
     other = base.copy()
     other[7] += 5.0  # only the last atom differs
     mol = _mol_with([base, other])
@@ -81,8 +85,8 @@ def test_the_atom_selection_controls_alignment_and_distance():
     assert ClusterPruner(threshold=0.3, atom_indices=range(7)).clusters(mol) == [[0, 1]]
 
 
-def test_leader_with_a_metric():
-    mol = _mol_with([RNG.normal(size=(8, 3)) for _ in range(4)], energies=[3, 0, 2, 1])
+def test_leader_with_a_metric(rng):
+    mol = _mol_with([rng.normal(size=(8, 3)) for _ in range(4)], energies=[3, 0, 2, 1])
 
     def by_parity(mol, a, b):  # same parity of the conformer id: the same family
         return 0.0 if a % 2 == b % 2 else 10.0
@@ -119,10 +123,10 @@ def test_centroid_representative():
     assert [c.GetId() for c in kept.GetConformers()] == [0]
 
 
-def test_family_selector_fills_round_robin():
+def test_family_selector_fills_round_robin(rng):
     # Families A (energies 0, 3, 4), B (1, 5), C (2); four places: A0, B0, C0, A1.
-    a, b, c = (RNG.normal(scale=3.0, size=(8, 3)) for _ in range(3))
-    noise = lambda: RNG.normal(scale=0.02, size=(8, 3))  # noqa: E731
+    a, b, c = (rng.normal(scale=3.0, size=(8, 3)) for _ in range(3))
+    noise = lambda: rng.normal(scale=0.02, size=(8, 3))  # noqa: E731
     geometries = [a + noise(), a + noise(), a + noise(), b + noise(), b + noise(), c]
     energies = [0, 3, 4, 1, 5, 2]
     ensemble = ConformerEnsemble(_mol_with(geometries, energies))
@@ -136,8 +140,8 @@ def test_family_selector_fills_round_robin():
         FamilySelector(0)
 
 
-def test_prune_cluster_stage_and_edge_cases():
-    geometries, _, energies = _three_groups(size=2)
+def test_prune_cluster_stage_and_edge_cases(rng):
+    geometries, _, energies = _three_groups(rng, size=2)
     ensemble = ConformerEnsemble(_mol_with(geometries, energies))
     assert len(PruneCluster(ClusterPruner(threshold=1.0)).run(None, ensemble)) == 3
     assert ClusterPruner().clusters(Chem.MolFromSmiles("CC")) == []
@@ -145,9 +149,9 @@ def test_prune_cluster_stage_and_edge_cases():
     assert ClusterPruner(threshold=0.1).clusters(hydrogen) == [[0, 1]]
 
 
-def test_a_conformer_without_energy_is_no_representative():
+def test_a_conformer_without_energy_is_no_representative(rng):
     # As in RMSDPruner: conformers without a finite energy are dropped first.
-    geometry = RNG.normal(scale=2.0, size=(8, 3))
+    geometry = rng.normal(scale=2.0, size=(8, 3))
     mol = _mol_with([geometry, geometry], energies=[np.nan, 1.0])
     kept = ClusterPruner(threshold=0.3).prune(mol)
     assert [c.GetId() for c in kept.GetConformers()] == [1]
@@ -157,8 +161,8 @@ def test_a_conformer_without_energy_is_no_representative():
 
 
 @pytest.mark.parametrize("method", ["butina", "hierarchical", "leader"])
-def test_a_distance_equal_to_the_threshold_is_grouped(method):
-    mol = _mol_with([RNG.normal(size=(8, 3)) for _ in range(2)])
+def test_a_distance_equal_to_the_threshold_is_grouped(method, rng):
+    mol = _mol_with([rng.normal(size=(8, 3)) for _ in range(2)])
     pruner = ClusterPruner(method=method, threshold=1.0, metric=lambda m, a, b: 1.0)
     assert pruner.clusters(mol) == [[0, 1]]
 

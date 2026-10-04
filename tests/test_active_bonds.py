@@ -2,6 +2,7 @@
 
 import collections
 import os
+import re
 
 import numpy as np
 import pytest
@@ -54,7 +55,7 @@ def test_active_bonds_are_the_forming_bonds(aldol):
     assert sources["active"] == 2 and sources["neighbor"] == 8 and sources["core"] > 0
 
 
-def test_uniform_window(aldol):
+def test_unstratified_window(aldol):
     ensemble, ctx = _run(aldol, TransitionState(REACTING, active_window=0.25))
     lengths = [_length(ensemble, i) for i in ensemble.conf_ids]
     assert min(lengths) > 2.2 - 0.25 - 0.05 and max(lengths) < 2.2 + 0.25 + 0.05
@@ -166,7 +167,7 @@ def test_cli_writes_active_bonds(tmp_path):
 # ---- regression tests ----
 
 
-def test_uniform_windows_are_pruned_per_length(aldol):
+def test_unstratified_windows_are_pruned_per_length(aldol):
     # With one energy window over all lengths, only the long end survived.
     config = PipelineConfig.from_dict({"embed": {"n_conformers": 40}})
     ensemble = racerts.generate_ts(
@@ -326,6 +327,41 @@ def test_attack_face_needs_a_clear_height(aldol):
     )
     assert "10 on 12" in AttackFace().validate(ctx, ensemble)[conf_id]
     assert AttackFace(min_height=0.6).validate(ctx, ensemble) == {}
+
+
+def test_a_window_out_of_reach_is_reported(aldol, caplog):
+    # The frozen atoms let the C-C distance reach about 3.9 A.
+    far = TransitionState(REACTING, active_bonds=[CC], active_window=(4.5, 5.5))
+    with pytest.raises(ValueError, match="No conformer .* narrower active_window"):
+        racerts.Embed(n_conformers=6).run(racerts.Context.create(aldol, far))
+    # Partly in reach: the conformers embedded outside are named.
+    partly = TransitionState(REACTING, active_bonds=[CC], active_window=(3.5, 4.5))
+    with caplog.at_level("WARNING"):
+        ensemble = racerts.Embed(n_conformers=12).run(
+            racerts.Context.create(aldol, partly)
+        )
+    assert len(ensemble) == 12
+    assert re.search(r"\d+ of 12 conformers .* outside its window", caplog.text)
+
+
+def test_windows_take_one_reference(aldol):
+    mol = Chem.Mol(aldol)
+    mol.AddConformer(Chem.Conformer(mol.GetConformer()), assignId=True)
+    ctx = racerts.Context.create(mol, TransitionState(REACTING, active_window=0.25))
+    with pytest.raises(ValueError, match="one reference"):
+        racerts.Embed(n_conformers=4, references="all").run(ctx)
+
+
+def test_fewer_conformers_than_targets_is_reported(aldol, caplog):
+    task = TransitionState(
+        REACTING, active_bonds=[CC], active_window=(2.0, 2.9), stratify=5
+    )
+    with caplog.at_level("WARNING"):
+        ensemble = racerts.Embed(n_conformers=3).run(
+            racerts.Context.create(aldol, task)
+        )
+    assert len(ensemble) == 3
+    assert "3 conformers for 5 targets" in caplog.text
 
 
 def test_window_problems_are_explained(sn2_ts, monkeypatch, caplog):

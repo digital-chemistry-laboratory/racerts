@@ -1,6 +1,12 @@
 """Active bonds of windowed TSs: target windows and the recorded lengths."""
 
+import logging
+
 from .model import DistanceRestraint
+
+logger = logging.getLogger(__name__)
+
+OUTSIDE_TOLERANCE = 0.05  # A: distance geometry meets a window to about this
 
 
 def target_windows(restraints, target, half_width, force_constant=None):
@@ -41,13 +47,19 @@ def record_active_lengths(ctx, ensemble) -> None:
 
 def keep_embedded_lengths(ctx, ensemble) -> None:
     """
-    Uniform window mode: each conformer's embedded active-bond lengths become its
-    targets, which refinement holds (a flat-bottom window would let the force field
-    push every conformer to the same edge of the window).
+    Unstratified window mode: each conformer's embedded active-bond lengths become
+    its targets, which refinement holds (a flat-bottom window would let the force
+    field push every conformer to the same edge of the window). A length outside its
+    window is moved to the edge; conformers embedded more than OUTSIDE_TOLERANCE
+    outside are reported, and if all are, the frozen atoms cannot take the window.
+
+    Raises:
+        ValueError: If no conformer was embedded with its active bonds in the window.
     """
     if not getattr(ctx.task, "windowed", False) or getattr(ctx.task, "stratify", 0):
         return
     windows = {f"{a}-{b}": w for (a, b), w in ctx.task.active_windows(ctx.mol).items()}
+    outside = {}
     for conf_id in ensemble.conf_ids:
         lengths = ensemble.provenance(conf_id)["active_bond_lengths"]
         targets = {
@@ -55,3 +67,28 @@ def keep_embedded_lengths(ctx, ensemble) -> None:
             for pair, d in lengths.items()
         }
         ensemble.add_provenance(conf_id, active_bond_targets=targets)
+        off = {
+            p: d for p, d in lengths.items() if abs(d - targets[p]) > OUTSIDE_TOLERANCE
+        }
+        if off:
+            outside[conf_id] = off
+    if not outside:
+        return
+    pair, length = next(iter(next(iter(outside.values())).items()))
+    example = (
+        f"bond {pair} at {length:.2f} A for the window "
+        f"{windows[pair][0]:.2f}-{windows[pair][1]:.2f} A"
+    )
+    if len(outside) == len(ensemble):
+        raise ValueError(
+            f"No conformer was embedded with its active bonds in the window (e.g. "
+            f"{example}): the frozen atoms cannot take it; try a narrower active_window."
+        )
+    logger.warning(
+        "%d of %d conformers were embedded with an active bond more than %.2f A "
+        "outside its window (e.g. %s); refinement holds them at the edge of the window.",
+        len(outside),
+        len(ensemble),
+        OUTSIDE_TOLERANCE,
+        example,
+    )

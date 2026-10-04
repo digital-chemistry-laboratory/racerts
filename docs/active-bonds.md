@@ -24,7 +24,9 @@ What changes with a window (`TransitionState(..., active_window=...)`):
   break); or `active_bonds`. Without any, window mode raises.
 - **Windows:** a number `d` gives the seed length ± d; `(lo, hi)` gives absolute bounds
   for every active bond. A window that reaches below 0.9 × the covalent bond length is
-  warned about; one that the TS core cannot take raises (use a narrower window).
+  warned about; one that the TS core cannot take raises (use a narrower window). Windows
+  are built around one reference geometry: they do not combine with
+  `Embed(references=...)`, and not with `frozen_atoms`.
 - **What stays fixed:** only the neighbours of the reacting atoms that are not reacting
   themselves stay at the seed geometry. The reacting atoms are placed by windows:
   - the active bonds;
@@ -32,17 +34,19 @@ What changes with a window (`TransitionState(..., active_window=...)`):
   - an embedding-only window for their other distances in the core, which RDKit's default
     (van der Waals) bounds would otherwise forbid, e.g. O···O = 2.5 Å in a proton
     transfer.
-- **Sampling:** with `stratify=0`, distance geometry draws the lengths in the window;
-  with `stratify=k`, the embedding batches cycle through k target lengths evenly spaced
-  in the window.
+- **Sampling:** with `stratify=0`, distance geometry places the lengths in the window,
+  most of them at its lower edge; with `stratify=k` (k ≥ 2), the embedding batches cycle
+  through k target lengths evenly spaced in the window, which covers it evenly.
+  Conformers embedded outside the window are reported; if all are, the frozen atoms
+  cannot take the window, and embedding raises.
 - **Refinement:** MMFF/UFF holds each conformer at its target (stratified) or at its
-  embedded length (uniform), within ± 0.02 Å (k = 10⁴ kcal/(mol Å²)). A flat-bottom
+  embedded length (unstratified), within ± 0.02 Å (k = 10⁴ kcal/(mol Å²)). A flat-bottom
   window would not do: the force field's repulsion between the unbonded atoms pushes
   every conformer to the upper edge. ASE calculators take no restraints, so
   `Refine(ASEOptimizer(...))` with anchors raises in window mode; refine with MMFF/UFF
   first, or search the saddle point freely (`Refine(optimizer, anchors=False)`).
 - **Pruning:** the energy window and the duplicate RMSD apply per target (stratified) or
-  per fifth of the window (uniform). Energies at different constrained lengths are not
+  per fifth of the window (unstratified). Energies at different constrained lengths are not
   comparable: on the aldol TS, MMFF puts 2.0 Å about 66 kcal/mol above 2.9 Å.
 - **Attack face:** conformers whose partner approaches a reacting atom from the other
   face than in the seed are dropped after refinement (`AttackFace`, a validator;

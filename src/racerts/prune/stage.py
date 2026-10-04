@@ -15,8 +15,9 @@ from .rmsd import RMSDPruner
 class _Prune:
     """
     Prunes the ensemble in place with pruner (default: default_pruner()). For a TS
-    with stratified active bonds, each target is pruned on its own: energies and
-    geometries at different constrained lengths are not comparable.
+    with active-bond windows, each target (stratified) or fifth of the window
+    (unstratified) is pruned on its own: energies and geometries at different
+    constrained lengths are not comparable.
     """
 
     name: str
@@ -47,13 +48,13 @@ class _Prune:
         return ensemble
 
 
-LENGTH_BINS = 5  # uniform active-bond windows are pruned per fifth of the window
+LENGTH_BINS = 5  # unstratified active-bond windows are pruned per fifth of the window
 
 
 def _target_groups(ctx, ensemble):
     """
     The conformer ids per target of the active bonds of a windowed TS: per target
-    (stratified) or per fifth of the window (uniform); else one group.
+    (stratified) or per fifth of the window (unstratified); else one group.
     """
     if ctx is None or not getattr(ctx.task, "windowed", False):
         return [ensemble.conf_ids]

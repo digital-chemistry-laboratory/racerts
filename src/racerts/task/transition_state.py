@@ -48,9 +48,10 @@ class TransitionState:
             d); or (lo, hi) in A, for every active bond.
         neighbor_window: +/- A for the distances of the reacting atoms to their bonded
             neighbours, in window mode.
-        stratify: 0: lengths drawn anywhere in the window by the embedding; k > 0: k
-            target lengths evenly spaced in the window, one per embedding batch. Either
-            way, refinement holds each conformer at its target (+/- 0.02 A, with
+        stratify: 0: the embedding places the lengths in the window (not evenly:
+            distance geometry puts most at its lower edge); k >= 2: k target lengths
+            evenly spaced in the window, one per embedding batch. Either way,
+            refinement holds each conformer at its target (+/- 0.02 A, with
             target_force_constant; a flat-bottom window would let the force field push
             all conformers to one edge). The provenance records the targets
             ("active_bond_targets") and the lengths ("active_bond_lengths").
@@ -116,7 +117,7 @@ class TransitionState:
         check_atom_indices(mol, self.reacting_atoms, "reacting atoms")
         if self.windowed:
             reacting = set(self.reacting_atoms)
-            held = get_frozen_atoms(mol, self.reacting_atoms, [])
+            held = reacting_neighbourhood(mol, self.reacting_atoms)
             hard = tuple(i for i in held if i not in reacting)
             # core: the reacting atoms, as in legacy mode (fragments, stereo, the
             # bounds-matrix pairs, which the windows then replace)
@@ -207,33 +208,34 @@ class TransitionState:
 
         if not self.windowed:
             return RestraintSet()
-        if not self.active_pairs(mol):
+        windows = self.active_windows(mol)
+        if not windows:
             raise ValueError(
                 "No active bonds: give active_bonds (the pairs whose length is sampled)."
             )
         positions = mol.GetConformer().GetPositions()
-        _warn_low_windows(mol, self.active_windows(mol))
+        _warn_low_windows(mol, windows)
         k = self.window_force_constant
         restraints = RestraintSet(
             DistanceRestraint(a, b, lo, hi, force_constant=k, source="active")
-            for (a, b), (lo, hi) in self.active_windows(mol).items()
+            for (a, b), (lo, hi) in windows.items()
         )
-        active = {pair for pair in self.active_pairs(mol)}
+        taken = set(windows)
         for r in self.reacting_atoms:
             for neighbor in mol.GetAtomWithIdx(r).GetNeighbors():
                 pair = tuple(sorted((r, neighbor.GetIdx())))
-                if pair in active or pair in {x.pair for x in restraints}:
+                if pair in taken:
                     continue
-                d = float(np.linalg.norm(positions[pair[0]] - positions[pair[1]]))
                 restraints.add(
                     DistanceRestraint.around(
                         *pair,
-                        d,
+                        _length(positions, pair),
                         self.neighbor_window,
                         force_constant=k,
                         source="neighbor",
                     )
                 )
+                taken.add(pair)
         # The other distances of the reacting atoms within the core, e.g. O...O of a
         # proton transfer at 2.5 A, contradict RDKit's default (vdW) bounds, which the
         # coordinate map overrides in legacy mode. In window mode they get an
@@ -241,14 +243,12 @@ class TransitionState:
         # and the neighbour windows let them change.
         spread = 2 * self.neighbor_window + max(
             max(abs(lo - _length(positions, pair)), abs(hi - _length(positions, pair)))
-            for pair, (lo, hi) in self.active_windows(mol).items()
+            for pair, (lo, hi) in windows.items()
         )
-        core = sorted(set(self.reacting_atoms) | set(self.frozen_atoms(mol).hard))
-        taken = {x.pair for x in restraints}
         for a in self.reacting_atoms:
-            for b in core:
+            for b in sorted(reacting_neighbourhood(mol, self.reacting_atoms)):
                 pair = tuple(sorted((a, b)))
-                if a == b or pair in taken or mol.GetBondBetweenAtoms(a, b) is not None:
+                if a == b or pair in taken:
                     continue
                 restraints.add(
                     DistanceRestraint.around(
@@ -388,28 +388,30 @@ def formed_or_broken_bonds(
     return sorted(bonds(reactant) ^ bonds(product))
 
 
+def reacting_neighbourhood(mol: Chem.Mol, reacting_atoms: Sequence[int]) -> List[int]:
+    """
+    The reacting atoms and their bonded neighbours, in the order of legacy racerts (the
+    neighbours of each reacting atom, then the atom), which enters the force-field sums.
+    """
+    atoms: List[int] = []
+    for atom_idx in reacting_atoms:
+        for neighbor in mol.GetAtomWithIdx(atom_idx).GetNeighbors():
+            if neighbor.GetIdx() not in atoms:
+                atoms.append(neighbor.GetIdx())
+        if atom_idx not in atoms:
+            atoms.append(atom_idx)
+    return atoms
+
+
 def get_frozen_atoms(
     mol_ts: Chem.Mol, reacting_atoms: List, frozen_atoms: List = [], verbose=False
 ):
     """
-    Retrieve the atoms to be fixed from the molecular graph and the reacting atoms.
-
-    Args:
-        mol_ts (Chem.Mol): RDKit mol object.
-        reacting_atoms (List): atom indeces of reacting atoms (atoms that change connectivity during reaction)
-        (Optional) frozen_atoms (List): atom indeces of atoms to be fixed, if these should not be inferred from the graph.
-
-    Returns:
-        List: atom indeces of atoms to be fixed
+    The atoms to keep fixed, as in legacy racerts: frozen_atoms if given, else the
+    reacting atoms (atoms that change connectivity in the reaction) and their bonded
+    neighbours. verbose is not used; the choice is logged at INFO level.
     """
-    frozen_atoms_new = []
-    for atom_idx in reacting_atoms:
-        for neighbor in mol_ts.GetAtomWithIdx(atom_idx).GetNeighbors():
-            id = neighbor.GetIdx()
-            if id not in frozen_atoms_new:
-                frozen_atoms_new.append(id)
-        if atom_idx not in frozen_atoms_new:
-            frozen_atoms_new.append(atom_idx)
+    frozen_atoms_new = reacting_neighbourhood(mol_ts, reacting_atoms)
     if frozen_atoms is None or len(frozen_atoms) == 0:
         logger.info(
             "No frozen atoms are given by the user. The following frozen atoms are "

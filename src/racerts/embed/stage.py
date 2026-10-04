@@ -206,12 +206,18 @@ class Embed:
             embedded.add_provenance(**provenance)
             return embedded
 
+        if references is not None and windowed:
+            raise ValueError(
+                "Active-bond windows take one reference geometry (their windows are "
+                "built around it): they do not combine with Embed(references=...)."
+            )
         ensemble = None
         targets = [(None, ctx.reference)] if references is None else [
             (ref_id, ctx.reference_mol(ref_id)) for ref_id in references
         ]  # fmt: skip
+        batches = self._batches(ctx, n)
         for ref_id, reference in targets:
-            for k, (count, extra, batch) in enumerate(self._batches(ctx, n)):
+            for k, (count, extra, batch) in enumerate(batches):
                 logger.info(
                     "Embedding %d conformers with %s%s%s.",
                     count,
@@ -255,6 +261,14 @@ class Embed:
             sizes = [
                 n // len(targets) + (i < n % len(targets)) for i in range(len(targets))
             ]
+            if n < len(targets):
+                logger.warning(
+                    "%d conformers for %d targets: only the first %d targets are "
+                    "sampled.",
+                    n,
+                    len(targets),
+                    n,
+                )
             return [
                 (size, target_windows(base, target, 0.01), target_provenance(target))
                 for size, target in zip(sizes, targets)

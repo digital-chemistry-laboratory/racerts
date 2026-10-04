@@ -534,7 +534,7 @@ def test_soft_atoms_need_the_coordinate_map_embedder():
 # racerts.swap: sampling after the swap.
 
 from racerts.embed.rigid_attach import rigid_attach  # noqa: E402
-from racerts.prune import aligned_rmsd  # noqa: E402
+from racerts.geometry import rmsd  # noqa: E402
 
 BUTYL_SWAP = Swap("[*:1]CCCC", old_fragment="[CH3][c:1]")
 
@@ -589,7 +589,7 @@ def test_swap_soft_samples_the_chain_around_the_kept_skeleton(methylbiphenyl):
         positions = ensemble.mol.GetConformer(conf_id).GetPositions()
         # The skeleton stays in the basin of the reference; the 0.3 A flat bottom of
         # the position restraints lets the ring torsion adapt (15 deg measured).
-        assert aligned_rmsd(positions[skeleton], grafted[skeleton]) < 0.2
+        assert rmsd(positions[skeleton], grafted[skeleton]) < 0.2
         turn = (
             _ring_torsion(ensemble.mol, conf_id) - reference_torsion + 180
         ) % 360 - 180

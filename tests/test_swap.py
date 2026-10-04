@@ -599,6 +599,19 @@ def test_swap_soft_samples_the_chain_around_the_kept_skeleton(methylbiphenyl):
     assert len(poses) >= 4  # distinct chain conformers
 
 
+def test_swap_takes_the_conformer_count_of_the_config(methylbiphenyl, caplog):
+    config = racerts.PipelineConfig.from_dict({"embed": {"n_conformers": 3}})
+    with caplog.at_level("INFO", logger="racerts"):
+        racerts.swap(methylbiphenyl, BUTYL_SWAP, config=config, verbose=True)
+    assert "Embedding 3 conformers" in caplog.text
+    caplog.clear()
+    with caplog.at_level("INFO", logger="racerts"):
+        racerts.swap(
+            methylbiphenyl, BUTYL_SWAP, config=config, n_conformers=2, verbose=True
+        )
+    assert "Embedding 2 conformers" in caplog.text
+
+
 def test_swap_free_and_hard(methylbiphenyl):
     mol = methylbiphenyl
     skeleton = [a.GetIdx() for a in mol.GetAtoms() if a.GetIsAromatic()]

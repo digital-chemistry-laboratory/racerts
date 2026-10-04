@@ -43,9 +43,9 @@ def generate(
         task: TransitionState, GroundState, Constrained or any Task.
         config: Settings of the default pipeline (default PipelineConfig()).
         pipeline: A custom pipeline instead of the default one. Of config, only the
-            seed is then used, by stages that create their own components (e.g.
-            Embed() without an embedder); components passed to stages keep their
-            own settings.
+            seed and the restraints are then used (the seed by stages that create
+            their own components, e.g. Embed() without an embedder; components passed
+            to stages keep their own settings).
         charge, multiplicity: Override the values of mol (see
             set_charge_and_multiplicity).
         verbose: Log progress (INFO) during the call.
@@ -61,12 +61,7 @@ def generate(
             combined = RestraintSet()
             if config.restraints:
                 combined = config.restraints.build(ctx.mol, ctx.frozen, config.seed)
-            ctx = Context.create(
-                ctx.mol,
-                task,
-                seed=config.seed,
-                restraints=combined.merge(restraints or ()),
-            )
+            ctx = ctx.with_restraints(combined.merge(restraints or ()))
         pipeline = pipeline if pipeline is not None else config.build(task)
         return pipeline.run(ctx)
 
@@ -227,8 +222,8 @@ def swap(
               kcal/(mol A^2)) in MMFF/UFF refinement; the junction and the new atoms
               are sampled;
             - "free": only the hard atoms of the task are held (full resampling).
-        n_conformers: Distance-geometry conformers per reference (-1: the count of
-            config.embed).
+        n_conformers: Distance-geometry conformers per reference (-1: as
+            config.embed.n_conformers, by default the count for the molecule).
         routes: "dg" (distance geometry with the kept atoms mapped) and "rigid"
             (fragment conformers turned about the attachment bond; single
             attachments that replace a bond only); default "dg". Each conformer
@@ -238,8 +233,8 @@ def swap(
             of a ligand swap, SwapResult.positioned).
         n_rigid_conformers, n_rotations: Poses of the rigid route per reference.
         config: Settings of the embedding, refinement and pruning; embedding uses the
-            coordinate map and the "frozen_first" chirality fallback; swaps take no
-            restraints (config.restraints raises).
+            coordinate map and the "frozen_first" chirality fallback. config.restraints
+            must be empty: the restraints of the reference go into restraints.
         charge, multiplicity, verbose: See generate.
         restraints: Distance restraints of the reference (reference indices), e.g. its
             hydrogen bonds: those between kept atoms hold in embedding and refinement;
@@ -269,7 +264,10 @@ def swap(
     if unknown or not routes:
         raise SwapError(f"routes must be taken from {SWAP_ROUTES}, not {list(routes)}.")
     if config.restraints:
-        raise SwapError("Swaps take no restraints: config.restraints must be empty.")
+        raise SwapError(
+            "config.restraints must be empty for a swap; racerts.swap(restraints=...) "
+            "carries the restraints of the reference over."
+        )
     if config.embed.mode != "cmap":
         raise SwapError("Swaps embed with the coordinate map: embed.mode 'cmap'.")
     invalid = [
@@ -352,7 +350,7 @@ def swap(
             several = new_task.needs_reference and result.mol.GetNumConformers() > 1
             embedded = Embed(
                 embedder,
-                n_conformers,
+                config.embed.n_conformers if n_conformers == -1 else n_conformers,
                 config.embed.conf_factor,
                 count_policy=config.embed.count_policy,
                 references="all" if several else None,
@@ -401,12 +399,11 @@ def _warn_near_core(result, held) -> None:
     closest = int(min(distances[i, j] for i in ends for j in held))
     if closest < CORE_DISTANCE_WARNING:
         where = "at" if closest == 0 else f"{closest} bond(s) from"
-        message = (
-            f"The swap attaches {where} the frozen atoms: the new group may change "
-            "the core (e.g. the TS)."
+        logger.warning(
+            "The swap attaches %s the frozen atoms: the new group may change the core "
+            "(e.g. the TS).",
+            where,
         )
-        result.warnings.append(message)
-        logger.warning(message)
 
 
 def _warn_residual_clash(

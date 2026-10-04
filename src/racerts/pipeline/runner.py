@@ -43,6 +43,11 @@ class Pipeline:
         for stage in self.stages:
             start = time.perf_counter()
             ensemble = stage.run(ctx, ensemble)
+            if not isinstance(ensemble, ConformerEnsemble):
+                raise TypeError(
+                    f"Stage {stage.name!r} returned {type(ensemble).__name__}, not the "
+                    "ensemble."
+                )
             logger.info(
                 "%s: %d conformers (%.2f s)",
                 stage.name,

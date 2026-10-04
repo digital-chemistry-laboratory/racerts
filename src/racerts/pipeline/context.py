@@ -2,7 +2,7 @@
 
 import logging
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import List, Optional, Tuple
 
 from rdkit import Chem
@@ -102,18 +102,27 @@ class Context:
         set_charge_and_multiplicity(mol, charge, multiplicity)
         frozen = task.frozen_atoms(mol)
         check_atom_indices(mol, frozen.hard + frozen.core + frozen.soft, "frozen atoms")
-        restraints = RestraintSet(restraints or ())
-        restraints.check_atoms(mol.GetNumAtoms())
-        if hasattr(task, "restraints"):  # e.g. active-bond windows of a TS
-            restraints = _with_task_windows(mol, task, restraints)
-        kept = restraints.without_pairs_within(frozen.hard)
+        ctx = cls(mol=mol, task=task, frozen=frozen, seed=seed)
+        return ctx.with_restraints(restraints or ())
+
+    def with_restraints(self, restraints) -> "Context":
+        """
+        This context (the same molecule) with the given restraints in place of its
+        own, together with the windows of the task (e.g. the active bonds of a TS);
+        restraints between two frozen atoms are left out, with a warning.
+        """
+        restraints = RestraintSet(restraints)
+        restraints.check_atoms(self.mol.GetNumAtoms())
+        if hasattr(self.task, "restraints"):  # e.g. active-bond windows of a TS
+            restraints = _with_task_windows(self.mol, self.task, restraints)
+        kept = restraints.without_pairs_within(self.frozen.hard)
         if len(kept) < len(restraints):
             dropped = sorted({r.pair for r in restraints} - {r.pair for r in kept})
             logger.warning(
                 "Restraints %s are ignored: both atoms are frozen at the reference.",
                 dropped,
             )
-        return cls(mol=mol, task=task, frozen=frozen, seed=seed, restraints=kept)
+        return replace(self, restraints=kept)
 
 
 def _with_task_windows(mol, task, restraints):

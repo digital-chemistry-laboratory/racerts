@@ -45,6 +45,18 @@ def test_custom_stages_slot_in(hept_1_ene_ts, caplog):
     ]
 
 
+def test_a_stage_must_return_the_ensemble(hept_1_ene_ts):
+    class Forgetful:
+        name = "forgetful"
+
+        def run(self, ctx, ensemble):
+            return None
+
+    ctx = Context.create(hept_1_ene_ts, TransitionState([3, 4, 5]))
+    with pytest.raises(TypeError, match="Stage 'forgetful' returned NoneType"):
+        Pipeline([racerts.Embed(n_conformers=2), Forgetful()]).run(ctx)
+
+
 def test_a_pipeline_does_not_change_the_ensemble_it_gets(hept_1_ene_ts):
     ctx = Context.create(hept_1_ene_ts, TransitionState([3, 4, 5]))
     embedded = Pipeline([racerts.Embed(n_conformers=4)]).run(ctx)

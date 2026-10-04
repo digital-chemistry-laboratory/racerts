@@ -140,3 +140,14 @@ def test_random_seed_minus_one():
     config = PipelineConfig(seed=-1, embed=EmbedConfig(n_conformers=3))
 
     assert len(racerts.generate_ts(EX, [3, 4, 5], smiles="CCCCCC=C", config=config))
+
+
+def test_restraints_do_not_settle_the_spin_state_again(caplog):
+    # A radical with a restraint: the multiplicity that was passed is not questioned.
+    config = PipelineConfig.from_dict(
+        {"embed": {"n_conformers": 3}, "restraints": {"user": [[0, 2, 2.5]]}}
+    )
+    with caplog.at_level(logging.WARNING):
+        ensemble = racerts.generate_gs("CC[CH2]", multiplicity=2, config=config)
+    assert ensemble.mol.GetIntProp("multiplicity") == 2
+    assert "odd number of electrons" not in caplog.text

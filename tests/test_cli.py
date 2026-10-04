@@ -227,4 +227,4 @@ def test_swap_command_reports_config_errors(tmp_path, sn2_ts, capsys):
             ["swap", sn2_ts, "-s", "CCl", "[Cl-]", "-c", "-1", "--new", "[*]C",
              "--remove", "3", "--config", str(config)]
         )  # fmt: skip
-    assert "no restraints" in capsys.readouterr().err
+    assert "config.restraints must be empty" in capsys.readouterr().err

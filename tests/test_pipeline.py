@@ -141,6 +141,12 @@ def test_several_references(hept_1_ene_ts):
         assert np.abs(found - target).max() < 1e-3
     assert FrozenCore().validate(ctx, ensemble) == {}
 
+    # Each group has its own reference: the optimizer cannot name one conformer.
+    from racerts.refine import MMFFOptimizer
+
+    with pytest.raises(ValueError, match="conf_id_ref"):
+        racerts.Refine(MMFFOptimizer(conf_id_ref=0)).run(ctx, ensemble.copy())
+
     one = racerts.Embed(n_conformers=3, references=[7]).run(ctx)
     assert len(one) == 3 and {one.provenance(i)["reference"] for i in one.conf_ids} == {
         7

@@ -8,6 +8,8 @@ from typing import List, Optional, Sequence
 from rdkit import Chem
 from rdkit.Chem.AllChem import AlignMol  # type: ignore
 
+from racerts.restraints.model import PositionRestraint
+
 logger = logging.getLogger(__name__)
 
 
@@ -28,15 +30,16 @@ class BaseOptimizer(ABC):
     ):
         """
         Refine all conformers; the anchors stay at their reference positions.
-        restraints (DistanceRestraint) go to optimizers whose _refine takes them
-        (MMFF, UFF); others refine without them, which is logged.
+        restraints (DistanceRestraint and PositionRestraint) go to optimizers whose
+        _refine takes them (MMFF, UFF of racerts.refine); others refine without them,
+        which is logged.
         """
         if anchors and reference is None:
             raise ValueError("Anchor atoms need a reference geometry.")
         if restraints:
             if accepts_restraints(self._refine):
                 return self._refine(mol, reference, anchors, restraints=restraints)
-            soft = [r for r in restraints if not hasattr(r, "pair")]
+            soft = [r for r in restraints if isinstance(r, PositionRestraint)]
             if soft:  # position restraints: nothing else holds these atoms
                 logger.warning(
                     "%s takes no restraints: the %d soft atoms are free in this "
@@ -45,10 +48,15 @@ class BaseOptimizer(ABC):
                     len(soft),
                 )
             if len(soft) < len(restraints):
-                logger.info(
-                    "%s refines without the %d restraints (they guided the embedding).",
+                # A force field could hold them: a legacy class or subclass without
+                # the restraints argument. Other optimizers (ASE) take none by design.
+                legacy = hasattr(self, "_add_restraint")
+                logger.log(
+                    logging.WARNING if legacy else logging.INFO,
+                    "%s refines without the %d distance restraints%s.",
                     type(self).__name__,
                     len(restraints) - len(soft),
+                    " (the optimizers of racerts.refine hold them)" if legacy else "",
                 )
         return self._refine(mol, reference, anchors)
 

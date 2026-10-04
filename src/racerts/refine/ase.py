@@ -26,15 +26,20 @@ class ASEOptimizer(BaseOptimizer):
 
     Args:
         calculator: An ASE calculator, or a callable that returns one (a factory: one
-            calculator per worker process, or per call without workers; the way to
-            use calculators that keep state between structures).
+            calculator per worker process, or per conformer without workers; the way
+            to use calculators that keep state between structures).
         optimizer_cls: Any class with the ASE optimizer interface,
             cls(atoms, **optimizer_kwargs).run(fmax=..., steps=...); default BFGS.
             E.g. Sella, with optimizer_kwargs={"order": 1} for saddle points (then
             refine without anchors: Refine(ASEOptimizer(...), anchors=False)).
         fmax, max_steps: Convergence criterion (eV/A) and step limit; max_steps=0
-            gives single points.
+            gives single points (recorded as converged, with 0 steps).
         num_workers: Worker processes; 1 (default): none; None: all CPUs.
+        verbose: Let the ASE optimizer write its log.
+        conf_id_ref: The conformer of the reference that the conformers are aligned
+            to (-1: its first).
+        force_constant, num_threads: As in legacy racerts: force_constant is not
+            used (anchors are fixed atoms), num_threads stands for num_workers.
         charge, multiplicity: Override the values of the molecule (see
             infer_charge_and_multiplicity), e.g. multiplicity=3 for a triplet.
         drop_unconverged: Remove conformers whose optimization did not converge

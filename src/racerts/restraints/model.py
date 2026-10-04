@@ -127,8 +127,10 @@ class PositionRestraint:
     source: str = "soft"
 
     def __post_init__(self):
-        if not _is_index(self.atom) or self.atom < 0:
-            raise TypeError("A position restraint needs a non-negative atom index.")
+        if not _is_index(self.atom):
+            raise TypeError("A position restraint needs an integer atom index.")
+        if self.atom < 0:
+            raise ValueError("A position restraint needs a non-negative atom index.")
         point = tuple(float(x) for x in self.point)
         if len(point) != 3 or not all(math.isfinite(x) for x in point):
             raise ValueError(f"Invalid point {self.point}.")

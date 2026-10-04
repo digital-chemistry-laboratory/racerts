@@ -7,10 +7,14 @@ from .model import DistanceRestraint
 logger = logging.getLogger(__name__)
 
 OUTSIDE_TOLERANCE = 0.05  # A: distance geometry meets a window to about this
+# Half widths (A) of the windows that hold an active bond at its target.
+EMBED_TARGET_HALF_WIDTH = 0.01
+REFINE_TARGET_HALF_WIDTH = 0.02
 
 
 def target_windows(restraints, target, half_width, force_constant=None):
-    """The restraints with the active bonds held at their targets +/- half_width."""
+    """The distance restraints with the active bonds held at their targets +/-
+    half_width."""
     held = []
     for r in restraints:
         if r.pair in target:

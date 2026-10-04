@@ -41,7 +41,8 @@ def build_restraints(
         frozen: The frozen atoms of the task: restraints between two hard atoms are
             left out (their distance is fixed), with a warning for user restraints.
         user: (atom, atom, target) triplets: windows target +/- half_width.
-        half_width, force_constant: Of the user and seed windows (A, kcal/(mol A^2)).
+        half_width: Of the user and reference windows (A).
+        force_constant: Of all windows but the hints (kcal/(mol A^2)).
         hbonds: Keep the hydrogen bonds of the reference geometry (H...A and D...A).
         contacts: (atom, atom) pairs of non-covalent contacts to keep as in the
             reference geometry (with the neighbours, for the orientation).
@@ -51,14 +52,17 @@ def build_restraints(
             reference (e.g. reactant complexes): windows [1.0, 1.3] x the vdW sum
             for the given links (fragment_links), and with link_fragments for links
             chosen to join every fragment (user pairs between fragments first, then
-            charged pairs, then the least buried atoms). If the windows cannot be
-            smoothed, the lower factor 0.8 is tried once; user windows never widen.
+            charged pairs, then the least buried atoms; seed breaks ties). If the
+            windows cannot be smoothed, the lower factor 0.8 is tried once; user
+            windows never widen.
         hints: Candidate hydrogen bonds from the graph (sources.graph_hints, at most
             max_hints) as embedding-only windows (source "hint", stage "embed"): Embed
             uses them in some batches only (see Embed hint_share).
 
-    User restraints win over generated ones for the same pair; generated ones for the
-    same pair must agree.
+    User restraints win over generated ones for the same pair (two user restraints
+    for one pair must be equal); of two generated ones the later source wins.
+    Generated windows that the bounds cannot take with the user's are left out, with a
+    warning.
     """
     user_set = RestraintSet(
         DistanceRestraint.around(
@@ -66,29 +70,32 @@ def build_restraints(
         )
         for i, j, target in sources.check_triplets(mol, user)
     )
-    seed_triplets = []
+    reference_triplets = []
     if hbonds:
-        seed_triplets += [(*t, "hbond") for t in sources.hydrogen_bonds(mol)]
-    pairs = [sources.check_pair(mol, pair, "Contact") for pair in contacts]
-    seed_triplets += [(*t, "contact") for t in sources.contacts(mol, pairs)]
+        reference_triplets += [(*t, "hbond") for t in sources.hydrogen_bonds(mol)]
+    reference_triplets += [(*t, "contact") for t in sources.contacts(mol, contacts)]
     if keep_fragments:
         links = sources.fragment_contacts(mol, frozen.core)
-        seed_triplets += [(*t, "fragment") for t in sources.contacts(mol, links)]
+        reference_triplets += [(*t, "fragment") for t in sources.contacts(mol, links)]
     generated = RestraintSet()
-    for i, j, target, source in seed_triplets:
+    for i, j, target, source in reference_triplets:
         restraint = DistanceRestraint.around(
             i, j, target, half_width, force_constant=force_constant, source=source
         )
         generated.add(restraint, override=True)  # the same pair from two sources
 
     hard = set(frozen.hard)
-    generated = _consistent(mol, frozen, user_set, generated)
     frozen_user = [r.pair for r in user_set if r.first in hard and r.second in hard]
     if frozen_user:
         logger.warning(
             "Restraints %s are ignored: both atoms are frozen at the reference.",
             frozen_user,
         )
+        user_set = user_set.without_pairs_within(frozen.hard)
+    # The user's window stands for its pair: generated ones there are not checked.
+    user_pairs = {r.pair for r in user_set}
+    generated = RestraintSet(r for r in generated if r.pair not in user_pairs)
+    generated = _consistent(mol, frozen, user_set, generated)
     restraints = generated.merge(user_set).without_pairs_within(frozen.hard)
 
     if fragment_links is not None or link_fragments:
@@ -123,11 +130,14 @@ def _with_fragment_links(
     explicit = [
         sources.check_pair(mol, pair, "Fragment link") for pair in fragment_links or ()
     ]
+    fragment_of = {
+        i: n for n, fragment in enumerate(Chem.GetMolFrags(mol)) for i in fragment
+    }
+    for a, b in explicit:
+        if fragment_of[a] == fragment_of[b]:
+            raise ValueError(f"Fragment link ({a}, {b}) joins atoms of one fragment.")
     links = list(explicit)
     if link_fragments:
-        fragment_of = {
-            i: n for n, fragment in enumerate(Chem.GetMolFrags(mol)) for i in fragment
-        }
         between = [
             r.pair for r in user_set if fragment_of[r.first] != fragment_of[r.second]
         ]
@@ -143,7 +153,7 @@ def _with_fragment_links(
                 force_constant=k,
                 source="link",
             )  # fmt: skip
-            for pair in {tuple(sorted(p)) for p in links}
+            for pair in dict.fromkeys(tuple(sorted(p)) for p in links)
         )
         candidate = windows.merge(restraints)  # user and seed windows win
         try:

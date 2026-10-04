@@ -53,10 +53,14 @@ class ForceFieldOptimizer(BaseOptimizer):
     reference before and after. Minimize is called up to maxIter times per conformer.
 
     Args:
+        num_threads: Threads over the conformers. They gain little: RDKit's minimizer
+            does not release Python's lock.
         converge: Restart minimizations that stop early next to the anchors (see
             minimize); legacy racerts stops at the first converged call.
         anchor_free_energies: Report the energy of the force field without the anchor
             terms; legacy racerts includes them (0.02-0.18 kcal/mol on test systems).
+            With restraints or soft atoms the reported energies always leave out
+            their terms and those of the anchors.
     """
 
     def __init__(

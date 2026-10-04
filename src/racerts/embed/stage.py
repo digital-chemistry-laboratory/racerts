@@ -11,6 +11,7 @@ from rdkit.Chem import Descriptors
 from racerts.pipeline import ConformerEnsemble
 from racerts.refine.base import accepts_restraints
 from racerts.restraints.active import (
+    EMBED_TARGET_HALF_WIDTH,
     keep_embedded_lengths,
     record_active_lengths,
     target_provenance,
@@ -271,7 +272,11 @@ class Embed:
                     n,
                 )
             return [
-                (size, target_windows(base, target, 0.01), target_provenance(target))
+                (
+                    size,
+                    target_windows(base, target, EMBED_TARGET_HALF_WIDTH),
+                    target_provenance(target),
+                )
                 for size, target in zip(sizes, targets)
                 if size
             ]

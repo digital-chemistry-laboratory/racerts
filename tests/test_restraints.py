@@ -139,6 +139,32 @@ def test_build_restraints_precedence(sn2_ts_water, caplog):
         build_restraints(mol, frozen, user=[(2, 70, 2.5)])
 
 
+def test_a_user_window_decides_what_fits_with_it(sn2_ts_water, caplog):
+    # The seed has Cl2...H7 at 2.2 A. With the user's window at 4.8 A, the hydrogen
+    # bond's second window (Cl2...O6 at 3.2 A) does not fit and is left out; the
+    # generated window on the user's pair is not part of the check.
+    mol = _sn2_water(sn2_ts_water)
+    frozen = TransitionState(REACTING).frozen_atoms(mol)
+    with caplog.at_level(logging.WARNING):
+        restraints = build_restraints(mol, frozen, user=[(2, 7, 4.8)], hbonds=True)
+    assert [r.label for r in restraints] == ["user:2-7"]
+    assert "hbond:2-6" in caplog.text and "left out" in caplog.text
+    # Near the seed distance, both stay.
+    kept = build_restraints(mol, frozen, user=[(2, 7, 2.5)], hbonds=True)
+    assert sorted(r.label for r in kept) == ["hbond:2-6", "user:2-7"]
+
+
+def test_a_user_restraint_between_frozen_atoms_does_not_hide_the_others(
+    sn2_ts_water, caplog
+):
+    mol = _sn2_water(sn2_ts_water)
+    frozen = TransitionState(REACTING).frozen_atoms(mol)
+    with caplog.at_level(logging.WARNING):
+        restraints = build_restraints(mol, frozen, user=[(0, 1, 5.0)], hbonds=True)
+    assert sorted(r.label for r in restraints) == ["hbond:2-6", "hbond:2-7"]
+    assert "[(0, 1)] are ignored: both atoms are frozen" in caplog.text
+
+
 # ---- embedding ----
 
 
@@ -217,6 +243,22 @@ def test_legacy_embedders_cannot_take_restraints(sn2_ts_water):
         racerts.Embed(LegacyCmap(), n_conformers=3).run(ctx)
 
 
+def test_legacy_force_fields_say_that_they_drop_restraints(sn2_ts_water, caplog):
+    from racerts.optimizer import MMFFOptimizer as LegacyMMFF
+
+    mol = _sn2_water(sn2_ts_water)
+    ctx = racerts.Context.create(
+        mol,
+        TransitionState(REACTING),
+        restraints=RestraintSet(DistanceRestraint.around(*t) for t in CONTACT),
+    )
+    ensemble = racerts.Embed(n_conformers=2).run(ctx)
+    with caplog.at_level(logging.WARNING):
+        racerts.Refine(LegacyMMFF()).run(ctx, ensemble)
+    assert "refines without the 2 distance restraints" in caplog.text
+    assert "racerts.refine" in caplog.text
+
+
 # ---- refinement ----
 
 
@@ -267,7 +309,7 @@ def test_ase_refinement_runs_without_the_restraints(caplog):
         ASEOptimizer(LennardJones(), max_steps=2).refine(
             mol, restraints=[DistanceRestraint(0, 5, 2.6, 3.0)]
         )
-    assert "refines without the 1 restraints" in caplog.text
+    assert "refines without the 1 distance restraints" in caplog.text
 
 
 # ---- the pipeline ----
@@ -333,6 +375,28 @@ def test_fragment_links_join_every_fragment():
     )
     with pytest.raises(ValueError, match="do not join every fragment"):
         sources.carrier_links(mol, [links[0]])
+
+
+def test_fragment_links_are_between_fragments():
+    mol = Chem.AddHs(Chem.MolFromSmiles("CCCC.O"))
+    with pytest.raises(ValueError, match=r"Fragment link \(0, 1\) .* one fragment"):
+        build_restraints(mol, fragment_links=[(0, 1)])
+
+
+def test_link_windows_widen_once_and_keep_their_order():
+    # A user window that the contact window [1.0, 1.3] x vdW cannot join: 0.8 x vdW.
+    mol = Chem.AddHs(Chem.MolFromSmiles("O.[Cl-]"))
+    (tight,) = build_restraints(mol, fragment_links=[(0, 1)])
+    vdw = tight.upper / sources.LINK_UPPER_FACTOR
+    assert tight.lower == pytest.approx(vdw)
+    wide = build_restraints(mol, user=[(2, 1, 2.0)], fragment_links=[(0, 1)])
+    link = next(r for r in wide if r.source == "link")
+    assert link.lower == pytest.approx(0.8 * vdw)
+    # The links keep the order in which they were given.
+    waters = Chem.AddHs(Chem.MolFromSmiles("O.O.O.O"))
+    links = [(9, 0), (3, 0), (6, 0)]
+    labels = [r.label for r in build_restraints(waters, fragment_links=links)]
+    assert labels == ["link:0-9", "link:0-3", "link:0-6"]
 
 
 def test_ground_state_complexes_are_embedded_together():

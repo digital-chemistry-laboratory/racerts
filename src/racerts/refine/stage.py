@@ -5,7 +5,11 @@ from typing import Callable, Optional, Type
 
 from racerts.pipeline import ConformerEnsemble
 from racerts.pipeline.ensemble import PROVENANCE
-from racerts.restraints.active import record_active_lengths, target_windows
+from racerts.restraints.active import (
+    REFINE_TARGET_HALF_WIDTH,
+    record_active_lengths,
+    target_windows,
+)
 from racerts.restraints.model import position_restraints
 
 from .base import BaseOptimizer, accepts_restraints
@@ -65,15 +69,15 @@ class Refine:
     Args:
         optimizer: Any BaseOptimizer; default MMFFOptimizer.
         fallback: Fall back to UFF if MMFF fails.
-        anchors: Hold the hard frozen atoms at the reference (default). False refines
-            all atoms freely, e.g. for a saddle-point search from TS-like conformers
-            (ASEOptimizer with Sella).
+        anchors: Hold the hard frozen atoms at the reference (default). False
+            releases them, e.g. for a saddle-point search from TS-like conformers
+            (ASEOptimizer with Sella); distance restraints and soft atoms still hold
+            with MMFF/UFF.
         stereo_anchors: Also hold the free substituents that alone set the
             configuration of a frozen stereocentre (racerts.embed.dg.stereo_anchors),
             which the "frozen_first" embedding places at the reference; the default
             pipeline sets it with that fallback. Otherwise refinement can turn such a
-            substituent through to the other stereoisomer (benchmark Ti_elimination
-            with UFF).
+            substituent through to the other stereoisomer.
     """
 
     name = "refine"
@@ -100,8 +104,8 @@ class Refine:
             raise ValueError(
                 f"In window mode the reacting atoms are held by restraints, which "
                 f"{type(optimizer).__name__} does not take, while their neighbours stay "
-                "fixed. Refine with MMFF or UFF, or search the saddle point freely: "
-                "Refine(optimizer, anchors=False)."
+                "fixed. Refine with racerts.refine.MMFFOptimizer or UFFOptimizer, or "
+                "search the saddle point freely: Refine(optimizer, anchors=False)."
             )
         anchors = ctx.frozen.hard if self.anchors else ()
         if self.anchors and self.stereo_anchors and ctx.reference is not None:
@@ -111,9 +115,13 @@ class Refine:
             anchors = (*anchors, *extra)
         restraints = ctx.restraints.for_stage("refine")
         # soft atoms are held at the reference conformer the optimizer aligns on
-        groups = _refine_groups(
-            ctx, ensemble, restraints, getattr(optimizer, "conf_id_ref", -1)
-        )
+        conf_id_ref = getattr(optimizer, "conf_id_ref", -1)
+        groups = _refine_groups(ctx, ensemble, restraints, conf_id_ref)
+        if conf_id_ref != -1 and len({id(reference) for reference, *_ in groups}) > 1:
+            raise ValueError(
+                "With several references (Embed(references=...)) each conformer is "
+                "refined against its own: the conf_id_ref of the optimizer must be -1."
+            )
 
         def refine(opt):
             if len(groups) == 1:
@@ -159,27 +167,30 @@ def _write_back(ensemble: ConformerEnsemble, part: ConformerEnsemble, conf_ids) 
 def _refine_groups(ctx, ensemble, base, conf_id_ref=-1):
     """
     (reference, conformer ids, restraints) groups: by reference (Embed(references=
-    ...)) and, for stratified active bonds, by target, held at +/- 0.02 A. The soft
-    atoms of the task get position restraints at their reference positions.
+    ...)) and, for the active bonds of a windowed TS, by target, held at +/-
+    REFINE_TARGET_HALF_WIDTH. The soft atoms of the task get position restraints at
+    their reference positions.
     """
     groups = []
     soft = ctx.frozen.soft
     for reference, conf_ids in ctx.by_reference(ensemble):
-        if soft and reference is not None:  # soft atoms near their reference positions
-            restraints = [*base, *position_restraints(reference, soft, conf_id_ref)]
-        else:
-            restraints = base
+        held = []  # soft atoms near their reference positions
+        if soft and reference is not None:
+            held = position_restraints(reference, soft, conf_id_ref)
         by_target = {}
         for conf_id in conf_ids:
             targets = ensemble.provenance(conf_id).get("active_bond_targets")
             key = None if not targets else tuple(sorted(targets.items()))
             by_target.setdefault(key, []).append(conf_id)
         for key, ids in by_target.items():
-            group_restraints = restraints
+            distances = base
             if key is not None:
                 target = {tuple(map(int, pair.split("-"))): t for pair, t in key}
-                group_restraints = target_windows(
-                    restraints, target, 0.02, ctx.task.target_force_constant
+                distances = target_windows(
+                    base,
+                    target,
+                    REFINE_TARGET_HALF_WIDTH,
+                    ctx.task.target_force_constant,
                 )
-            groups.append((reference, ids, group_restraints))
+            groups.append((reference, ids, [*distances, *held]))
     return groups

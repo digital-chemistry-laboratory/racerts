@@ -186,6 +186,24 @@ def test_convergence_is_recorded_and_unconverged_conformers_can_be_dropped(
             ensemble.copy().mol
         )
 
+    # Some converge: the others are dropped, with a warning.
+    class ConvergesButTheSecond:
+        runs, nsteps = 0, 1
+
+        def __init__(self, atoms, **kwargs):
+            pass
+
+        def run(self, fmax, steps):
+            type(self).runs += 1
+            return type(self).runs != 2
+
+    partly = ensemble.copy()
+    ASEOptimizer(
+        LennardJones(), optimizer_cls=ConvergesButTheSecond, drop_unconverged=True
+    ).refine(partly.mol)
+    assert partly.conf_ids == [i for k, i in enumerate(ensemble.conf_ids) if k != 1]
+    assert "Dropping 1 conformers that did not converge" in caplog.text
+
     # Converged ones stay: a large fmax converges at once.
     converged = ensemble.copy()
     ASEOptimizer(LennardJones(), fmax=1e6, drop_unconverged=True).refine(converged.mol)

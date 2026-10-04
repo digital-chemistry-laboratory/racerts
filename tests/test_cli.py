@@ -4,8 +4,10 @@ import os
 
 import pytest
 
-from racerts import PipelineConfig
+import racerts.cli
+from racerts import PipelineConfig, TransitionState
 from racerts.cli import main, run_subcommand
+from racerts.system.build import GRAPH_METHODS
 
 from .conftest import EX
 
@@ -119,71 +121,162 @@ def test_python_m_racerts_cli(tmp_path):
     assert out.exists()
 
 
-def test_ts_options_for_the_new_settings(monkeypatch, capsys):
-    import racerts.cli
-
+@pytest.fixture
+def call(monkeypatch):
+    """
+    Runs a subcommand up to its call of generate_ts, generate_gs or swap; returns the
+    keyword arguments of that call, the positional ones as "args".
+    """
     seen = {}
 
-    def fake_generate_ts(*args, config, **kwargs):
-        seen["config"] = config
+    def record(*args, **kwargs):
+        seen.update(kwargs, args=args)
         raise SystemExit(0)
 
-    monkeypatch.setattr(racerts.cli, "generate_ts", fake_generate_ts)
+    for name in ("generate_ts", "generate_gs", "swap"):
+        monkeypatch.setattr(racerts.cli, name, record)
 
-    def config_of(*options):
+    def run(*argv):
+        seen.clear()
         with pytest.raises(SystemExit):
-            run_subcommand(["ts", EX, "-r", "3", "4", "5", *options])
-        return seen["config"]
+            run_subcommand(list(argv))
+        return dict(seen)
 
-    config = config_of(
-        "--count-policy", "fragments", "--sequential-seeds",
-        "--chirality-fallback", "frozen_first", "--converge",
-        "--anchor-free-energies", "--dielectric", "distance", "4", "--rmsd-hydrogens",
-        "--check-stereo",
-    )  # fmt: skip
-    assert config.embed.count_policy == "fragments"
-    assert config.embed.sequential_seeds is True
-    assert config.embed.chirality_fallback == "frozen_first"
-    assert config.refine.converge is True and config.refine.anchor_free_energies
-    assert (config.refine.dielectric_model, config.refine.dielectric_constant) == (
-        "distance",
-        4.0,
+    return run
+
+
+TS = ("ts", EX, "-r", "3", "4", "5")
+
+
+def _with(settings):
+    """The default config as a dict, with the settings {"section.key": value}."""
+    expected = PipelineConfig().to_dict()
+    for name, value in settings.items():
+        *sections, key = name.split(".")
+        target = expected
+        for section in sections:
+            target = target[section]
+        assert key in target
+        target[key] = value
+    return expected
+
+
+def test_ts_without_options_runs_the_defaults(call):
+    seen = call(*TS)
+
+    assert seen.pop("args") == (EX, [3, 4, 5])
+    assert seen.pop("config") == PipelineConfig()
+    assert seen == dict(
+        charge=0,
+        smiles=None,
+        multiplicity=None,
+        frozen_atoms=None,
+        mol_getter=None,
+        auto_fallback=True,
+        active_window=None,
+        active_bonds=None,
+        stratify=0,
     )
-    assert config.prune.include_hs is True
-    assert config.prune.check_stereo is True
-
-    assert config_of("--legacy") == PipelineConfig.legacy()
-    assert config_of("--legacy", "--converge").refine.converge is True
-    with pytest.raises(SystemExit):
-        run_subcommand(["ts", EX, "-r", "3", "--dielectric", "distance", "four"])
-    assert "'four' is not a number" in capsys.readouterr().err
 
 
-def test_ts_restraint_options(monkeypatch, capsys):
-    import racerts.cli
+@pytest.mark.parametrize(
+    "options, settings",
+    [
+        (["-n", "7"], {"embed.n_conformers": 7}),
+        (["--conf-factor", "40"], {"embed.conf_factor": 40}),
+        (["--etkdg"], {"embed.etkdg": True}),
+        (["--no-etkdg"], {"embed.etkdg": False}),
+        (["--embed", "bounds"], {"embed.mode": "bounds"}),
+        (["--count-policy", "fragments"], {"embed.count_policy": "fragments"}),
+        (["--sequential-seeds"], {"embed.sequential_seeds": True}),
+        (
+            ["--chirality-fallback", "frozen_first"],
+            {"embed.chirality_fallback": "frozen_first"},
+        ),
+        (["--refine", "uff"], {"refine.backend": "uff"}),
+        (["--converge"], {"refine.converge": True}),
+        (["--anchor-free-energies"], {"refine.anchor_free_energies": True}),
+        (
+            ["--dielectric", "distance", "4"],
+            {"refine.dielectric_model": "distance", "refine.dielectric_constant": 4.0},
+        ),
+        (["--no-fallback"], {"refine.fallback": False}),
+        (["--energy-threshold", "5"], {"prune.energy_threshold": 5.0}),
+        (["--rmsd-threshold", "0.3"], {"prune.rmsd_threshold": 0.3}),
+        (["--rmsd-hydrogens"], {"prune.include_hs": True}),
+        (["--check-stereo"], {"prune.check_stereo": True}),
+        (["--seed", "0"], {"seed": 0}),
+        (["--num-threads", "2"], {"num_threads": 2}),
+        (["--hints"], {"restraints.hints": True}),
+        (["--keep-hbonds"], {"restraints.hbonds": True}),
+        (["--keep-fragments"], {"restraints.keep_fragments": True}),
+        (["--contact", "0", "9"], {"restraints.contacts": [[0, 9]]}),
+        (
+            ["--restraint", "0", "6", "4.6", "--restraint", "1", "6", "4"],
+            {"restraints.user": [[0, 6, 4.6], [1, 6, 4.0]]},
+        ),
+        (["--restraint-half-width", "0.3"], {"restraints.half_width": 0.3}),
+        (["--restraint-force-constant", "50"], {"restraints.force_constant": 50.0}),
+    ],
+)
+def test_ts_options_set_their_setting_and_nothing_else(call, options, settings):
+    assert call(*TS, *options)["config"].to_dict() == _with(settings)
 
-    seen = {}
 
-    def fake_generate_ts(*args, config, **kwargs):
-        seen["config"] = config
-        raise SystemExit(0)
+@pytest.mark.parametrize(
+    "options, keyword, value",
+    [
+        (["-c", "-1"], "charge", -1),
+        (["--multiplicity", "3"], "multiplicity", 3),
+        (["-s", "CCCC", "C=C"], "smiles", ["CCCC", "C=C"]),
+        (["--frozen-atoms", "3", "4", "5", "6"], "frozen_atoms", [3, 4, 5, 6]),
+        (["--no-fallback"], "auto_fallback", False),
+        (["--active-window", "0.2"], "active_window", 0.2),
+        (["--active-window", "2.0", "2.9"], "active_window", (2.0, 2.9)),
+        (
+            ["--active-window", "0.2", "--active-bond", "3", "5", "--active-bond"]
+            + ["4", "5"],
+            "active_bonds",
+            [[3, 5], [4, 5]],
+        ),
+        (["--active-window", "0.2", "--stratify", "4"], "stratify", 4),
+        (
+            ["--active-window", "0.2", "--neighbor-window", "0.05"],
+            "neighbor_window",
+            0.05,
+        ),
+    ],
+)
+def test_ts_options_reach_generate_ts(call, options, keyword, value):
+    assert call(*TS, *options)[keyword] == value
 
-    monkeypatch.setattr(racerts.cli, "generate_ts", fake_generate_ts)
-    with pytest.raises(SystemExit):
-        run_subcommand(
-            ["ts", EX, "-r", "3", "4", "5", "--restraint", "0", "6", "4.6",
-             "--restraint", "1", "6", "4.0", "--keep-hbonds", "--contact", "0", "9",
-             "--keep-fragments", "--restraint-half-width", "0.3",
-             "--restraint-force-constant", "50"]
-        )  # fmt: skip
-    restraints = seen["config"].restraints
-    assert restraints.user == [[0, 6, 4.6], [1, 6, 4.0]]
-    assert restraints.hbonds and restraints.keep_fragments
-    assert restraints.contacts == [[0, 9]]
-    assert (restraints.half_width, restraints.force_constant) == (0.3, 50.0)
-    with pytest.raises(SystemExit):
-        run_subcommand(["ts", EX, "-r", "3", "--restraint", "a", "6", "4.6"])
-    assert "--restraint takes two atom indices" in capsys.readouterr().err
+
+@pytest.mark.parametrize("name", list(GRAPH_METHODS))
+def test_ts_graph_option_chooses_the_first_graph_method(call, name):
+    assert type(call(*TS, "--graph", name)["mol_getter"]) is GRAPH_METHODS[name]
+
+
+def test_ts_legacy_option_and_wrong_values(call, capsys):
+    assert call(*TS, "--legacy")["config"] == PipelineConfig.legacy()
+    assert call(*TS, "--legacy", "--converge")["config"].refine.converge is True
+    for options, message in [
+        (["--dielectric", "distance", "four"], "'four' is not a number"),
+        (["--restraint", "a", "6", "4.6"], "--restraint takes two atom indices"),
+        (["--active-window", "1", "2", "3"], "--active-window takes DELTA or LO HI"),
+        (["--stratify", "3"], "need --active-window"),
+    ]:
+        with pytest.raises(SystemExit):
+            run_subcommand([*TS, *options])
+        assert message in capsys.readouterr().err
+
+
+def test_gs_options_reach_generate_gs(call):
+    seen = call("gs", "CC(=O)[O-].[NH4+]", "--link-fragments", "--multiplicity", "1")
+
+    assert seen.pop("args") == ("CC(=O)[O-].[NH4+]",)
+    assert seen.pop("config").to_dict() == _with({"restraints.link_fragments": True})
+    assert seen == dict(charge=None, multiplicity=1)
+    assert call("gs", "CCO", "-c", "0")["charge"] == 0
 
 
 def test_gs_links_fragments(tmp_path):
@@ -205,6 +298,54 @@ def test_swap_command(tmp_path, sn2_ts):
     assert ensemble.mol.GetNumAtoms() == 6 - 1 + 7  # C2H5 for H
     with open(out) as handle:
         assert handle.readline().strip() == str(ensemble.mol.GetNumAtoms())
+
+
+@pytest.mark.parametrize(
+    "options, change",
+    [
+        (["--remove", "3"], dict(remove_atoms=[3])),
+        (["--site", "2"], dict(site=2)),
+        (["--center", "0", "2"], dict(center=0, substructure=2)),
+        (["--old", "[C:1][H]"], dict(old_fragment="[C:1][H]")),
+        (["--remove", "--attach", "1", "0"], dict(remove_atoms=[], attach_map={1: 0})),
+        (
+            ["--remove", "3", "--bond-type", "1", "double"],
+            dict(remove_atoms=[3], bond_types={1: "double"}),
+        ),
+        (
+            ["--remove", "3", "--mode", "renumber"],
+            dict(remove_atoms=[3], mode="renumber"),
+        ),
+    ],
+)
+def test_swap_options_describe_the_swap(call, sn2_ts, options, change):
+    seen = call(
+        "swap", sn2_ts, "-s", "CCl", "[Cl-]", "-c", "-1", "--new", "[*]C", *options
+    )
+
+    mol, swap = seen["args"]
+    assert mol.GetNumAtoms() == 6 and mol.GetIntProp("charge") == -1
+    assert swap == racerts.Swap("[*]C", **change)
+    assert seen["task"] is None and seen["config"] == PipelineConfig()
+    assert (seen["conserve"], seen["routes"], seen["hard"]) == ("soft", None, [])
+
+
+def test_swap_options_reach_swap(call, sn2_ts):
+    seen = call(
+        "swap", sn2_ts, "-s", "CCl", "[Cl-]", "-c", "-1", "--new", "[*]C", "--remove", "3",
+        "-r", "0", "1", "2", "--conserve", "free", "--routes", "dg", "rigid",
+        "--hard", "4", "5", "--multiplicity", "1", "-n", "6", "--seed", "3",
+    )  # fmt: skip
+
+    assert isinstance(seen["task"], TransitionState)
+    assert list(seen["task"].reacting_atoms) == [0, 1, 2]
+    assert (seen["conserve"], seen["routes"], seen["hard"]) == (
+        "free",
+        ["dg", "rigid"],
+        [4, 5],
+    )
+    assert seen["multiplicity"] == 1
+    assert seen["config"].to_dict() == _with({"embed.n_conformers": 6, "seed": 3})
 
 
 def test_swap_command_rejects_what_it_does_not_use(tmp_path, sn2_ts, capsys):

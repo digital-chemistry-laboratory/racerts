@@ -158,9 +158,10 @@ class PruneConfig:
     Attributes:
         energy_threshold: Energy window (kcal/mol) above the lowest conformer.
         rmsd_threshold: RMSD (A) below which conformers are duplicates.
-        hydrogens: The hydrogens in that RMSD: "none" (the heavy atoms), "polar"
-            (also the hydrogens on N, O, P and S: the rotamers of a hydrogen bond
-            stay apart; needs both prefilters off) or "all".
+        hydrogens: The hydrogens in that RMSD: "none" (the heavy atoms, as legacy
+            racerts), "polar" (the default: also the hydrogens on N, O, P and S, so
+            that the rotamers of a hydrogen bond stay apart; needs both prefilters
+            off) or "all".
         filter_energies: Conformers further apart in energy than
             rmsd_energy_threshold (kcal/mol) are not compared by RMSD.
         filter_rotations: Neither are conformers whose principal moments of inertia
@@ -185,7 +186,7 @@ class PruneConfig:
 
     energy_threshold: float = 20.0
     rmsd_threshold: float = 0.125
-    hydrogens: str = "none"
+    hydrogens: str = "polar"
     filter_energies: bool = False
     filter_rotations: bool = False
     rmsd_energy_threshold: float = 0.1
@@ -374,8 +375,8 @@ class PipelineConfig:
     Settings of the default pipeline (Embed, Refine, a stereo check, PruneEnergy,
     PruneRMSD). PipelineConfig.legacy() gives those of legacy racerts; the defaults
     differ in embed.sequential_seeds, embed.chirality_fallback, embed.count_policy,
-    refine.energies_without_anchors, prune.check_stereo, prune.filter_energies and
-    prune.filter_rotations.
+    refine.energies_without_anchors, prune.check_stereo, prune.filter_energies,
+    prune.filter_rotations and prune.hydrogens.
 
     Attributes:
         seed: Random seed (the RDKit embedding seed).
@@ -418,7 +419,10 @@ class PipelineConfig:
             ),
             "refine": dict(converge=False, energies_without_anchors=False),
             "prune": dict(
-                check_stereo=False, filter_energies=True, filter_rotations=True
+                check_stereo=False,
+                filter_energies=True,
+                filter_rotations=True,
+                hydrogens="none",
             ),
         }
         for key, legacy in sections.items():

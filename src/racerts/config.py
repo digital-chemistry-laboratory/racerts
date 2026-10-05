@@ -191,7 +191,7 @@ class PruneConfig:
     filter_rotations: bool = False
     rmsd_energy_threshold: float = 0.1
     rot_fraction_threshold: float = 0.03
-    max_matches: int = 10000
+    max_matches: int = 100
     check_stereo: bool = True
     method: str = "rmsd"
     cluster_method: str = "butina"
@@ -376,7 +376,7 @@ class PipelineConfig:
     PruneRMSD). PipelineConfig.legacy() gives those of legacy racerts; the defaults
     differ in embed.sequential_seeds, embed.chirality_fallback, embed.count_policy,
     refine.energies_without_anchors, prune.check_stereo, prune.filter_energies,
-    prune.filter_rotations and prune.hydrogens.
+    prune.filter_rotations, prune.hydrogens and prune.max_matches.
 
     Attributes:
         seed: Random seed (the RDKit embedding seed).
@@ -423,6 +423,7 @@ class PipelineConfig:
                 filter_energies=True,
                 filter_rotations=True,
                 hydrogens="none",
+                max_matches=10000,
             ),
         }
         for key, legacy in sections.items():

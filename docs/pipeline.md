@@ -102,7 +102,7 @@ ensemble = racerts.generate_ts("ts.xyz", [3, 4, 5], config=config)
 | | `cluster_method`, `cluster_threshold` | `butina`, 1.5 | `butina`, `hierarchical` or `leader`; Å, heavy-atom RMSD after superposition |
 | | `hydrogens` | polar | the hydrogens in the duplicate RMSD: `none` (heavy atoms, as legacy racerts), `polar` (also those on N, O, P, S, so that the rotamers of a hydrogen bond stay apart; needs both prefilters off) or `all` |
 | | `filter_energies`, `filter_rotations` | false, false | the prefilters of legacy racerts: compute the RMSD only for pairs within `rmsd_energy_threshold` (0.1 kcal/mol) and with principal moments within `rot_fraction_threshold` (0.03). Off: every pair is decided by its RMSD (a pair is skipped only where a lower bound of the RMSD is above the threshold). On, duplicates whose energies differ by more stay in the ensemble |
-| | `max_matches` | 10000 | the most equivalent atom mappings that are listed for the RMSD; above it, local symmetry is assigned without a list (prefilters off), or the list is cut (prefilters on); see [pruner](modules/pruner.md) (there: `maxMatches`) |
+| | `max_matches` | 100 | the most equivalent atom mappings that are listed for the RMSD (legacy racerts: 10000); above it, local symmetry is assigned without a list (prefilters off), or the list is cut (prefilters on); see [pruner](modules/pruner.md) (there: `maxMatches`) |
 | `restraints` | | | see [restraints](restraints.md) |
 
 **Chirality fallback.** `legacy` drops all chiral tags, or stops enforcing chirality, so

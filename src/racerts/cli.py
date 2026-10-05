@@ -152,6 +152,13 @@ def _add_ts(sub, defaults) -> None:
         default=None,
         help="Keep fragments without reacting atoms (e.g. solvent) at the core.",
     )
+    command.add_argument(
+        "--restraint-fraction",
+        type=float,
+        help="Probability with which an embedding batch takes each restraint of the "
+        "reference geometry (--keep-hbonds, --contact, --keep-fragments; default "
+        f"{defaults.restraints.fraction:g}).",
+    )
     _add_pipeline_options(command, defaults)
 
 
@@ -472,6 +479,7 @@ def _config_from_args(args) -> PipelineConfig:
             keep_fragments=given("keep_fragments"),
             link_fragments=given("link_fragments"),
             hints=given("hints"),
+            fraction=given("restraint_fraction"),
             half_width=given("restraint_half_width"),
             force_constant=given("restraint_force_constant"),
         ),

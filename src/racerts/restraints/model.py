@@ -113,6 +113,28 @@ class DistanceRestraint:
         return max(0.0, self.lower - d, d - self.upper)
 
 
+# The restraints of the reference geometry that Embed(restraint_fraction=...) takes in
+# some batches only; user restraints, links, containment and task windows always apply.
+OPTIONAL_SOURCES = ("hbond", "contact", "fragment")
+
+
+def applying(restraints, provenance) -> list:
+    """
+    The restraints that apply to a conformer: all of them, but of the optional ones
+    (OPTIONAL_SOURCES) only those of its embedding batch, if its provenance lists
+    them ("restraint_subset", see Embed restraint_fraction).
+    """
+    subset = provenance.get("restraint_subset")
+    if subset is None:
+        return list(restraints)
+    subset = set(subset)
+    return [
+        r
+        for r in restraints
+        if getattr(r, "source", None) not in OPTIONAL_SOURCES or r.label in subset
+    ]
+
+
 SOFT_TOLERANCE = 0.3  # A, the flat bottom of the position restraints of soft atoms
 SOFT_FORCE_CONSTANT = 5.0  # kcal/(mol A^2)
 

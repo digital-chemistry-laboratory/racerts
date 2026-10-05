@@ -12,7 +12,7 @@ from rdkit.Chem import rdDetermineBonds
 
 from racerts.geometry import superpose
 from racerts.pipeline import ConformerEnsemble
-from racerts.restraints.model import position_restraints
+from racerts.restraints.model import applying, position_restraints
 from racerts.system.stereo import StereoCheck
 
 from .base import Validate
@@ -396,9 +396,10 @@ class Clash:
 class RestraintViolation:
     """
     Whether the restraints that refinement holds are kept: no distance window of the
-    context (stage "refine" or "both") and no soft atom (held near its reference
-    position) may be violated by more than tolerance (A). Meant for contacts that broke,
-    not for the small excess that flat-bottom terms allow.
+    context (stage "refine" or "both"; of the optional ones only those of the
+    conformer's embedding batch, see restraints.applying) and no soft atom (held near
+    its reference position) may be violated by more than tolerance (A). Meant for
+    contacts that broke, not for the small excess that flat-bottom terms allow.
     """
 
     name = "restraints"
@@ -412,12 +413,13 @@ class RestraintViolation:
         windows = list(ctx.restraints.for_stage("refine"))
         reasons = {}
         for reference, conf_ids in ctx.by_reference(ensemble):
-            held = list(windows)
+            soft = []
             if ctx.frozen.soft and reference is not None:
-                held += position_restraints(reference, ctx.frozen.soft)
-            if not held:
-                continue
+                soft = position_restraints(reference, ctx.frozen.soft)
             for conf_id in conf_ids:
+                held = applying(windows, ensemble.provenance(conf_id)) + soft
+                if not held:
+                    continue
                 positions = ensemble.mol.GetConformer(conf_id).GetPositions()
                 worst = max(held, key=lambda r: r.violation(positions))
                 excess = worst.violation(positions)

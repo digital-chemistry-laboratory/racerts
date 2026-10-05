@@ -220,6 +220,9 @@ class RestraintConfig:
             embedding-only windows, used in a share hint_share of the conformers.
         contain: Radius (A) of a containment restraint for every fragment that no
             restraint anchors (e.g. a counterion near the core); 0: none.
+        fraction: The probability with which an embedding batch takes each restraint
+            of the reference geometry (hbonds, contacts, keep_fragments); refinement
+            follows the batch. 1: every conformer takes them all.
         roles: {atom: role} overrides of the fragment roles ("anchored",
             "contained", "free"; see racerts.system.roles).
     """
@@ -236,12 +239,15 @@ class RestraintConfig:
     max_hints: int = MAX_HINTS
     hint_share: float = DEFAULT_HINT_SHARE
     contain: float = 0.0
+    fraction: float = 1.0
     roles: dict = field(default_factory=dict)
 
     def __post_init__(self):
         _check_types(self, "restraints")
         if self.contain < 0:
             raise ValueError("restraints.contain must be a radius >= 0 (0: none).")
+        if not 0 < self.fraction <= 1:
+            raise ValueError("restraints.fraction must be in (0, 1].")
         self.roles = _roles(self.roles)
         if not 0 <= self.hint_share <= 1:
             raise ValueError("restraints.hint_share must be between 0 and 1.")
@@ -476,6 +482,7 @@ class PipelineConfig:
                     embed.conf_factor,
                     count_policy=embed.count_policy,
                     hint_share=self.restraints.hint_share,
+                    restraint_fraction=self.restraints.fraction,
                 ),
                 Refine(
                     optimizer,

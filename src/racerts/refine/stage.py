@@ -10,7 +10,7 @@ from racerts.restraints.active import (
     record_active_lengths,
     target_windows,
 )
-from racerts.restraints.model import accepts_restraints, position_restraints
+from racerts.restraints.model import accepts_restraints, applying, position_restraints
 from racerts.system.stereo import stereo_anchors
 
 from .base import BaseOptimizer
@@ -176,8 +176,9 @@ def _write_back(ensemble: ConformerEnsemble, part: ConformerEnsemble, conf_ids) 
 def _refine_groups(ctx, ensemble, base, conf_id_ref=-1):
     """
     (reference, conformer ids, restraints) groups: by reference (Embed(references=
-    ...)) and, for the active bonds of a windowed TS, by target, held at +/-
-    REFINE_TARGET_HALF_WIDTH. The soft atoms of the task get position restraints at
+    ...)), by active-bond target of a windowed TS (held at +/-
+    REFINE_TARGET_HALF_WIDTH) and by the optional restraints of the embedding batch
+    (Embed restraint_fraction). The soft atoms of the task get position restraints at
     their reference positions.
     """
     groups = []
@@ -188,15 +189,22 @@ def _refine_groups(ctx, ensemble, base, conf_id_ref=-1):
             held = position_restraints(reference, soft, conf_id_ref)
         by_target = {}
         for conf_id in conf_ids:
-            targets = ensemble.provenance(conf_id).get("active_bond_targets")
-            key = None if not targets else tuple(sorted(targets.items()))
+            provenance = ensemble.provenance(conf_id)
+            targets = provenance.get("active_bond_targets")
+            subset = provenance.get("restraint_subset")
+            key = (
+                None if not targets else tuple(sorted(targets.items())),
+                None if subset is None else tuple(sorted(subset)),
+            )
             by_target.setdefault(key, []).append(conf_id)
-        for key, ids in by_target.items():
+        for (targets, subset), ids in by_target.items():
             distances = base
-            if key is not None:
-                target = {tuple(map(int, pair.split("-"))): t for pair, t in key}
+            if subset is not None:
+                distances = applying(base, {"restraint_subset": subset})
+            if targets is not None:
+                target = {tuple(map(int, pair.split("-"))): t for pair, t in targets}
                 distances = target_windows(
-                    base,
+                    distances,
                     target,
                     REFINE_TARGET_HALF_WIDTH,
                     ctx.task.target_force_constant,

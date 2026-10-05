@@ -4,6 +4,7 @@ import copy
 import logging
 from typing import Callable, Optional, Sequence, Union
 
+import numpy as np
 from rdkit import Chem
 from rdkit.Chem import Descriptors
 
@@ -15,7 +16,7 @@ from racerts.restraints.active import (
     target_provenance,
     target_windows,
 )
-from racerts.restraints.model import accepts_restraints
+from racerts.restraints.model import OPTIONAL_SOURCES, accepts_restraints
 from racerts.system.spec import rigid_body_dof
 from racerts.task import FrozenSet
 from racerts.utils.checks import is_integer
@@ -28,6 +29,8 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_CONF_FACTOR = 80
 DEFAULT_HINT_SHARE = 0.3
+FRACTION_BATCHES = 10  # with restraint_fraction: batches that draw their restraints
+STREAM = 11  # the random stream of those draws, apart from the embedding's
 EMBED_MODES = {"cmap": CmapEmbedder, "bounds": BoundsMatrixEmbedder}
 COUNT_POLICIES = ("legacy", "fragments", "per_bond")
 
@@ -149,6 +152,7 @@ class Embed:
         count_policy: CountPolicy = "legacy",
         references: Union[None, str, Sequence[int]] = None,
         hint_share: float = DEFAULT_HINT_SHARE,
+        restraint_fraction: float = 1.0,
     ):
         if not is_integer(n_conformers):
             raise TypeError(f"n_conformers must be an integer, not {n_conformers!r}.")
@@ -158,7 +162,10 @@ class Embed:
             raise ValueError("references must be None, 'all' or conformer ids.")
         if not 0 <= hint_share <= 1:
             raise ValueError("hint_share must be between 0 and 1.")
+        if not 0 < restraint_fraction <= 1:
+            raise ValueError("restraint_fraction must be in (0, 1].")
         self.hint_share = hint_share
+        self.restraint_fraction = restraint_fraction
         self.embedder = embedder
         self.n_conformers = n_conformers
         self.conf_factor = conf_factor
@@ -205,7 +212,16 @@ class Embed:
         stratified = getattr(ctx.task, "stratify", 0)
         hinted = any(r.source == "hint" for r in restraints)
         windowed = getattr(ctx.task, "windowed", False)
-        if references is None and not hinted and not stratified and not windowed:
+        fractional = self.restraint_fraction < 1 and any(
+            r.source in OPTIONAL_SOURCES for r in restraints
+        )
+        if (
+            references is None
+            and not hinted
+            and not stratified
+            and not windowed
+            and not fractional
+        ):
             logger.info("Embedding %d conformers with %s.", n, type(embedder).__name__)
             embedded = self._embed(embedder, ctx, ctx.reference, n)
             embedded.add_provenance(**provenance)
@@ -253,15 +269,17 @@ class Embed:
 
     def _batches(self, ctx, n):
         """
-        (count, restraints, provenance) per batch: target batches (stratified active
-        bonds), else the batch without hints first, then the hint batches.
+        (count, restraints, provenance) per batch, each embedded with its own seed: per
+        target (stratified active bonds), the conformers without hints and then the
+        hint batches; with restraint_fraction < 1, each of these in batches of about a
+        tenth of n that take every optional restraint (OPTIONAL_SOURCES) with that
+        probability, recorded as "restraint_subset".
         """
         restraints = ctx.restraints.for_stage("embed")
         hints = [r for r in restraints if r.source == "hint"]
         base = [r for r in restraints if r.source != "hint"]
+        groups = [(n, base, {})]
         if getattr(ctx.task, "stratify", 0):
-            if hints:
-                raise ValueError("Hints and stratified active bonds do not combine.")
             targets = ctx.task.targets(ctx.mol)
             sizes = [
                 n // len(targets) + (i < n % len(targets)) for i in range(len(targets))
@@ -274,7 +292,7 @@ class Embed:
                     len(targets),
                     n,
                 )
-            return [
+            groups = [
                 (
                     size,
                     target_windows(base, target, EMBED_TARGET_HALF_WIDTH),
@@ -283,6 +301,37 @@ class Embed:
                 for size, target in zip(sizes, targets)
                 if size
             ]
+        batches = []
+        for size, group, where in groups:
+            batches += [
+                (count, chosen, {**where, **extra})
+                for count, chosen, extra in self._hint_batches(ctx, size, group, hints)
+            ]
+        if self.restraint_fraction < 1:
+            batches = self._fraction_batches(ctx, n, batches)
+        return batches
+
+    def _fraction_batches(self, ctx, n, batches):
+        """The batches split into FRACTION_BATCHES batches (of n) that take every
+        optional restraint with probability restraint_fraction."""
+        if not any(r.source in OPTIONAL_SOURCES for _, rs, _ in batches for r in rs):
+            return batches
+        rng = np.random.default_rng(None if ctx.seed < 0 else [ctx.seed, STREAM])
+        size = max(1, n // FRACTION_BATCHES)
+        split = []
+        for count, chosen, extra in batches:
+            fixed = [r for r in chosen if r.source not in OPTIONAL_SOURCES]
+            optional = [r for r in chosen if r.source in OPTIONAL_SOURCES]
+            while count > 0:
+                m = min(size, count)
+                count -= m
+                subset = [r for r in optional if rng.random() < self.restraint_fraction]
+                labels = {"restraint_subset": [r.label for r in subset]}
+                split.append((m, fixed + subset, {**extra, **labels}))
+        return split
+
+    def _hint_batches(self, ctx, n, base, hints):
+        """The batch without hints first, then the hint batches."""
         if not hints:
             return [(n, base, {})]
         subsets = [[hint] for hint in hints]

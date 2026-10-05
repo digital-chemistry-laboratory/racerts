@@ -31,6 +31,7 @@ ensemble = racerts.generate_ts("sn2_water.xyz", [0, 1, 2], charge=-1,
 | `half_width` | 0.25 | of the `user`, `hbonds`, `contacts` and `keep_fragments` windows |
 | `force_constant` | 20.0 | of all these windows and of the fragment links |
 | `hints`, `max_hints`, `hint_share` | false, 8, 0.3 | see [Hints](#hints) |
+| `fraction` | 1 | see [Biased and unbiased conformers](#biased-and-unbiased-conformers-in-one-ensemble) |
 | `contain`, `roles` | 0, none | see [Fragment roles and containment](#fragment-roles-and-containment) |
 
 `hbonds`, `contacts` and `keep_fragments` need a reference geometry (not for
@@ -74,6 +75,25 @@ A share `hint_share` of the conformers is embedded with a hint: one batch per hi
 one with all of them, if they fit together; the others without. Refinement is free, so
 a hint only chooses starting points. The provenance of each conformer lists its hints
 (`active_restraints`).
+
+## Biased and unbiased conformers in one ensemble
+
+`restraints.fraction` (default 1; CLI `--restraint-fraction`) mixes conformers with and
+without the restraints taken from the reference geometry (`hbonds`, `contacts`,
+`keep_fragments`):
+
+- **Batches:** the embedding runs in batches of about a tenth of the conformers, each
+  with its own seed, and each batch takes every such restraint with probability
+  `fraction`.
+- **Provenance:** records the restraints of each conformer's batch
+  (`restraint_subset`).
+- **Refinement:** follows the batch, so conformers embedded without a contact are not
+  pulled into it afterwards; the gate checks each conformer only against its own
+  restraints.
+- **Always applied:** user restraints, links, containment and task windows.
+
+Stratified active-bond targets, hint batches and fractions combine: every target gets
+its hint batches, and every batch its random subset.
 
 ## Fragment roles and containment
 

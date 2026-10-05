@@ -66,6 +66,7 @@ def test_ts_rejects_invalid_settings(tmp_path, capsys):
         (["gs", "CCO", "--keep-hbonds"], "unrecognized arguments: --keep-hbonds"),
         (["gs", "CCO", "--contact", "0", "2"], "unrecognized arguments: --contact"),
         (["gs", "CCO", "--chirality-fallback", "legacy"], "unrecognized arguments"),
+        (["gs", "CCO", "--restraint-fraction", "0.5"], "unrecognized arguments"),
         (["ts", EX, "-r", "3", "--link-fragments"], "unrecognized arguments"),
         (["ts", EX, "-r", "3", "--neighbor-window", "0.5"], "need --active-window"),
         (["ts", EX, "-r", "300", "-n", "2"], "Invalid reacting atoms"),
@@ -211,6 +212,7 @@ def test_ts_without_options_runs_the_defaults(call):
         (["--hints"], {"restraints.hints": True}),
         (["--keep-hbonds"], {"restraints.hbonds": True}),
         (["--keep-fragments"], {"restraints.keep_fragments": True}),
+        (["--restraint-fraction", "0.5"], {"restraints.fraction": 0.5}),
         (["--contact", "0", "9"], {"restraints.contacts": [[0, 9]]}),
         (
             ["--restraint", "0", "6", "4.6", "--restraint", "1", "6", "4"],

@@ -305,19 +305,16 @@ def test_a_config_file_holds_a_mapping(tmp_path):
     assert PipelineConfig.from_file(str(empty)) == PipelineConfig()
 
 
-def test_the_eht_setting_warns_by_its_name_and_labels_the_energies(hept_1_ene_ts):
-    import racerts
+def test_extended_hueckel_energies_are_no_setting_of_the_pipeline():
+    # They belong to legacy racerts (racerts.compat.EnergyPruner); a pipeline ranks by
+    # another level with the Rescore stage.
+    import racerts.prune
 
-    with pytest.warns(FutureWarning, match="prune.eht_energies is deprecated"):
-        config = PipelineConfig.from_dict(
-            {"embed": {"n_conformers": 3}, "prune": {"eht_energies": True}}
-        )
-    ensemble = racerts.generate(
-        hept_1_ene_ts, TransitionState([3, 4, 5]), config=config
-    )
-    assert ensemble.energy_method == "EHT"
     with pytest.raises(ValueError, match="eht_energies"):
-        config.build(TransitionState([3, 4, 5], active_window=0.2))
+        PipelineConfig.from_dict({"prune": {"eht_energies": True}})
+    with pytest.raises(TypeError, match="YAeHMOP_energies"):
+        racerts.prune.EnergyPruner(YAeHMOP_energies=True)
+    assert not hasattr(racerts.prune.EnergyPruner, "set_QM_energies")
 
 
 def test_the_sections_and_stages_of_the_default_pipeline_are_exported():

@@ -437,3 +437,35 @@ def test_legacy_classes_keep_the_legacy_settings():
     # The new settings can still be chosen.
     assert CmapEmbedder(sequential_seeds=True).sequential_seeds is True
     assert LegacyMMFF(dielectric_model="distance").dielectric_model == "distance"
+
+
+def test_the_legacy_energy_pruner_keeps_the_extended_hueckel_energies(
+    tmp_path, monkeypatch
+):
+    # The pruner of the pipeline has no such option any more (Rescore ranks by another
+    # level); legacy racerts keeps it, with its warning.
+    from rdkit.Chem import AllChem
+
+    import racerts.compat
+    import racerts.prune
+
+    monkeypatch.chdir(tmp_path)  # some RDKit versions write YAeHMOP output files
+    legacy = racerts.compat.EnergyPruner
+    assert legacy is racerts.pruner.EnergyPruner
+    assert issubclass(legacy, racerts.prune.EnergyPruner)
+    assert legacy is not racerts.prune.EnergyPruner
+    mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+    AllChem.EmbedMultipleConfs(mol, 2, randomSeed=7)
+    for conf in mol.GetConformers():
+        conf.SetDoubleProp("energy", 0.0)
+    with pytest.warns(FutureWarning, match="YAeHMOP_energies is deprecated"):
+        pruner = legacy(threshold=1e6, YAeHMOP_energies=True)
+    pruned = pruner.prune(mol)
+    assert pruned.GetProp("energy_method") == "EHT"
+    energies = [conf.GetDoubleProp("energy") for conf in pruned.GetConformers()]
+    assert len(energies) == 2 and all(energy < -1000.0 for energy in energies)
+    # The legacy generator builds its pruner from the legacy class.
+    with pytest.warns(FutureWarning, match="YAeHMOP_energies is deprecated"):
+        generator = ConformerGenerator(energy_pruner_kwargs={"YAeHMOP_energies": True})
+    assert type(generator.energy_pruner) is legacy
+    assert type(ConformerGenerator().energy_pruner) is legacy

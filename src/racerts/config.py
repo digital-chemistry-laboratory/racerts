@@ -4,7 +4,6 @@ import json
 import os
 import re
 import typing
-import warnings
 from dataclasses import asdict, dataclass, field, fields
 from numbers import Real
 from typing import Any, Dict, Optional
@@ -157,9 +156,6 @@ class PruneConfig:
     """
     Attributes:
         energy_threshold: Energy window (kcal/mol) above the lowest conformer.
-        eht_energies: Rank by extended Hueckel (YAeHMOP) energies instead (deprecated:
-            rescore with an ASE calculator, the Rescore stage; not with active-bond
-            windows).
         rmsd_threshold: Heavy-atom RMSD (A) below which conformers are duplicates.
         include_hs: Include hydrogens in the RMSD.
         filter_energies: Conformers further apart in energy than
@@ -180,7 +176,6 @@ class PruneConfig:
     """
 
     energy_threshold: float = 20.0
-    eht_energies: bool = False
     rmsd_threshold: float = 0.125
     include_hs: bool = False
     filter_energies: bool = True
@@ -210,13 +205,6 @@ class PruneConfig:
                 raise ValueError(f"prune.{name} must not be negative.")
         if self.max_matches < 1:
             raise ValueError("prune.max_matches must be positive.")
-        if self.eht_energies:
-            warnings.warn(
-                "prune.eht_energies is deprecated; rescore the ensemble with an ASE "
-                "calculator instead (the Rescore stage).",
-                FutureWarning,  # shown by default, unlike DeprecationWarning
-                stacklevel=3,
-            )
 
 
 @dataclass
@@ -508,15 +496,7 @@ class PipelineConfig:
         """
         prune = self.prune
         windowed = getattr(task, "windowed", False)
-        if prune.eht_energies and windowed:  # windows are pruned per target, on copies
-            raise ValueError(
-                "prune.eht_energies does not combine with active-bond windows."
-            )
-        with warnings.catch_warnings():  # PruneConfig has warned about eht_energies
-            warnings.simplefilter("ignore", FutureWarning)
-            energy_pruner = EnergyPruner(
-                threshold=prune.energy_threshold, YAeHMOP_energies=prune.eht_energies
-            )
+        energy_pruner = EnergyPruner(threshold=prune.energy_threshold)
         faces = []
         if windowed and getattr(task, "stereo_filter", False):
             faces.append(Validate(AttackFace()))

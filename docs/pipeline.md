@@ -95,7 +95,6 @@ ensemble = racerts.generate_ts("ts.xyz", [3, 4, 5], config=config)
 | | `dielectric_model`, `dielectric_constant` | `constant`, 1.0 | MMFF electrostatics; e.g. `distance`, 4.0 damps salt bridges in vacuum |
 | | `num_workers` | 1 | worker processes of the force-field refinement, with the results of one process; threads (`num_threads`) gain nothing there, since RDKit's minimizer holds Python's lock |
 | `prune` | `energy_threshold` | 20.0 | kcal/mol above the lowest conformer |
-| | `eht_energies` | false | rank by extended Hückel energies (deprecated: use `Rescore`) |
 | | `rmsd_threshold` | 0.125 | Å, heavy atoms |
 | | `check_stereo` | true | after refinement, drop conformers whose specified stereo differs from the graph (see below) |
 | | `method` | `rmsd` | `rmsd` (duplicates, as legacy racerts) or `cluster` (one conformer per cluster) |

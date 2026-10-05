@@ -17,6 +17,7 @@ from racerts.embed import (
     DEFAULT_CONF_FACTOR,
     DEFAULT_HINT_SHARE,
     EMBED_MODES,
+    HINT_ATTEMPTS,
     Embed,
     default_embedder,
 )
@@ -236,7 +237,9 @@ class RestraintConfig:
             [1.0, 1.3] x the vdW sum.
         link_fragments: Also choose links that join every fragment.
         hints: Candidate hydrogen bonds from the graph (at most max_hints) as
-            embedding-only windows, used in a share hint_share of the conformers.
+            embedding-only windows, used in a share hint_share of the conformers. A
+            hint that gives no conformer within hint_attempts RDKit attempts per
+            conformer is dropped (see Embed); 0: RDKit's own limit.
         contain: Radius (A) of a containment restraint for every fragment that no
             restraint anchors (e.g. a counterion near the core); 0: none.
         fraction: The probability with which an embedding batch takes each restraint
@@ -257,6 +260,7 @@ class RestraintConfig:
     hints: bool = False
     max_hints: int = MAX_HINTS
     hint_share: float = DEFAULT_HINT_SHARE
+    hint_attempts: int = HINT_ATTEMPTS
     contain: float = 0.0
     fraction: float = 1.0
     roles: dict = field(default_factory=dict)
@@ -270,6 +274,8 @@ class RestraintConfig:
         self.roles = _roles(self.roles)
         if not 0 <= self.hint_share <= 1:
             raise ValueError("restraints.hint_share must be between 0 and 1.")
+        if self.hint_attempts < 0:
+            raise ValueError("restraints.hint_attempts must not be negative.")
         if self.max_hints < 1:
             raise ValueError("restraints.max_hints must be positive.")
         for name, size in (("user", 3), ("contacts", 2), ("fragment_links", 2)):
@@ -470,6 +476,7 @@ class PipelineConfig:
             embed.conf_factor,
             count_policy=embed.count_policy,
             hint_share=self.restraints.hint_share,
+            hint_attempts=self.restraints.hint_attempts,
             restraint_fraction=self.restraints.fraction,
         )
 

@@ -30,7 +30,7 @@ ensemble = racerts.generate_ts("sn2_water.xyz", [0, 1, 2], charge=-1,
 | `link_fragments` | false | links chosen to join every fragment (user pairs between fragments, then charged pairs, then the least buried atoms) |
 | `half_width` | 0.25 | of the `user`, `hbonds`, `contacts` and `keep_fragments` windows |
 | `force_constant` | 20.0 | of all these windows and of the fragment links |
-| `hints`, `max_hints`, `hint_share` | false, 8, 0.3 | see [Hints](#hints) |
+| `hints`, `max_hints`, `hint_share`, `hint_attempts` | false, 8, 0.3, 20 | see [Hints](#hints) |
 | `fraction` | 1 | see [Biased and unbiased conformers](#biased-and-unbiased-conformers-in-one-ensemble) |
 | `contain`, `roles` | 0, none | see [Fragment roles and containment](#fragment-roles-and-containment) |
 
@@ -75,6 +75,19 @@ A share `hint_share` of the conformers is embedded with a hint: one batch per hi
 one with all of them, if they fit together; the others without. Refinement is free, so
 a hint only chooses starting points. The provenance of each conformer lists its hints
 (`active_restraints`).
+
+A hint is a potential interaction, and the embedding decides whether the molecule can
+have it. The graph rule proposes the O–H···O contact of bicyclo[2.2.2]octane-1,4-diol or
+of *trans*-cyclohexane-1,4-diol (a seven-membered pseudo-ring), and neither can close it:
+
+- every conformer of a hint batch gets `hint_attempts` RDKit attempts (20); one that does
+  not embed within them is embedded without the hints, so the conformer count stays;
+- a hint batch that gives no conformer at all is dropped: a log line, and
+  `dropped_hints` in the provenance of the conformers embedded in its place;
+- the attempts decide, not the time, so a seed gives the same ensemble on every machine.
+  With RDKit's own limit (ten attempts per atom; `hint_attempts: 0`) the conformers of an
+  impossible hint are missing from the ensemble, and on a large molecule such a hint runs
+  for minutes.
 
 ## Biased and unbiased conformers in one ensemble
 

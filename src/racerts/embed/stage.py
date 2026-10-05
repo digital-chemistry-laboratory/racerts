@@ -29,6 +29,10 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_CONF_FACTOR = 80
 DEFAULT_HINT_SHARE = 0.3
+# RDKit attempts per conformer within which a hint has to embed. On a 146-atom peptide
+# every hint that occurs in its ensemble embedded within 20; the ones that never embed
+# run for minutes with RDKit's own limit (ten attempts per atom).
+HINT_ATTEMPTS = 20
 FRACTION_BATCHES = 10  # with restraint_fraction: batches that draw their restraints
 STREAM = 11  # the random stream of those draws, apart from the embedding's
 EMBED_MODES = {"cmap": CmapEmbedder, "bounds": BoundsMatrixEmbedder}
@@ -137,6 +141,13 @@ class Embed:
             compatible); the others are embedded without hints. Each batch has its own
             seed; the provenance records the hints of each conformer
             ("active_restraints").
+        hint_attempts: A hint is a potential interaction: the embedding decides
+            whether the molecule can have it. A conformer of a hint batch that does not
+            embed within this many RDKit attempts is embedded without the hints
+            instead, so the count stays; a hint batch that gives no conformer at all is
+            dropped, which is logged and recorded ("dropped_hints"). The number of
+            attempts, not the time, decides: the same seed gives the same ensemble on
+            every machine. 0: RDKit's limit (ten attempts per atom).
 
     Embed starts an ensemble; it raises if it gets one. An embedder passed in keeps its
     own settings, including its seed.
@@ -153,7 +164,10 @@ class Embed:
         references: Union[None, str, Sequence[int]] = None,
         hint_share: float = DEFAULT_HINT_SHARE,
         restraint_fraction: float = 1.0,
+        hint_attempts: int = HINT_ATTEMPTS,
     ):
+        if not is_integer(hint_attempts) or hint_attempts < 0:
+            raise ValueError("hint_attempts must be a non-negative integer.")
         if not is_integer(n_conformers):
             raise TypeError(f"n_conformers must be an integer, not {n_conformers!r}.")
         if n_conformers != -1 and n_conformers < 1:
@@ -165,6 +179,7 @@ class Embed:
         if not 0 < restraint_fraction <= 1:
             raise ValueError("restraint_fraction must be in (0, 1].")
         self.hint_share = hint_share
+        self.hint_attempts = int(hint_attempts)
         self.restraint_fraction = restraint_fraction
         self.embedder = embedder
         self.n_conformers = n_conformers
@@ -247,25 +262,62 @@ class Embed:
                     f" ({batch})" if batch else "",
                 )
                 batch_embedder = _batch_embedder(embedder, k)
-                part = self._embed(
-                    batch_embedder, ctx, reference, count, extra, check=False
+                parts = self._embed_batch(
+                    batch_embedder, ctx, reference, count, extra, batch
                 )
-                part.add_provenance(
-                    **{
-                        **provenance,
-                        "seed": getattr(batch_embedder, "randomSeed", None),
-                    }
-                )
-                if ref_id is not None:
-                    part.add_provenance(reference=ref_id)
-                if batch:
-                    part.add_provenance(**batch)
-                ensemble = part if ensemble is None else ensemble.merge(part)
+                for part, labels in parts:
+                    part.add_provenance(
+                        **{
+                            **provenance,
+                            "seed": getattr(batch_embedder, "randomSeed", None),
+                        }
+                    )
+                    if ref_id is not None:
+                        part.add_provenance(reference=ref_id)
+                    if labels:
+                        part.add_provenance(**labels)
+                    ensemble = part if ensemble is None else ensemble.merge(part)
         if len(ensemble) == 0:
             raise no_conformers_error(ctx.frozen)
         record_active_lengths(ctx, ensemble)
         keep_embedded_lengths(ctx, ensemble)
         return ensemble
+
+    def _embed_batch(self, embedder, ctx, reference, count, restraints, batch):
+        """
+        The conformers of one batch as (ensemble, provenance of the batch) parts. A
+        batch without hints is one part. Hint batches get hint_attempts attempts per
+        conformer; what does not embed within them is embedded without the hints, as
+        a second part (see hint_attempts).
+        """
+        hints = [r.label for r in restraints or () if r.source == "hint"]
+        if not hints or not self.hint_attempts:
+            return [
+                (self._embed(embedder, ctx, reference, count, restraints, False), batch)
+            ]
+        limited = copy.copy(embedder)
+        limited.max_attempts = self.hint_attempts
+        hinted = self._embed(limited, ctx, reference, count, restraints, check=False)
+        missing = count - len(hinted)
+        if not missing:
+            return [(hinted, batch)]
+        without = [r for r in restraints if r.source != "hint"]
+        unhinted = {**batch, "active_restraints": []}
+        if not len(hinted):
+            unhinted["dropped_hints"] = hints
+            logger.info(
+                "The hint%s %s did not embed within %d attempts per conformer: "
+                "dropped as not possible for this molecule; %d conformers are "
+                "embedded without.",
+                "s" if len(hints) > 1 else "",
+                ", ".join(hints),
+                self.hint_attempts,
+                missing,
+            )
+        rest = self._embed(embedder, ctx, reference, missing, without, check=False)
+        return (
+            [(hinted, batch), (rest, unhinted)] if len(hinted) else [(rest, unhinted)]
+        )
 
     def _batches(self, ctx, n):
         """

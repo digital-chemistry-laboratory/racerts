@@ -467,6 +467,59 @@ def test_hint_batches_and_their_provenance():
     assert "restraints" not in ensemble.provenance(ensemble.conf_ids[0])
 
 
+def _hinted(smiles, n=10, **embed):
+    config = PipelineConfig.from_dict(
+        {"seed": 3, "embed": {"n_conformers": n}, "restraints": {"hints": True}}
+    )
+    pipeline = racerts.Pipeline([racerts.Embed(n_conformers=n, **embed)])
+    return racerts.generate_gs(smiles, config=config, pipeline=pipeline)
+
+
+@pytest.mark.parametrize(
+    "smiles",
+    [
+        "OC12CCC(O)(CC1)CC2",  # the cage holds the two O-H 5.5 A apart
+        "O[C@H]1CC[C@H](O)CC1",  # trans: on opposite faces of the ring
+    ],
+)
+def test_a_hint_that_cannot_embed_is_dropped(smiles, caplog):
+    # The graph rule proposes the O-H...O contact (a seven-membered pseudo-ring); the
+    # embedding finds that the molecule cannot have it.
+    with caplog.at_level(logging.INFO, logger="racerts"):
+        ensemble = _hinted(smiles)
+    assert len(ensemble) == 10  # the count stays: embedded without the hint
+    provenance = [ensemble.provenance(i) for i in ensemble.conf_ids]
+    assert all(p["active_restraints"] == [] for p in provenance)
+    dropped = sorted({h for p in provenance for h in p.get("dropped_hints", [])})
+    assert len(dropped) == 2 and all(h.startswith("hint:") for h in dropped)
+    assert sum("dropped_hints" in p for p in provenance) == 3  # the three hint batches
+    assert "did not embed within 20 attempts" in caplog.text
+    # The same seed gives the same ensemble.
+    again = _hinted(smiles)
+    for conf_id in ensemble.conf_ids:
+        np.testing.assert_array_equal(
+            again.mol.GetConformer(conf_id).GetPositions(),
+            ensemble.mol.GetConformer(conf_id).GetPositions(),
+        )
+    # With RDKit's own limit the conformers of the hint batches are missing.
+    assert len(_hinted(smiles, hint_attempts=0)) == 7
+
+
+@pytest.mark.parametrize("smiles", ["O[C@H]1CC[C@@H](O)CC1", "OCCCCCCCO"])
+def test_a_hint_that_embeds_is_not_touched_by_the_limit(smiles):
+    # cis-cyclohexane-1,4-diol closes the contact in a boat; the open chain easily.
+    limited, unlimited = _hinted(smiles), _hinted(smiles, hint_attempts=0)
+    assert len(limited) == len(unlimited) == 10
+    hinted = [i for i in limited.conf_ids if limited.provenance(i)["active_restraints"]]
+    assert len(hinted) == 3
+    assert not any("dropped_hints" in limited.provenance(i) for i in limited.conf_ids)
+    for conf_id in limited.conf_ids:
+        np.testing.assert_array_equal(
+            limited.mol.GetConformer(conf_id).GetPositions(),
+            unlimited.mol.GetConformer(conf_id).GetPositions(),
+        )
+
+
 def test_hints_are_released_in_refinement():
     restraints = build_restraints(
         Chem.AddHs(Chem.MolFromSmiles("OCCCCCCCO")), hints=True

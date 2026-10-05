@@ -72,6 +72,9 @@ class DistanceGeometryEmbedder(BaseEmbedder):
     - "never": as legacy racerts, no conformers then;
     - "always": they are widened whenever they exclude the reference.
     The embedder's attribute widened lists the widened pairs of its last embedding.
+
+    max_attempts: RDKit's attempts per conformer (maxIterations; default: RDKit's, ten
+    per atom). A conformer that does not embed within them is left out.
     """
 
     def __init__(
@@ -86,8 +89,11 @@ class DistanceGeometryEmbedder(BaseEmbedder):
         sequential_seeds: bool = True,
         reference_bounds: str = "fallback",
         num_threads: int = 1,
+        max_attempts: Optional[int] = None,
     ):
         check_reference_bounds(reference_bounds)
+        if max_attempts is not None and max_attempts < 1:
+            raise ValueError("max_attempts must be positive, or None for RDKit's.")
         if chirality_fallback not in CHIRALITY_FALLBACKS:
             raise ValueError(
                 f"chirality_fallback must be one of {CHIRALITY_FALLBACKS}, not "
@@ -98,6 +104,7 @@ class DistanceGeometryEmbedder(BaseEmbedder):
         self.pruneRmsThresh = pruneRmsThresh
         self.ETversion = ETversion
         self.useRandomCoords = useRandomCoords
+        self.max_attempts = max_attempts
         self.etkdg = etkdg
         self.chirality_fallback = chirality_fallback
         self.sequential_seeds = sequential_seeds
@@ -161,6 +168,8 @@ class DistanceGeometryEmbedder(BaseEmbedder):
             # (verified on RDKit 2023.09-2026.03); plain DG keeps most of them.
             params.boundsMatForceScaling = 100.0
         params.trackFailures = True
+        if getattr(self, "max_attempts", None) is not None:
+            params.maxIterations = int(self.max_attempts)
         params.pruneRmsThresh = self.pruneRmsThresh
         params.randomSeed = self.randomSeed
         params.numThreads = self.num_threads

@@ -156,16 +156,24 @@ The active-bond windows of a TS act in embedding only:
 ## From TS-like conformers to transition states
 
 `racerts.recipes.saddles` is the saddle search with its checks, as a pipeline for the
-result of `staged` (or of the default pipeline):
+result of `staged` (or of the default pipeline). It runs in a context of the reference
+molecule, the one the TS-like conformers were made from: its geometry is what the
+checks compare with (a context made from the ensemble would take the first conformer
+of the ensemble for the reference).
 
 ```python
 from sella import Sella
 from racerts.recipes import saddles
+from racerts.system import build_mol
+
+mol = build_mol("ts.xyz", 0, [3, 4, 5], input_smiles=["CCCCCC=C"])  # the reference
+task = racerts.TransitionState([3, 4, 5])
+ts_like = racerts.generate(mol, task, pipeline=staged(uma))
 
 search = ASEOptimizer(uma_calculator, optimizer_cls=Sella,
                       optimizer_kwargs={"order": 1, "internal": True},
                       fmax=0.01, max_steps=300, method="UMA-s-1p2")
-ctx = racerts.Context.create(ts_like.mol, task)
+ctx = racerts.Context.create(mol, task)
 transition_states = saddles(search, pool=20).run(ctx, ts_like)
 ```
 

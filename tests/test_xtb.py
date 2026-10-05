@@ -6,6 +6,7 @@ import pytest
 import racerts
 from racerts import Rescore, TransitionState
 from racerts.refine import ASEOptimizer
+from racerts.system import build_mol
 from racerts.utils.units import EV_TO_KCAL_MOL
 
 pytestmark = [pytest.mark.ase, pytest.mark.xtb]
@@ -146,11 +147,12 @@ def test_the_saddle_recipe_finds_the_sn2_transition_state(sn2_ts_symmetric):
         method="GFN2-xTB",
     )
     start = racerts.Pipeline([racerts.Embed(n_conformers=2), racerts.Refine()])
-    ensemble = racerts.generate_ts(
-        sn2_ts_symmetric, [0, 1, 2], charge=-1, smiles="CCl.[Cl-]", pipeline=start
-    )
+    mol = build_mol(sn2_ts_symmetric, -1, [0, 1, 2], input_smiles=["CCl.[Cl-]"])
+    ensemble = racerts.generate(mol, TransitionState([0, 1, 2]), pipeline=start)
+    # The context of the reference: a context of the ensemble would take its first
+    # conformer for the reference geometry that the checks compare with.
     task = TransitionState([0, 1, 2], active_bonds=[(0, 1), (0, 2)])
-    ctx = racerts.Context.create(ensemble.mol, task)
+    ctx = racerts.Context.create(mol, task)
     found = saddles(search).run(ctx, ensemble)
     assert len(found) == 1  # the embedded conformers are one TS
     provenance = found.provenance(found.conf_ids[0])

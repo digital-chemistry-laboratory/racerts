@@ -9,6 +9,7 @@ import racerts
 from racerts import TransitionState
 from racerts.recipes import staged
 from racerts.refine import MMFFOptimizer, Refine, Rescore
+from racerts.system import build_mol
 from racerts.validate import gate
 
 pytestmark = pytest.mark.ase
@@ -304,8 +305,11 @@ def test_the_clash_filter_drops_overlaps_not_contacts_within_rdkits_bounds():
             staged(LJ, clash_filter=bad)
 
 
-def _passes_the_gate(ensemble, task):
-    ctx = racerts.Context.create(ensemble.mol, task)
+def _passes_the_gate(ensemble, task, reference=None):
+    # the context of the reference molecule: one of the ensemble would take its first
+    # conformer for the reference geometry
+    mol = ensemble.mol if reference is None else reference
+    ctx = racerts.Context.create(mol, task)
     return all(not check.validate(ctx, ensemble) for check in gate().validators)
 
 
@@ -336,9 +340,8 @@ def test_a_ts_with_waters_end_to_end(sn2_ts_two_waters):
         embed=racerts.Embed(n_conformers=6),
         exploit={"max_optimizations": 8, "batch": 4},
     )
-    ensemble = racerts.generate_ts(
-        sn2_ts_two_waters, [0, 1, 2], charge=-1, smiles="CCl.[Cl-].O.O",
-        pipeline=pipeline,
-    )  # fmt: skip
+    mol = build_mol(sn2_ts_two_waters, -1, [0, 1, 2], input_smiles=["CCl.[Cl-].O.O"])
+    task = TransitionState([0, 1, 2])
+    ensemble = racerts.generate(mol, task, pipeline=pipeline)
     assert len(ensemble) >= 1 and ensemble.energy_method == "GFN2"
-    assert _passes_the_gate(ensemble, TransitionState([0, 1, 2]))
+    assert _passes_the_gate(ensemble, task, reference=mol)

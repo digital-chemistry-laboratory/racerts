@@ -283,8 +283,10 @@ def test_stereo_only_check():
 def test_check_stereo_setting_adds_a_stereo_check(hept_1_ene_ts):
     from racerts import PipelineConfig
 
-    names = [s.name for s in PipelineConfig().build(TransitionState([3])).stages]
-    assert "validate" not in names
+    legacy = PipelineConfig.legacy().build(TransitionState([3])).stages
+    assert "validate" not in [s.name for s in legacy]
+    default = PipelineConfig().build(TransitionState([3])).stages
+    assert [s.name for s in default][:3] == ["embed", "refine", "validate"]
     config = PipelineConfig.from_dict(
         {"embed": {"n_conformers": 4}, "prune": {"check_stereo": True}}
     )

@@ -51,7 +51,8 @@ are passed as a [`PipelineConfig`](pipeline.md#settings); tasks other than trans
 states (ground states, constrained cores) are described in [Pipelines and
 tasks](pipeline.md).
 
-The legacy racerts API still works and gives the same ensembles:
+The legacy racerts API still works and gives the ensembles of legacy racerts (as does
+`config=racerts.PipelineConfig.legacy()`):
 
 ```python
 from racerts import ConformerGenerator

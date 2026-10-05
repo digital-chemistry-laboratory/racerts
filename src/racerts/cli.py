@@ -63,7 +63,7 @@ def _add_ts(sub, defaults) -> None:
     command = sub.add_parser(
         "ts",
         description="TS conformers: the reacting atoms and their neighbours stay at "
-        "the TS geometry. With default settings, the same ensemble as legacy racerts.",
+        "the TS geometry. With --legacy, the same ensemble as legacy racerts.",
     )
     command.add_argument(
         "filename", help="TS geometry (.xyz, or .sdf/.mol with bonds)."

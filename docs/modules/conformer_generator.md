@@ -3,8 +3,8 @@
 The central orchestrator of legacy racerts for generating TS-constrained conformer
 ensembles, kept in `racerts.compat` (and importable as `from racerts import
 ConformerGenerator`). It runs on the pipeline and gives the same ensembles as
-`racerts.generate_ts`; see [Pipelines and tasks](../pipeline.md) and [Migrating from
-legacy racerts](../migration.md).
+`racerts.generate_ts` with `config=PipelineConfig.legacy()`; see [Pipelines and
+tasks](../pipeline.md) and [Migrating from legacy racerts](../migration.md).
 
 ```python
 from racerts import ConformerGenerator

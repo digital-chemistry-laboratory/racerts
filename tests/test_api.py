@@ -23,7 +23,12 @@ def test_generate_ts_returns_an_ensemble_with_provenance():
 
     assert isinstance(ensemble, racerts.ConformerEnsemble)
     assert record.energy_method == "MMFFOptimizer"
-    assert record.provenance == {"embedder": "CmapEmbedder", "seed": 12, "etkdg": False}
+    assert record.provenance == {
+        "embedder": "CmapEmbedder",
+        "seed": 12,
+        "etkdg": False,
+        "validation": {"stereo": "ok"},  # the stereo check after refinement
+    }
     assert ensemble.mol.GetIntProp("charge") == 0
 
 

@@ -2,8 +2,11 @@
 
 racerts splits a conformer search into a **task** (what stays fixed), a **pipeline**
 of stages (what is done), and a **context** that carries the molecule, the task, the
-seed and the restraints through the stages. The defaults reproduce legacy racerts
-exactly; `PipelineConfig.legacy()` does so whatever the defaults.
+seed and the restraints through the stages. `PipelineConfig.legacy()` (`racerts ts
+--legacy`) reproduces legacy racerts exactly. The defaults differ from it in five
+settings: one seed per conformer, the `frozen_first` chirality fallback with a stereo
+check after refinement, energies without the anchor terms, and conformer counts that
+include the freedom of separate fragments (see [Settings](#settings)).
 
 See also: [restraints](restraints.md), [active-bond windows](active-bonds.md) and
 [swaps](swap.md).
@@ -80,20 +83,20 @@ ensemble = racerts.generate_ts("ts.xyz", [3, 4, 5], config=config)
 | | `conf_factor` | 80 | |
 | | `etkdg` | None | ETKDGv3 instead of plain distance geometry; None: only without frozen atoms |
 | | `use_random_coords` | true | |
-| | `count_policy` | `legacy` | how -1 is counted: `legacy`; `fragments` (adds 3 or 6 rigid-body degrees of freedom per fragment without frozen atoms, e.g. a solvent molecule); `per_bond` (max(7, 10 × rotatable bonds)) |
-| | `sequential_seeds` | false | one seed per conformer, in a stream that starts at a value derived from `seed` (different seeds do not overlap); legacy racerts embeds its first 3 conformers twice |
+| | `count_policy` | `fragments` | how -1 is counted: `legacy`; `fragments` (adds 3 or 6 rigid-body degrees of freedom per fragment without frozen atoms, e.g. a solvent molecule); `per_bond` (max(7, 10 × rotatable bonds)) |
+| | `sequential_seeds` | true | one seed per conformer, in a stream that starts at a value derived from `seed` (different seeds do not overlap); legacy racerts embeds its first 3 conformers twice |
 | | `reference_bounds` | `fallback` | bounds of the graph that exclude a distance of the reference: widened to it when embedding fails without (`fallback`), `always`, or `never` (as legacy racerts: no conformers then) |
-| | `chirality_fallback` | `legacy` | what happens when the frozen atoms make the chirality checks fail: `legacy` or `frozen_first` (see below) |
+| | `chirality_fallback` | `frozen_first` | what happens when the frozen atoms make the chirality checks fail: `legacy` or `frozen_first` (see below) |
 | `refine` | `backend` | `mmff` | `mmff` or `uff` |
 | | `fallback` | true | UFF if MMFF has no parameters |
 | | `force_constant` | 1e6 | kcal/mol/Å² on the frozen atoms |
 | | `converge` | false | minimize until the energy stops dropping; legacy racerts stops early next to the frozen atoms |
-| | `anchor_free_energies` | false | energies without the terms that hold the frozen atoms (always left out with restraints, soft atoms or active-bond windows) |
+| | `anchor_free_energies` | true | energies without the terms that hold the frozen atoms (always left out with restraints, soft atoms or active-bond windows) |
 | | `dielectric_model`, `dielectric_constant` | `constant`, 1.0 | MMFF electrostatics; e.g. `distance`, 4.0 damps salt bridges in vacuum |
 | `prune` | `energy_threshold` | 20.0 | kcal/mol above the lowest conformer |
 | | `eht_energies` | false | rank by extended Hückel energies (deprecated: use `Rescore`) |
 | | `rmsd_threshold` | 0.125 | Å, heavy atoms |
-| | `check_stereo` | false | after refinement, drop conformers whose specified stereo differs from the graph (see below) |
+| | `check_stereo` | true | after refinement, drop conformers whose specified stereo differs from the graph (see below) |
 | | `method` | `rmsd` | `rmsd` (duplicates, as legacy racerts) or `cluster` (one conformer per cluster) |
 | | `cluster_method`, `cluster_threshold` | `butina`, 1.5 | `butina`, `hierarchical` or `leader`; Å, heavy-atom RMSD after superposition |
 | | `include_hs`, `filter_energies`, `filter_rotations`, `rmsd_energy_threshold`, `rot_fraction_threshold`, `max_matches` | false, true, true, 0.1, 0.03, 10000 | of `method = rmsd`, see [pruner](modules/pruner.md) (there: `energy_threshold`, `maxMatches`) |
@@ -114,12 +117,12 @@ left to compare with (it drops the tags): use `frozen_first`.
 `PipelineConfig.legacy(**settings)` gives the settings of legacy racerts whatever the
 defaults, updated by the settings given (`racerts ts --legacy`, and
 `PipelineConfig.from_file(path, legacy=True)` for files). `ConformerGenerator` and the
-legacy command line always use them. At present the defaults are the legacy settings.
+legacy command line always use them.
 
 ## Pipelines and stages
 
-The default pipeline is `Embed → Refine → PruneEnergy → PruneRMSD` (with
-`prune.check_stereo`, a stereo check follows `Refine`). Each stage takes the
+The default pipeline is `Embed → Refine → Validate (stereo) → PruneEnergy → PruneRMSD`
+(the legacy one has no stereo check). Each stage takes the
 context and the ensemble so far and returns an ensemble; stages built without arguments
 use the legacy racerts defaults. A pipeline can be put together by hand, e.g. to refine
 with an ASE calculator (here Lennard-Jones, which stands in for a real one such as

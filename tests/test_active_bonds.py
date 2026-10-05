@@ -105,8 +105,12 @@ def test_stratified_targets(aldol):
         pruned.provenance(i)["active_bond_targets"]["10-12"] for i in pruned.conf_ids
     }
     assert len(survived) == 5
-    summary = pruned.summary()
-    assert "active bond 10-12: min 2.0" in summary and "max 2.8" in summary
+    lengths = re.search(
+        r"active bond 10-12: min (\S+), median \S+, max (\S+) A", pruned.summary()
+    )
+    assert (
+        lengths and float(lengths[1]) < 2.2 and float(lengths[2]) > 2.7
+    )  # all targets
 
 
 def test_attack_face_filter(aldol):
@@ -123,16 +127,20 @@ def test_attack_face_filter(aldol):
     conf.SetAtomPosition(10, mirrored.tolist())
     reasons = AttackFace().validate(ctx, ensemble)
     assert list(reasons) == [conf_id] and "10 on 12" in reasons[conf_id]
-    # The default pipeline of a windowed TS includes the filter.
-    names = [
-        s.name
-        for s in PipelineConfig()
-        .build(TransitionState(REACTING, active_window=0.2))
-        .stages
-    ]
-    assert names[:3] == ["embed", "refine", "validate"]  # on refined geometries
+
+    # The default pipeline of a windowed TS includes the filter, on refined geometries.
+    def filters(task):
+        stages = PipelineConfig().build(task).stages
+        return [
+            i
+            for i, stage in enumerate(stages)
+            for check in getattr(stage, "validators", ())
+            if isinstance(check, AttackFace)
+        ]
+
+    assert filters(TransitionState(REACTING, active_window=0.2)) == [2]
     no_filter = TransitionState(REACTING, active_window=0.2, stereo_filter=False)
-    assert "validate" not in [s.name for s in PipelineConfig().build(no_filter).stages]
+    assert filters(no_filter) == []
 
 
 @pytest.mark.parametrize(

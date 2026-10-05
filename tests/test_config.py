@@ -16,11 +16,20 @@ from racerts.embed import BoundsMatrixEmbedder, CmapEmbedder
 from racerts.refine import UFFOptimizer
 
 
-def test_defaults_are_the_legacy_settings():
-    embed, refine, prune_energy, prune_rmsd = (
+def test_the_default_pipeline():
+    embed, refine, check, prune_energy, prune_rmsd = (
         PipelineConfig().build(TransitionState([0])).stages
     )
     embedder, optimizer = embed.embedder, refine.optimizer
+    assert check.name == "validate"  # the stereo check after refinement
+    # The legacy preset builds the pipeline of legacy racerts.
+    legacy = PipelineConfig.legacy().build(TransitionState([0])).stages
+    assert [s.name for s in legacy] == [
+        "embed",
+        "refine",
+        "prune_energy",
+        "prune_rmsd",
+    ]
 
     assert type(embedder) is CmapEmbedder and embedder.randomSeed == 12
     assert embedder.etkdg is False and embedder.useRandomCoords is True
@@ -53,7 +62,8 @@ def test_settings_reach_the_components():
             "prune": {"rmsd_threshold": 0.3, "include_hs": True},
         }
     )
-    embed, refine, _, prune_rmsd = config.build(TransitionState([0])).stages
+    stages = config.build(TransitionState([0])).stages
+    embed, refine, prune_rmsd = stages[0], stages[1], stages[-1]
 
     assert type(embed.embedder) is BoundsMatrixEmbedder
     assert embed.embedder.randomSeed == 3 and embed.embedder.num_threads == 2
@@ -142,8 +152,30 @@ def test_ground_states_have_no_chirality_fallback():
         return PipelineConfig().build(task).stages[0].embedder.chirality_fallback
 
     assert fallback(GroundState()) is False
-    assert fallback(TransitionState([0])) == "legacy"
-    assert fallback(Constrained([0])) == "legacy"
+    assert fallback(TransitionState([0])) == "frozen_first"
+    assert fallback(Constrained([0])) == "frozen_first"
+
+
+def test_the_defaults_of_the_new_api():
+    # Decided 2026-10-01: sequential seeds, frozen_first with the stereo check after
+    # refinement, anchor-free energies and the fragments count; converged refinement
+    # stays opt-in. The legacy API and PipelineConfig.legacy() keep the legacy values.
+    config = PipelineConfig()
+    assert config.embed.sequential_seeds is True
+    assert config.embed.chirality_fallback == "frozen_first"
+    assert config.embed.count_policy == "fragments"
+    assert config.refine.anchor_free_energies is True
+    assert config.refine.converge is False
+    assert config.prune.check_stereo is True
+    stages = config.build(TransitionState([0])).stages
+    embed, refine = stages[:2]
+    assert embed.count_policy == "fragments"
+    assert embed.embedder.sequential_seeds is True
+    assert embed.embedder.chirality_fallback == "frozen_first"
+    assert refine.stereo_anchors is True
+    assert refine.optimizer.anchor_free_energies is True
+    assert refine.optimizer.converge is False
+    assert "validate" in [stage.name for stage in stages]  # the stereo check
 
 
 def test_the_legacy_preset(tmp_path):

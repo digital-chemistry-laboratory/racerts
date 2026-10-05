@@ -32,7 +32,8 @@ For further information, see the separate [documentation](https://digital-chemis
 >>> ensemble.write_xyz("ensemble.xyz")
 ```
 
-The legacy racerts API (`ConformerGenerator`) keeps working and gives the same ensembles.
+The legacy racerts API (`ConformerGenerator`) keeps working, with the results of legacy
+racerts.
 It can also be accessed via a command line interface.
 
 ```console

@@ -93,8 +93,9 @@ def generate_ts(
 ) -> ConformerEnsemble:
     """
     A TS conformer ensemble from a TS geometry (xyz or sdf/mol file), with the reacting
-    atoms and their neighbours kept at the TS geometry. With default settings the
-    result equals ConformerGenerator().generate_conformers (legacy racerts).
+    atoms and their neighbours kept at the TS geometry. With
+    config=PipelineConfig.legacy() the result equals
+    ConformerGenerator().generate_conformers (legacy racerts).
 
     Args:
         file_name: The TS geometry.

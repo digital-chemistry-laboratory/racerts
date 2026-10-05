@@ -52,15 +52,17 @@ class EmbedConfig:
         etkdg: Use ETKDGv3 instead of plain distance geometry. None: plain distance
             geometry when atoms are frozen (as in legacy racerts), ETKDGv3 otherwise.
         use_random_coords: Start embedding from random coordinates.
-        count_policy: How n_conformers=-1 is counted: "legacy", "fragments" (adds the
-            rigid-body freedom of fragments that move relative to the frozen core) or
+        count_policy: How n_conformers=-1 is counted: "fragments" (the default; adds
+            the rigid-body freedom of fragments that move relative to the frozen core,
+            so one fragment counts as "legacy"), "legacy" (legacy racerts) or
             "per_bond" (max(7, 10 * rotatable bonds)).
-        sequential_seeds: One seed stream for all conformers (a seed per conformer,
-            from a start derived from seed); legacy racerts embeds its first 3
-            conformers twice.
+        sequential_seeds: One seed stream for all conformers, a seed per conformer from
+            a start derived from seed (the default); legacy racerts (False) embeds its
+            first 3 conformers twice.
         chirality_fallback: When chirality checks fail with atoms held at a reference:
-            "legacy" (drop all chiral tags, or stop enforcing chirality) or
-            "frozen_first" (drop the tags of the frozen atoms first).
+            "frozen_first" (the default; drop the tags of the frozen atoms first, and
+            remove conformers whose stereo is inverted) or "legacy" (drop all chiral
+            tags, or stop enforcing chirality).
         reference_bounds: Distance bounds of the graph that exclude a distance of the
             reference geometry: widened to it when embedding fails without them
             ("fallback"), "always", or "never" (legacy racerts).
@@ -71,9 +73,9 @@ class EmbedConfig:
     conf_factor: int = DEFAULT_CONF_FACTOR
     etkdg: Optional[bool] = None
     use_random_coords: bool = True
-    count_policy: str = "legacy"
-    sequential_seeds: bool = False
-    chirality_fallback: str = "legacy"
+    count_policy: str = "fragments"
+    sequential_seeds: bool = True
+    chirality_fallback: str = "frozen_first"
     reference_bounds: str = "fallback"
 
     def __post_init__(self):
@@ -106,8 +108,8 @@ class RefineConfig:
         converge: Restart minimizations that stop early next to the frozen atoms;
             legacy racerts stops at the first converged call.
         anchor_free_energies: Report energies without the terms that hold the frozen
-            atoms; legacy racerts includes them. With restraints, soft atoms or
-            active-bond windows they are always left out.
+            atoms (the default); legacy racerts includes them. With restraints, soft
+            atoms or active-bond windows they are always left out.
         dielectric_model: MMFF electrostatics, "constant" or "distance"-dependent.
         dielectric_constant: MMFF dielectric constant.
     """
@@ -116,7 +118,7 @@ class RefineConfig:
     fallback: bool = True
     force_constant: float = 1e6
     converge: bool = False
-    anchor_free_energies: bool = False
+    anchor_free_energies: bool = True
     dielectric_model: str = "constant"
     dielectric_constant: float = 1.0
 
@@ -161,7 +163,7 @@ class PruneConfig:
             (outside the core atoms of the task, e.g. the reacting atoms) differs from
             the graph, e.g. after a chirality fallback of the embedding. After the
             legacy fallback, which drops the chiral tags, there is nothing left to
-            check: use embed.chirality_fallback "frozen_first".
+            check: use embed.chirality_fallback "frozen_first". On by default.
         method: "rmsd" (duplicates by RMSD, as legacy racerts) or "cluster" (one
             conformer per cluster, see ClusterPruner).
         cluster_method: "butina", "hierarchical" or "leader".
@@ -177,7 +179,7 @@ class PruneConfig:
     rmsd_energy_threshold: float = 0.1
     rot_fraction_threshold: float = 0.03
     max_matches: int = 10000
-    check_stereo: bool = False
+    check_stereo: bool = True
     method: str = "rmsd"
     cluster_method: str = "butina"
     cluster_threshold: float = 1.5
@@ -350,8 +352,10 @@ _SECTIONS = {
 @dataclass
 class PipelineConfig:
     """
-    Settings of the default pipeline (Embed, Refine, PruneEnergy, PruneRMSD). The
-    defaults reproduce legacy racerts.
+    Settings of the default pipeline (Embed, Refine, a stereo check, PruneEnergy,
+    PruneRMSD). PipelineConfig.legacy() gives those of legacy racerts; the defaults
+    differ in embed.sequential_seeds, embed.chirality_fallback, embed.count_policy,
+    refine.anchor_free_energies and prune.check_stereo.
 
     Attributes:
         seed: Random seed (the RDKit embedding seed).

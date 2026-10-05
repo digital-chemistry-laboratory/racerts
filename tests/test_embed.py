@@ -94,11 +94,16 @@ def test_ground_states_never_give_up_stereocentres(butanol, monkeypatch, caplog)
     assert _chiral_tags(ensemble.mol) == _chiral_tags(butanol)
     assert "failed on chirality" not in caplog.text
 
-    # With atoms held at the reference, the legacy fallback applies, with a warning.
+    # With atoms held at the reference, a fallback applies, with a warning: the legacy
+    # one strips the tags; frozen_first (the default) takes the frozen stereocentre's
+    # configuration from the reference.
+    legacy = PipelineConfig.legacy(embed={"n_conformers": 4})
     with caplog.at_level(logging.WARNING):
-        ensemble = racerts.generate(butanol, Constrained(hard=[0, 1, 2]), config=SMALL)
+        ensemble = racerts.generate(butanol, Constrained(hard=[0, 1, 2]), config=legacy)
     assert set(_chiral_tags(ensemble.mol)) == {Chem.ChiralType.CHI_UNSPECIFIED}
     assert "failed on chirality" in caplog.text
+    ensemble = racerts.generate(butanol, Constrained(hard=[0, 1, 2]), config=SMALL)
+    assert _chiral_tags(ensemble.mol) == _chiral_tags(butanol)
 
 
 def test_distance_matrix_row_by_row_is_identical():

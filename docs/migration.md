@@ -7,6 +7,12 @@ racerts gives the same ensembles as legacy racerts (0.1.7 and its fixes) with th
 (`racerts.embedder.CmapEmbedder`, `racerts.optimizer.MMFFOptimizer`, ...) keep the legacy
 settings when the defaults of `racerts.embed` and `racerts.refine` change.
 
+Without `PipelineConfig.legacy()` or `--legacy`, `generate_ts`, `generate_gs` and
+`racerts ts`/`gs` use the new defaults, which differ in five settings: one seed per
+conformer, the `frozen_first` chirality fallback with a stereo check after refinement,
+energies without the anchor terms, and conformer counts that include separate fragments
+([Settings](pipeline.md#settings)).
+
 ## What stays
 
 The legacy API keeps working; all of it lives in `racerts.compat`:

@@ -58,11 +58,11 @@ class DistanceGeometryEmbedder(BaseEmbedder):
     - False: no fallback (the ground-state default: stereocentres of the input are
       never given up).
 
-    With sequential_seeds, conformer i is embedded with the seed start + i
-    (enableSequentialRandomSeeds) across all calls of one embedding, where start is
-    derived from randomSeed (stream_start), so that the streams of different seeds do
-    not overlap. Legacy racerts restarts the seed for the second call, so its first 3
-    conformers are embedded twice.
+    With sequential_seeds (the default), conformer i is embedded with the seed
+    start + i (enableSequentialRandomSeeds) across all calls of one embedding, where
+    start is derived from randomSeed (stream_start), so that the streams of different
+    seeds do not overlap. False reproduces legacy racerts, which restarts the seed for
+    the second call, so that its first 3 conformers are embedded twice.
 
     reference_bounds decides what happens to distance bounds of the graph that exclude
     a distance of the reference geometry (a TS core far from the graph's equilibrium
@@ -83,7 +83,7 @@ class DistanceGeometryEmbedder(BaseEmbedder):
         useRandomCoords: bool = True,
         etkdg: bool = False,
         chirality_fallback: Union[bool, str] = True,
-        sequential_seeds: bool = False,
+        sequential_seeds: bool = True,
         reference_bounds: str = "fallback",
         num_threads: int = 1,
     ):

@@ -246,7 +246,7 @@ class Embed:
                     "" if ref_id is None else f" from reference {ref_id}",
                     f" ({batch})" if batch else "",
                 )
-                batch_embedder = _with_seed_offset(embedder, k)
+                batch_embedder = _batch_embedder(embedder, k)
                 part = self._embed(
                     batch_embedder, ctx, reference, count, extra, check=False
                 )
@@ -398,11 +398,21 @@ class Embed:
         return ensemble
 
 
-def _with_seed_offset(embedder, k: int):
-    """For batch k > 0, a copy of the embedder with another seed (if it has one)."""
+def _batch_embedder(embedder, k: int):
+    """
+    The embedder of batch k: a copy with its own seed for k > 0 (if it has one), and
+    with a seed per conformer. The legacy seeds embed the first three conformers of a
+    call twice, which would repeat in every batch; legacy racerts has no batches, so
+    there is no legacy result to keep.
+    """
     seed = getattr(embedder, "randomSeed", None)
-    if k == 0 or seed is None or seed < 0:
+    own_seed = k > 0 and seed is not None and seed >= 0
+    legacy_seeds = getattr(embedder, "sequential_seeds", True) is False
+    if not (own_seed or legacy_seeds):
         return embedder
     batch_embedder = copy.copy(embedder)
-    batch_embedder.randomSeed = (seed + 7919 * k) % (2**31 - 1)  # RDKit: 31 bits
+    if own_seed:
+        batch_embedder.randomSeed = (seed + 7919 * k) % (2**31 - 1)  # RDKit: 31 bits
+    if legacy_seeds:
+        batch_embedder.sequential_seeds = True
     return batch_embedder

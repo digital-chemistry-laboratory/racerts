@@ -57,8 +57,9 @@ def test_embedders_do_not_swallow_unknown_settings(hept_1_ene_ts):
 
 def test_seed_zero_gives_identical_conformers_and_a_warning(hept_1_ene_ts, caplog):
     # RDKit seeds conformer i with (i + 1) * seed, unless the seeds are sequential.
+    legacy = racerts.embed.CmapEmbedder(randomSeed=0, sequential_seeds=False)
     with caplog.at_level(logging.WARNING):
-        same = _embed(racerts.embed.CmapEmbedder(randomSeed=0), hept_1_ene_ts, 4)
+        same = _embed(legacy, hept_1_ene_ts, 4)
     assert len(_duplicates(same)) == 6 and "randomSeed 0" in caplog.text
     caplog.clear()
     sequential = racerts.embed.CmapEmbedder(randomSeed=0, sequential_seeds=True)
@@ -137,12 +138,41 @@ def _duplicates(mol):
     ]
 
 
-def test_legacy_embedding_repeats_its_first_three_conformers(hept_1_ene_ts):
-    legacy = _embed(racerts.embed.CmapEmbedder(), hept_1_ene_ts, 8)
-    assert _duplicates(legacy) == [(3, 0), (4, 1), (5, 2)]
+def test_only_legacy_seeds_repeat_the_first_three_conformers(hept_1_ene_ts):
+    # A seed per conformer is the default; the legacy seeds are for reproducing legacy
+    # racerts (its embedders, PipelineConfig.legacy()).
+    assert racerts.embed.CmapEmbedder().sequential_seeds is True
+    assert racerts.embedder.CmapEmbedder().sequential_seeds is False
+    assert racerts.PipelineConfig.legacy().embed.sequential_seeds is False
+    assert _duplicates(_embed(racerts.embed.CmapEmbedder(), hept_1_ene_ts, 8)) == []
+    embedded = racerts.Embed(n_conformers=8).run(
+        racerts.Context.create(hept_1_ene_ts, racerts.TransitionState([3, 4, 5]))
+    )
+    assert _duplicates(embedded.mol) == []
 
-    sequential = racerts.embed.CmapEmbedder(sequential_seeds=True)
-    assert _duplicates(_embed(sequential, hept_1_ene_ts, 8)) == []
+    legacy = racerts.embed.CmapEmbedder(sequential_seeds=False)
+    assert _duplicates(_embed(legacy, hept_1_ene_ts, 8)) == [(3, 0), (4, 1), (5, 2)]
+
+
+def test_batches_never_repeat_conformers(hept_1_ene_ts):
+    # Legacy racerts has no batches, so there is nothing to reproduce: every batch
+    # embeds with a seed per conformer, whatever the embedder says.
+    mol = Chem.Mol(hept_1_ene_ts)
+    mol.AddConformer(Chem.Conformer(hept_1_ene_ts.GetConformer()), assignId=True)
+    ctx = racerts.Context.create(mol, racerts.TransitionState([3, 4, 5]))
+    legacy = racerts.embed.CmapEmbedder(sequential_seeds=False)
+    embedded = racerts.Embed(legacy, n_conformers=6, references="all").run(ctx)
+    assert len(embedded) == 12 and legacy.sequential_seeds is False
+    by_reference = {}
+    for conf_id in embedded.conf_ids:
+        reference = embedded.provenance(conf_id)["reference"]
+        by_reference.setdefault(reference, []).append(
+            embedded.mol.GetConformer(conf_id).GetPositions()
+        )
+    for positions in by_reference.values():
+        assert not any(
+            np.allclose(a, b) for k, a in enumerate(positions) for b in positions[:k]
+        )
 
 
 def test_sequential_seeds_are_one_seed_stream(hept_1_ene_ts):

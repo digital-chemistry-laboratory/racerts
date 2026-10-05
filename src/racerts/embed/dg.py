@@ -1,9 +1,9 @@
 """Distance-geometry embedders: coordinate map (CmapEmbedder) or bounds matrix."""
 
+import hashlib
 import logging
 from typing import List, Optional, Sequence, Union
 
-import numpy as np
 from rdkit import Chem
 from rdkit.Chem import AllChem
 from rdkit.Chem.AllChem import EmbedMultipleConfs  # type: ignore
@@ -336,9 +336,12 @@ def stream_start(seed: int) -> int:
     """
     The RDKit seed of the first conformer of a sequential-seed embedding with the
     user seed seed: spread over the seed range, so that seeds 1, 2, ... do not give
-    shifted copies of the same stream (as seed + i would).
+    shifted copies of the same stream (as seed + i would). It is a hash of the seed
+    (SHA-256), so that a seed gives the same conformers with every version of the
+    libraries.
     """
-    return int(np.random.default_rng(seed).integers(0, 2**31 - 1 - _STREAM_LENGTH))
+    digest = hashlib.sha256(str(int(seed)).encode()).digest()
+    return int.from_bytes(digest[:8], "big") % (2**31 - 1 - _STREAM_LENGTH)
 
 
 def needed_fallback(

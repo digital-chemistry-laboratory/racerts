@@ -180,8 +180,13 @@ def test_neighbouring_seeds_give_different_streams(hept_1_ene_ts):
     ]
     assert shared == []
     assert dg.stream_start(1) != dg.stream_start(2) and dg.stream_start(1) >= 0
-    # The stream of a seed must not change with the NumPy version.
-    assert dg.stream_start(12) == 1305480652
+    # The stream of a seed is fixed for good: a hash of the seed, which no library
+    # version changes.
+    assert dg.stream_start(12) == 1051840539
+    assert dg.stream_start(np.int64(12)) == 1051840539
+    assert all(
+        0 <= dg.stream_start(seed) < 2**31 - 2**24 for seed in (0, 1, 2**31, 10**12)
+    )
 
 
 @pytest.fixture

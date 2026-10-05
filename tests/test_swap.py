@@ -1507,3 +1507,19 @@ def test_new_atoms_without_a_defined_position_are_not_held(sn2_ts, caplog):
         [ensemble.mol.GetConformer(i).GetPositions()[sulfur] for i in ensemble.conf_ids]
     )
     assert len(ensemble) > 1 and np.ptp(positions, axis=0).max() > 0.1
+
+
+def test_the_rigid_route_and_the_graft_take_their_seeds_from_the_seed_utility():
+    # RDKit seeds conformer i with (i + 1) * seed: with the seed of the user handed on
+    # as it is, seed 0 gave identical fragment conformers, of which one was left.
+    mol = embedded("Cc1ccccc1c1ccccc1")
+    methyl = mol.GetSubstructMatch(Chem.MolFromSmarts("[CH3]"))[0]
+    result = apply_swap(mol, Swap("[*]CCCO", remove_atoms=[methyl]), seed=0)
+    poses = rigid_attach(result, n_fragment_conformers=4, n_rotations=1, seed=0)
+    new = result.new_atoms
+    fragments = [poses.mol.GetConformer(i).GetPositions()[new] for i in poses.conf_ids]
+    assert len(fragments) >= 2
+    first, second = (
+        np.linalg.norm(a[:, None] - a[None, :], axis=-1) for a in fragments[:2]
+    )
+    assert not np.allclose(first, second, atol=1e-3)

@@ -15,6 +15,7 @@ import numpy as np
 from rdkit import Chem, rdBase
 from rdkit.Chem import AllChem
 
+from racerts.utils import seeds
 from racerts.utils.checks import is_integer
 
 from .spec import infer_charge_and_multiplicity
@@ -1006,7 +1007,8 @@ def _coordinates(
     if placed:
         embedded = Chem.Mol(fragment)
         with rdBase.BlockLogs():  # UFF typer messages for the dummies
-            if AllChem.EmbedMolecule(embedded, randomSeed=seed) < 0:
+            start = seeds.derive(seed, "swap fragment")
+            if AllChem.EmbedMolecule(embedded, randomSeed=start) < 0:
                 raise SwapError("Could not embed the fragment.")
         xyz = embedded.GetConformer().GetPositions()
         a = attachments[0]

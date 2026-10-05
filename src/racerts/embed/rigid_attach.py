@@ -8,6 +8,7 @@ from rdkit.Chem import AllChem
 
 from racerts.pipeline import ConformerEnsemble
 from racerts.system.swap import SwapResult, rotation_between
+from racerts.utils import seeds
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,8 @@ def rigid_attach(
     root = fragment.GetAtomWithIdx(dummy).GetNeighbors()[0].GetIdx()
     kept, root_new = result.attachments[0]
     params = AllChem.ETKDGv3()
-    params.randomSeed = seed
+    params.randomSeed = seeds.derive(seed, "rigid attach")
+    params.enableSequentialRandomSeeds = True
     params.pruneRmsThresh = 0.1
     with rdBase.BlockLogs():  # UFF typer messages for the dummy
         ids = list(AllChem.EmbedMultipleConfs(fragment, n_fragment_conformers, params))

@@ -185,7 +185,7 @@ More stages:
 | `PruneCount(n_max, renumber=False)` | keeps the `n_max` lowest conformers (with [active-bond windows](active-bonds.md): the lowest of each target in turn) |
 | `PruneCluster(ClusterPruner(...))` | keeps one conformer per cluster (`ClusterPruner` from `racerts.prune`): Butina, hierarchical (scipy) or leader clustering, on the RMSD after superposition with fixed atoms (`kernel="aligned"`, e.g. for TS graphs without bonds), the symmetry-aware RMSD (`"symmetric"`), or any `metric(mol, a, b)`; the lowest or the central member |
 | `racerts.prune.FamilySelector(n_max, clusterer)` | up to `n_max` conformers spread over the clusters: the best of each, then the second best, ... (families ordered by their best member) |
-| `Validate(*validators, on_fail="drop" or "flag")` | checks the conformers (see below) |
+| `Validate(*validators, on_fail="drop" or "flag")` | checks the conformers (see below): drops the failing ones (an error if none passes), or keeps them with the reasons in their provenance (a warning if none passes) |
 | `Exploit(Refine(ASEOptimizer(...)))` | usage-directed Monte Carlo around the pruned conformers: new minima nearby, from torsions, rigid-body moves of fragments and ring flips, refined by an ASE calculator (xTB, MLIPs); stops when new minima become rare (see below) |
 
 `Pipeline.run(ctx, ensemble)` continues an ensemble (e.g. to refine it with another

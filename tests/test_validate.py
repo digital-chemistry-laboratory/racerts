@@ -127,12 +127,25 @@ def test_validate_drops_or_flags(ts_ensemble, caplog):
     assert "1 of 4 conformers failed validation" in caplog.text
 
 
-def test_validate_raises_if_none_passes(ts_ensemble):
+def test_validate_raises_if_none_passes(ts_ensemble, caplog):
     ensemble, ctx = ts_ensemble
     always = validator(lambda mol, conf_id: "no", name="never")
     with pytest.raises(RuntimeError, match="No conformer passed validation.*never: no"):
         Validate(always).run(ctx, ensemble.copy())
     assert len(Validate(always, require_any=False).run(ctx, ensemble.copy())) == 0
+
+    # Flagging removes nothing, so there is an ensemble to return: a warning instead,
+    # whatever the share that warn_above allows.
+    with caplog.at_level(logging.WARNING):
+        flagged = Validate(always, on_fail="flag", warn_above=1.0).run(
+            ctx, ensemble.copy()
+        )
+    assert flagged.conf_ids == ensemble.conf_ids
+    assert all(
+        flagged.provenance(i)["validation"] == {"never": "no"} for i in flagged.conf_ids
+    )
+    assert "No conformer passed validation" in caplog.text
+    assert "all 4 are kept with their reasons" in caplog.text
 
     with pytest.raises(TypeError, match="not a Validator"):
         Validate(lambda mol, conf_id: None)

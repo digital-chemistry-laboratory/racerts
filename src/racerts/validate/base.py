@@ -68,7 +68,8 @@ class Validate:
             ImaginaryModes, or validator(function)).
         on_fail: "drop" removes the conformers that fail any validator; "flag" keeps
             them with the reasons in their provenance.
-        require_any: Raise RuntimeError if no conformer passes.
+        require_any: With "drop", raise RuntimeError if no conformer passes. Flagging
+            removes nothing: it then logs a warning and returns the ensemble.
         warn_above: The share of failing conformers above which a warning is logged
             (default 0: any failure); below it, the failures are logged as information.
             The log counts the failures per validator.
@@ -121,12 +122,19 @@ class Validate:
             previous = ensemble.provenance(conf_id).get("validation", {})
             ensemble.add_provenance(conf_id, validation={**previous, **result})
 
-        if failed and len(failed) == len(results) and self.require_any:
+        if failed and len(failed) == len(results):
             conf_id, reasons = next(iter(failed.items()))
-            raise RuntimeError(
+            none = (
                 f"No conformer passed validation (e.g. conformer {conf_id}: "
-                f"{_describe(reasons)})."
+                f"{_describe(reasons)})"
             )
+            if self.on_fail == "flag":
+                logger.warning(
+                    "%s; all %d are kept with their reasons.", none, len(results)
+                )
+                return ensemble
+            if self.require_any:
+                raise RuntimeError(none + ".")
         if failed:
             counts = Counter(name for reasons in failed.values() for name in reasons)
             share = len(failed) / len(results)

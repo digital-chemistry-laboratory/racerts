@@ -8,9 +8,10 @@ racerts gives the same ensembles as legacy racerts (0.1.7 and its fixes) with th
 settings when the defaults of `racerts.embed` and `racerts.refine` change.
 
 Without `PipelineConfig.legacy()` or `--legacy`, `generate_ts`, `generate_gs` and
-`racerts ts`/`gs` use the new defaults, which differ in five settings: one seed per
+`racerts ts`/`gs` use the new defaults, which differ in these settings: one seed per
 conformer, the `frozen_first` chirality fallback with a stereo check after refinement,
-energies without the anchor terms, and conformer counts that include separate fragments
+energies without the anchor terms, conformer counts that include separate fragments,
+and duplicates decided by their RMSD alone, without the energy and inertia prefilters
 ([Settings](pipeline.md#settings)).
 
 ## What stays

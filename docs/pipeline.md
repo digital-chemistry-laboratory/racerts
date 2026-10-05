@@ -3,10 +3,11 @@
 racerts splits a conformer search into a **task** (what stays fixed), a **pipeline**
 of stages (what is done), and a **context** that carries the molecule, the task, the
 seed and the restraints through the stages. `PipelineConfig.legacy()` (`racerts ts
---legacy`) reproduces legacy racerts exactly. The defaults differ from it in five
+--legacy`) reproduces legacy racerts exactly. The defaults differ from it in these
 settings: one seed per conformer, the `frozen_first` chirality fallback with a stereo
-check after refinement, energies without the anchor terms, and conformer counts that
-include the freedom of separate fragments (see [Settings](#settings)).
+check after refinement, energies without the anchor terms, conformer counts that
+include the freedom of separate fragments, and duplicates decided by their RMSD alone,
+without the two prefilters (see [Settings](#settings)).
 
 See also: [restraints](restraints.md), [active-bond windows](active-bonds.md) and
 [swaps](swap.md).
@@ -100,7 +101,8 @@ ensemble = racerts.generate_ts("ts.xyz", [3, 4, 5], config=config)
 | | `method` | `rmsd` | `rmsd` (duplicates, as legacy racerts) or `cluster` (one conformer per cluster) |
 | | `cluster_method`, `cluster_threshold` | `butina`, 1.5 | `butina`, `hierarchical` or `leader`; Å, heavy-atom RMSD after superposition |
 | | `hydrogens` | none | the hydrogens in the duplicate RMSD: `none` (heavy atoms), `polar` (also those on N, O, P, S, so that the rotamers of a hydrogen bond stay apart; needs both prefilters off) or `all` |
-| | `filter_energies`, `filter_rotations`, `rmsd_energy_threshold`, `rot_fraction_threshold`, `max_matches` | true, true, 0.1, 0.03, 10000 | of `method = rmsd`, see [pruner](modules/pruner.md) (there: `energy_threshold`, `maxMatches`) |
+| | `filter_energies`, `filter_rotations` | false, false | the prefilters of legacy racerts: compute the RMSD only for pairs within `rmsd_energy_threshold` (0.1 kcal/mol) and with principal moments within `rot_fraction_threshold` (0.03). Off: every pair is decided by its RMSD (a pair is skipped only where a lower bound of the RMSD is above the threshold). On, duplicates whose energies differ by more stay in the ensemble |
+| | `max_matches` | 10000 | the most equivalent atom mappings that are listed for the RMSD; above it, local symmetry is assigned without a list (prefilters off), or the list is cut (prefilters on); see [pruner](modules/pruner.md) (there: `maxMatches`) |
 | `restraints` | | | see [restraints](restraints.md) |
 
 **Chirality fallback.** `legacy` drops all chiral tags, or stops enforcing chirality, so

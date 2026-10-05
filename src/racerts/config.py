@@ -164,7 +164,9 @@ class PruneConfig:
         filter_energies: Conformers further apart in energy than
             rmsd_energy_threshold (kcal/mol) are not compared by RMSD.
         filter_rotations: Neither are conformers whose principal moments of inertia
-            differ by more than rot_fraction_threshold.
+            differ by more than rot_fraction_threshold. Both are prefilters of legacy
+            racerts and off by default: they are no bounds of the RMSD, so duplicates
+            that they keep apart stay in the ensemble.
         max_matches: Maximum number of symmetry-equivalent atom maps for the RMSD.
             (These six RMSD settings act with method "rmsd" only.) With both
             prefilters off every pair is decided by its RMSD, and max_matches is the
@@ -184,8 +186,8 @@ class PruneConfig:
     energy_threshold: float = 20.0
     rmsd_threshold: float = 0.125
     hydrogens: str = "none"
-    filter_energies: bool = True
-    filter_rotations: bool = True
+    filter_energies: bool = False
+    filter_rotations: bool = False
     rmsd_energy_threshold: float = 0.1
     rot_fraction_threshold: float = 0.03
     max_matches: int = 10000
@@ -372,7 +374,8 @@ class PipelineConfig:
     Settings of the default pipeline (Embed, Refine, a stereo check, PruneEnergy,
     PruneRMSD). PipelineConfig.legacy() gives those of legacy racerts; the defaults
     differ in embed.sequential_seeds, embed.chirality_fallback, embed.count_policy,
-    refine.energies_without_anchors and prune.check_stereo.
+    refine.energies_without_anchors, prune.check_stereo, prune.filter_energies and
+    prune.filter_rotations.
 
     Attributes:
         seed: Random seed (the RDKit embedding seed).
@@ -414,7 +417,9 @@ class PipelineConfig:
                 chirality_fallback="legacy",
             ),
             "refine": dict(converge=False, energies_without_anchors=False),
-            "prune": dict(check_stereo=False),
+            "prune": dict(
+                check_stereo=False, filter_energies=True, filter_rotations=True
+            ),
         }
         for key, legacy in sections.items():
             given = settings.get(key, {})

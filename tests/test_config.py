@@ -115,7 +115,10 @@ def test_yaml_numbers_without_a_decimal_point(tmp_path):
     [
         ({"prune": {"hydrogens": 1}}, "prune.hydrogens must be a string"),
         ({"prune": {"hydrogens": "some"}}, "prune.hydrogens must be one of"),
-        ({"prune": {"hydrogens": "polar"}}, "needs prune.filter_energies"),
+        (
+            {"prune": {"hydrogens": "polar", "filter_energies": True}},
+            "needs prune.filter_energies",
+        ),
         ({"refine": {"fallback": 1}}, "refine.fallback must be true or false"),
         ({"embed": {"n_conformers": "50"}}, "embed.n_conformers must be an integer"),
         ({"embed": {"n_conformers": 0}}, "-1 .default count. or > 0"),

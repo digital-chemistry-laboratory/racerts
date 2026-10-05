@@ -487,6 +487,14 @@ def _match_old_fragment(mol: Chem.Mol, smarts: str):
     }
     if not mapped:
         raise SwapError("old_fragment needs mapped atoms ([c:1]) that stay.")
+    repeated = sorted(
+        {n for n in mapped.values() if list(mapped.values()).count(n) > 1}
+    )
+    if repeated:
+        raise SwapError(
+            f"old_fragment {smarts!r} uses the map number {repeated[0]} more than "
+            "once: every atom that stays needs a number of its own."
+        )
     candidates = {}
     for match in mol.GetSubstructMatches(query, uniquify=False, maxMatches=10000):
         kept = {match[i] for i in mapped}
@@ -552,6 +560,15 @@ def _pair(mol, swap, fragment, dummies, removed, cuts, anchors) -> List[_Attachm
         dummy = dummies[number]
         root = fragment.GetAtomWithIdx(dummy).GetNeighbors()[0].GetIdx()
         attachments.append(_Attachment(number, dummy, root, int(kept), partner))
+    for kept, leaving in open_cuts:  # e.g. a ring atom that leaves, one side closed
+        logger.warning(
+            "The swap cuts the bond %d-%d without binding anything to atom %d: it is "
+            "left with one bond less (a hydrogen more where the graph has implicit "
+            "ones).",
+            kept,
+            leaving,
+            kept,
+        )
     bonds = [(a.kept, a.root) for a in attachments]
     if len(set(bonds)) < len(bonds):
         raise SwapError(

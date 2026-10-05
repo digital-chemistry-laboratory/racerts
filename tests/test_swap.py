@@ -1,6 +1,7 @@
 """Swaps: graph surgery (apply_swap), substitute_groups and racerts.swap."""
 
 import json
+import logging
 
 import numpy as np
 import pytest
@@ -1773,3 +1774,20 @@ def test_new_atoms_without_coordinates_do_not_stop_the_reading_of_stereo():
         complex_, Swap("[*:1]<-P(C)(C)C", remove_atoms=[], attach_map={1: 1})
     )
     assert identity(added.mol) == canonical("CP(C)(C)->[Pd](Cl)Cl")
+
+
+def test_two_silent_cases_have_a_message(caplog):
+    # The same map number twice in a pattern kept one of the two atoms silently:
+    # diphenylmethane fell apart into phenol and benzene.
+    diphenylmethane = Chem.MolFromSmiles("c1ccccc1Cc1ccccc1")
+    with pytest.raises(SwapError, match="map number 1 more than once"):
+        apply_swap(diphenylmethane, Swap("[*:1]O", old_fragment="[c:1][CH2][c:1]"))
+    # A cut bond that nothing binds to is capped with a hydrogen where the graph has
+    # implicit ones (a ring opens: cyclohexane to hexane). That is now said.
+    cyclohexane = Chem.MolFromSmiles("C1CCCCC1")
+    with caplog.at_level(logging.WARNING, logger="racerts"):
+        result = apply_swap(
+            cyclohexane, Swap("[*:1]C", remove_atoms=[0], attach_map={1: 1})
+        )
+    assert identity(result.mol) == canonical("CCCCCC")
+    assert "cuts the bond 5-0 without binding anything to atom 5" in caplog.text

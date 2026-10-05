@@ -66,7 +66,7 @@ cg.write_xyz("ensemble.xyz")
 
 ```bash
 racerts ts example.xyz --reacting-atoms 2 3 4 --charge 0
-racerts example.xyz --charge 0 --reacting_atoms 2 3 4   # legacy racerts form, same result
+racerts example.xyz --charge 0 --reacting_atoms 2 3 4   # legacy racerts form and settings (as racerts ts --legacy)
 ```
 
 This will generate a pruned ensemble and write `conformer_ensemble.xyz` in the current directory by default.

@@ -156,8 +156,8 @@ crest ts.xyz --cinp restraints.xcontrol ...
 | `json` | the frozen atoms and the restraints | anything else |
 
 - **Windows:** none of these programs has flat-bottom distances, so every window becomes a
-  harmonic constraint at its centre (ORCA: an exact one), and a warning says so. Windows
-  without a lower bound (containment) are left out.
+  harmonic constraint at its centre (ORCA: an exact one). Windows without a lower bound
+  (containment) are left out.
 - **Force constants:** xtb and CREST take one force constant for all constraints. racerts
   converts it (xtb: E = fc·(d − d0)² in Eh/bohr², checked with xtb 6.6.1). With frozen
   atoms, CREST gets xtb's default 0.5 Eh/bohr², so that the frozen atoms hold; the

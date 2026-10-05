@@ -168,7 +168,8 @@ leave them out.
 The active-bond windows of a TS act in embedding only:
 
 - **Refinement:** every refinement holds each conformer's active bonds at its embedded
-  length or target (± 0.02 Å). `Exploit` keeps each child's targets.
+  length or target ([how closely](active-bonds.md)). `Exploit` keeps each child's
+  targets.
 - **Comparing energies:** energies at different held lengths are not comparable, so the
   energy windows and the RMSD pruning work per window bin.
 - **Output:** the result is a set of TS-like structures for a TS optimization (next

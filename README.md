@@ -38,7 +38,7 @@ It can also be accessed via a command line interface.
 
 ```console
 $ racerts ts example.xyz --reacting-atoms 2 3 4 --charge 0
-$ racerts example.xyz --charge 0 --reacting_atoms 2 3 4   # legacy form
+$ racerts example.xyz --charge 0 --reacting_atoms 2 3 4   # legacy form and settings (as racerts ts --legacy)
 ```
 
 # Cite this work

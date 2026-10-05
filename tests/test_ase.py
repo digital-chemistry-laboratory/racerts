@@ -227,12 +227,14 @@ def test_convergence_is_recorded_and_unconverged_conformers_can_be_dropped(
 
         def run(self, fmax, steps):
             type(self).runs += 1
+            type(self).limits = (fmax, steps)
             return type(self).runs != 2
 
     partly = ensemble.copy()
     ASEOptimizer(
         LennardJones(), optimizer_cls=ConvergesButTheSecond, drop_unconverged=True
     ).refine(partly.mol)
+    assert ConvergesButTheSecond.limits == (0.05, 100)  # eV/A and steps, the defaults
     assert partly.conf_ids == [i for k, i in enumerate(ensemble.conf_ids) if k != 1]
     assert "Dropping 1 conformers that did not converge" in caplog.text
 

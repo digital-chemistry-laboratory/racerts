@@ -53,6 +53,9 @@ def test_batches_take_the_contact_at_random():
         [inside[k] for k, i in enumerate(ensemble.conf_ids) if i not in with_contact]
     )
     assert biased > 0.8 and free < 0.5
+    # The fraction is the share of the batches with the contact, not without it.
+    mostly = racerts.Embed(n_conformers=40, restraint_fraction=0.9).run(ctx)
+    assert len(_with_contact(mostly)) / len(mostly) >= 0.7
 
 
 def test_refinement_and_the_gate_follow_the_batches():

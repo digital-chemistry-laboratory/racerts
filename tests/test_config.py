@@ -269,6 +269,9 @@ def test_new_settings_reach_the_components():
         "distance",
         4.0,
     )
+    # 0 attempts per hint is a setting of its own: no limit.
+    unlimited = PipelineConfig.from_dict({"restraints": {"hint_attempts": 0}})
+    assert unlimited.build(TransitionState([0])).stages[0].hint_attempts == 0
 
 
 @pytest.mark.parametrize(

@@ -91,8 +91,8 @@ def test_restraint_sets():
         0
     ].label == "user:10-11"
     assert RestraintSet.from_json(both.to_json()) == both
-    sampled = [len(both.sample(np.random.default_rng(i), 0.5)) for i in range(200)]
-    assert 0.4 < np.mean(sampled) / 2 < 0.6
+    sampled = [len(both.sample(np.random.default_rng(i), 0.9)) for i in range(200)]
+    assert 0.85 < np.mean(sampled) / 2 < 0.95
 
 
 # ---- sources ----
@@ -109,8 +109,9 @@ def test_contacts_include_the_neighbours_for_orientation(sn2_ts_water):
     mol = _sn2_water(sn2_ts_water)
     pairs = [(i, j) for i, j, _ in sources.contacts(mol, [(2, 6)])]
     assert sorted(pairs) == [(2, 6), (2, 7), (2, 8)]
-    with pytest.raises(ValueError, match="bonded or share a neighbour"):
-        sources.contacts(mol, [(6, 8)])
+    for pair in [(6, 8), (7, 8)]:  # O-H of the water; its two hydrogens
+        with pytest.raises(ValueError, match="bonded or share a neighbour"):
+            sources.contacts(mol, [pair])
 
 
 def test_fragments_keep_their_closest_contact(sn2_ts_water, sn2_ts_two_waters):

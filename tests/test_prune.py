@@ -165,6 +165,13 @@ def test_prune_stages_take_a_pruner_object():
         racerts.PruneRMSD(0.2)  # a threshold: PruneRMSD(RMSDPruner(threshold=0.2))
 
 
+def test_the_energy_window_includes_its_edge(ensemble):
+    for conf_id, energy in zip(ensemble.conf_ids, (0.0, 20.0, 20.001, 5.0, 30.0)):
+        ensemble.mol.GetConformer(conf_id).SetDoubleProp("energy", energy)
+    EnergyPruner(threshold=20).prune(ensemble.mol)
+    assert ensemble.conf_ids == [0, 1, 3]
+
+
 def test_energy_pruner_drops_non_finite_energies(ensemble, caplog):
     ensemble.mol.GetConformer(2).SetDoubleProp("energy", math.nan)
     with caplog.at_level(logging.WARNING):

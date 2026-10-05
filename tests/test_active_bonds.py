@@ -406,6 +406,23 @@ def test_unstratified_windows_are_pruned_per_length(aldol):
     assert min(lengths) < 2.3 and max(lengths) > 2.6
 
 
+def test_the_fifths_of_a_window_include_both_ends():
+    from types import SimpleNamespace
+
+    from racerts.prune.targets import window_bins
+
+    targets = dict(enumerate([2.0, 2.19, 2.25, 2.99, 3.0]))
+    task = SimpleNamespace(
+        windowed=True, stratify=0, active_windows=lambda mol: {(0, 1): (2.0, 3.0)}
+    )
+    ensemble = SimpleNamespace(
+        conf_ids=list(targets),
+        provenance=lambda i: {"active_bond_targets": {"0-1": targets[i]}},
+    )
+    bins = window_bins(SimpleNamespace(task=task, mol=None), ensemble)
+    assert [bins[i] for i in targets] == [(("0-1", k),) for k in (0, 0, 1, 4, 4)]
+
+
 def test_task_windows_win_over_generated_restraints(aldol, sn2_ts_water, caplog):
     import logging
 

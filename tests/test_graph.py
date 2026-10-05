@@ -80,6 +80,21 @@ def test_graph_from_geometry_rejects_mismatches():
         mol_from_geometry(geometry, "[H]OC([H])([H])[H]")
 
 
+def test_map_numbers_count_the_atoms_of_the_geometry_from_one():
+    from racerts.system.match import mapped_atoms
+
+    geometry = Chem.MolFromSmiles("CCO")
+    template = Chem.MolFromSmiles("[CH3:1]C[OH:3]")
+    assert mapped_atoms(template, geometry) == {0: 0, 2: 2}  # the last atom included
+    for smiles, message in [
+        ("[CH3:1]C[OH:4]", "atom map number 4 is not an atom"),
+        ("[CH3:3]CO", "is C in the SMILES but O in the xyz file"),
+        ("[CH3:1][CH2:1]O", "repeated"),
+    ]:
+        with pytest.raises(ValueError, match=message):
+            mapped_atoms(Chem.MolFromSmiles(smiles), geometry)
+
+
 def test_bondless_mol():
     mol = bondless_mol(["O", "H", "H"], [[0, 0, 0], [0, 0, 0.96], [0.93, 0, -0.24]])
     assert mol.GetNumBonds() == 0 and mol.GetNumConformers() == 1

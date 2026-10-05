@@ -6,7 +6,7 @@ import logging
 import numpy as np
 import pytest
 from rdkit import Chem
-from rdkit.Chem import AllChem
+from rdkit.Chem import AllChem, rdMolTransforms
 
 import racerts
 from racerts.embed.rigid_attach import rigid_attach
@@ -736,8 +736,39 @@ def test_rigid_attach_poses(methylbiphenyl):
         assert provenance["route"] == "rigid" and provenance["reference"] == 0
         seen.add(tuple(provenance["pose"]))
     assert len(seen) == len(poses)
-    # A strict clash filter leaves fewer poses.
+    # The poses of one fragment conformer: sixths of a full turn about the new bond.
+    beside = [
+        next(
+            n.GetIdx()
+            for n in poses.mol.GetAtomWithIdx(i).GetNeighbors()
+            if n.GetIdx() not in (anchor, root)
+        )
+        for i in (anchor, root)
+    ]
+    turned = {}
+    for conf_id in poses.conf_ids:
+        fragment_conformer, step = poses.provenance(conf_id)["pose"]
+        turned.setdefault(fragment_conformer, {})[step] = (
+            rdMolTransforms.GetDihedralDeg(
+                poses.mol.GetConformer(conf_id), beside[0], anchor, root, beside[1]
+            )
+        )
+    for angles in turned.values():
+        first = min(angles)
+        for step, angle in angles.items():
+            off = angle - angles[first] - 60.0 * (step - first)
+            assert abs((off + 180.0) % 360.0 - 180.0) < 1e-6
+    # A strict clash filter leaves fewer poses, but atoms three bonds apart are never
+    # a clash: the new carbon of butane and the far one.
     assert len(rigid_attach(result, 2, 6, clash_factor=1.2)) < len(poses)
+    propane = embedded("CCC")
+    hydrogen = next(
+        n.GetIdx()
+        for n in propane.GetAtomWithIdx(0).GetNeighbors()
+        if n.GetAtomicNum() == 1
+    )
+    butane = apply_swap(propane, Swap("[*]C", remove_atoms=[hydrogen]))
+    assert len(rigid_attach(butane, 1, 3, clash_factor=1.2)) == 3
 
 
 def test_a_replaced_atom_passes_its_role_on(sn2_ts):

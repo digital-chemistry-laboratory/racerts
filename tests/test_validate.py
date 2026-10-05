@@ -285,6 +285,8 @@ def test_the_reaction_mode_moves_an_active_bond():
     assert "0-1: 0.00" in reasons[ensemble.conf_ids[0]]
     # The bonds can be named; the number of modes is checked as by ImaginaryModes.
     assert ReactionMode(elsewhere, bonds=[(2, 3)]).validate(ctx, ensemble) == {}
+    # One of several bonds is enough: a step forms one bond before the other.
+    assert ReactionMode(elsewhere, bonds=[(0, 1), (2, 3)]).validate(ctx, ensemble) == {}
     minimum = Springs({(0, 1): 36.0, (2, 3): 36.0}).calculator
     reasons = ReactionMode(minimum).validate(ctx, ensemble)
     assert reasons[ensemble.conf_ids[0]].startswith("0 imaginary modes (expected 1")

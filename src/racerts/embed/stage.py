@@ -251,8 +251,8 @@ class Embed:
             (ref_id, ctx.reference_mol(ref_id)) for ref_id in references
         ]  # fmt: skip
         batches = self._batches(ctx, n)
-        for ref_id, reference in targets:
-            for k, (count, extra, batch) in enumerate(batches):
+        for r, (ref_id, reference) in enumerate(targets):
+            for k, (count, extra, batch) in enumerate(batches, start=r * len(batches)):
                 logger.info(
                     "Embedding %d conformers with %s%s%s.",
                     count,

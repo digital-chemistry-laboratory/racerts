@@ -478,3 +478,22 @@ def test_refine_holds_stereo_anchors_when_asked():
 
     assert refine_stage("frozen_first").stereo_anchors
     assert not refine_stage("legacy").stereo_anchors
+
+
+def test_every_reference_is_embedded_with_seeds_of_its_own(hept_1_ene_ts):
+    # Two references with the same placed atoms (here: the same conformer twice) gave
+    # the same conformers twice: the batch numbers, and so the seeds, restarted for
+    # every reference.
+    mol = Chem.Mol(hept_1_ene_ts)
+    mol.AddConformer(Chem.Conformer(mol.GetConformer()), assignId=True)
+    ctx = racerts.Context.create(mol, racerts.TransitionState([3, 4, 5]))
+    ensemble = racerts.Embed(n_conformers=6, references="all").run(ctx)
+    groups = {}
+    for conf_id in ensemble.conf_ids:
+        reference = ensemble.provenance(conf_id)["reference"]
+        groups.setdefault(reference, []).append(
+            ensemble.mol.GetConformer(conf_id).GetPositions()
+        )
+    first, second = groups[0], groups[1]
+    assert len(first) == len(second) == 6
+    assert not any(np.allclose(a, b, atol=1e-3) for a in first for b in second)

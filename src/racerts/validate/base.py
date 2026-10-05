@@ -1,6 +1,7 @@
 """The Validator protocol and the Validate stage."""
 
 import logging
+from collections import Counter
 from typing import Callable, Dict, Optional, Protocol, Union, runtime_checkable
 
 from rdkit import Chem
@@ -68,11 +69,20 @@ class Validate:
         on_fail: "drop" removes the conformers that fail any validator; "flag" keeps
             them with the reasons in their provenance.
         require_any: Raise RuntimeError if no conformer passes.
+        warn_above: The share of failing conformers above which a warning is logged
+            (default 0: any failure); below it, the failures are logged as information.
+            The log counts the failures per validator.
     """
 
     name = "validate"
 
-    def __init__(self, *validators: Validator, on_fail: str = "drop", require_any=True):
+    def __init__(
+        self,
+        *validators: Validator,
+        on_fail: str = "drop",
+        require_any=True,
+        warn_above: float = 0.0,
+    ):
         if not validators:
             raise ValueError("Validate needs at least one validator.")
         for item in validators:
@@ -90,9 +100,12 @@ class Validate:
             )
         if on_fail not in ON_FAIL:
             raise ValueError(f"on_fail must be one of {ON_FAIL}.")
+        if not 0 <= warn_above <= 1:
+            raise ValueError("warn_above must be a share between 0 and 1.")
         self.validators = validators
         self.on_fail = on_fail
         self.require_any = require_any
+        self.warn_above = warn_above
 
     def run(self, ctx, ensemble: ConformerEnsemble) -> ConformerEnsemble:
         failed: Dict[int, Dict[str, str]] = {}
@@ -115,11 +128,23 @@ class Validate:
                 f"{_describe(reasons)})."
             )
         if failed:
-            logger.warning(
-                "%d of %d conformers failed validation%s; e.g. conformer %d: %s",
+            counts = Counter(name for reasons in failed.values() for name in reasons)
+            share = len(failed) / len(results)
+            level = logging.WARNING if share > self.warn_above else logging.INFO
+            hint = ""
+            if self.warn_above > 0 and level == logging.WARNING:
+                hint = (
+                    f"; more than {self.warn_above:.0%}: check the charge, the "
+                    "restraints or the hypotheses"
+                )
+            logger.log(
+                level,
+                "%d of %d conformers failed validation%s (%s)%s; e.g. conformer %d: %s",
                 len(failed),
                 len(results),
                 " and are removed" if self.on_fail == "drop" else "",
+                ", ".join(f"{name}: {count}" for name, count in counts.items()),
+                hint,
                 next(iter(failed)),
                 _describe(next(iter(failed.values()))),
             )

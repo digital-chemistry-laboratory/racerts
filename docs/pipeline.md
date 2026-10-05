@@ -218,6 +218,20 @@ Built-in validators (`racerts.validate`):
   the reference TS within tolerance (Å). After a free saddle search it tells a TS of the
   reaction from other saddles of the same atoms, which pass the two checks above.
 - `AttackFace()`: for [active-bond windows](active-bonds.md).
+- `Clash(factor=0.7)`: no heavy atoms more than three bonds apart (or in different
+  fragments) closer than factor × their vdW sum. Pairs of hard and core atoms keep the
+  reference geometry (e.g. a forming bond) and are not checked; pairs that are close in
+  the reference count only if they come 0.2 Å closer.
+- `RestraintViolation(tolerance=0.5)`: no restraint of the refinement (distance windows,
+  soft atoms) violated by more than tolerance (Å): a contact that broke, not the small
+  excess that flat-bottom terms allow.
+
+`racerts.validate.gate()` combines `FrozenCore`, `Connectivity`, `Clash` and
+`RestraintViolation` into the validity gate after a refinement: it drops the conformers
+that fail and warns when more than 30 % fail (`Validate(..., warn_above=0.3)`), which
+points to a wrong charge, restraint or hypothesis rather than to single bad conformers.
+Its `FrozenCore` allows 0.1 Å: MMFF and UFF hold the frozen atoms with stiff springs,
+which leave them a few hundredths of an Å from the reference.
 
 From TS-like conformers to transition states with GFN2-xTB (tblite) and Sella:
 

@@ -1,4 +1,7 @@
-"""Geometric validators: connectivity and stereo of the graph, the frozen core."""
+"""
+Geometric validators: connectivity and stereo of the graph, the frozen core, clashes and
+restraints; gate() combines them after a refinement.
+"""
 
 from typing import Dict, Optional, Sequence
 
@@ -8,6 +11,7 @@ from rdkit.Chem import rdDetermineBonds
 
 from racerts.geometry import superpose
 from racerts.pipeline import ConformerEnsemble
+from racerts.restraints.model import position_restraints
 from racerts.system.stereo import StereoCheck
 
 from .base import Validate
@@ -280,3 +284,159 @@ def _height(
     if length < MIN_PLANE_SINE * scale:  # (nearly) collinear: no plane
         return None
     return float(np.dot(normal / length, positions[j] - positions[i]))
+
+
+CLASH_FACTOR = 0.7  # heavy atoms closer than this times their vdW sum clash
+REFERENCE_MARGIN = 0.2  # A: pairs that close in the reference clash only this closer
+
+
+def clash_limits(mol, held=(), reference=None, factor: float = CLASH_FACTOR):
+    """
+    The atom pairs to check for clashes and their distance limits (A): heavy atoms more
+    than three bonds apart (or in different fragments), not both held (e.g. the hard
+    and core atoms of a task, which keep the reference geometry), clash when closer than
+    factor times their vdW sum. A pair closer than that in the reference geometry
+    (positions; e.g. a coordination that the graph lacks) clashes only if it comes
+    more than REFERENCE_MARGIN closer.
+
+    Returns:
+        Arrays (first atoms, second atoms, limits) of the pairs to check.
+    """
+    table = Chem.GetPeriodicTable()
+    numbers = [atom.GetAtomicNum() for atom in mol.GetAtoms()]
+    heavy = np.array([z > 1 for z in numbers])
+    radii = np.array([table.GetRvdw(z) for z in numbers])
+    check = np.triu(Chem.GetDistanceMatrix(mol) > 3, k=1)
+    check &= heavy[:, None] & heavy[None, :]
+    held = sorted(set(held))
+    if held:
+        check[np.ix_(held, held)] = False
+    first, second = np.nonzero(check)
+    limits = factor * (radii[first] + radii[second])
+    if reference is not None:
+        reference = np.asarray(reference, dtype=float)
+        seed = np.linalg.norm(reference[first] - reference[second], axis=1)
+        limits = np.where(seed < limits, seed - REFERENCE_MARGIN, limits)
+    return first, second, limits
+
+
+def first_clash(positions, pairs) -> Optional[str]:
+    """The first clash in positions among pairs (from clash_limits), or None."""
+    first, second, limits = pairs
+    if not len(first):
+        return None
+    positions = np.asarray(positions, dtype=float)
+    distances = np.linalg.norm(positions[first] - positions[second], axis=1)
+    hits = np.nonzero(distances < limits)[0]
+    if not len(hits):
+        return None
+    k = hits[0]
+    return (
+        f"atoms {first[k]} and {second[k]} at {distances[k]:.2f} A "
+        f"(limit {limits[k]:.2f} A)"
+    )
+
+
+class Clash:
+    """
+    Whether heavy atoms clash: closer than factor times their vdW sum while more than
+    three bonds apart or in different fragments (see clash_limits). Pairs of hard and
+    core atoms of the task keep the reference geometry (e.g. a forming bond) and are not
+    checked; pairs that close in the reference only count if they come closer.
+    """
+
+    name = "clash"
+
+    def __init__(self, factor: float = CLASH_FACTOR):
+        self.factor = factor
+
+    def validate(self, ctx, ensemble: ConformerEnsemble) -> Dict[int, str]:
+        held = (*ctx.frozen.hard, *ctx.frozen.core) if ctx is not None else ()
+        groups = (
+            ctx.by_reference(ensemble)
+            if ctx is not None
+            else [(None, ensemble.conf_ids)]
+        )
+        reasons = {}
+        for reference, conf_ids in groups:
+            seed = None
+            if reference is not None:
+                seed = reference.GetConformer().GetPositions()
+            pairs = clash_limits(ensemble.mol, held, seed, self.factor)
+            for conf_id in conf_ids:
+                positions = ensemble.mol.GetConformer(conf_id).GetPositions()
+                reason = first_clash(positions, pairs)
+                if reason is not None:
+                    reasons[conf_id] = reason
+        return reasons
+
+    def __repr__(self) -> str:
+        return f"Clash(factor={self.factor})"
+
+
+class RestraintViolation:
+    """
+    Whether the restraints that refinement holds are kept: no distance window of the
+    context (stage "refine" or "both") and no soft atom (held near its reference
+    position) may be violated by more than tolerance (A). Meant for contacts that broke,
+    not for the small excess that flat-bottom terms allow.
+    """
+
+    name = "restraints"
+
+    def __init__(self, tolerance: float = 0.5):
+        self.tolerance = tolerance
+
+    def validate(self, ctx, ensemble: ConformerEnsemble) -> Dict[int, str]:
+        if ctx is None:
+            return {}
+        windows = list(ctx.restraints.for_stage("refine"))
+        reasons = {}
+        for reference, conf_ids in ctx.by_reference(ensemble):
+            held = list(windows)
+            if ctx.frozen.soft and reference is not None:
+                held += position_restraints(reference, ctx.frozen.soft)
+            if not held:
+                continue
+            for conf_id in conf_ids:
+                positions = ensemble.mol.GetConformer(conf_id).GetPositions()
+                worst = max(held, key=lambda r: r.violation(positions))
+                excess = worst.violation(positions)
+                if excess > self.tolerance:
+                    reasons[conf_id] = f"{worst.label} violated by {excess:.2f} A"
+        return reasons
+
+    def __repr__(self) -> str:
+        return f"RestraintViolation(tolerance={self.tolerance})"
+
+
+GATE_FROZEN_TOLERANCE = 0.1  # A: see gate
+
+
+def gate(
+    clash_factor: float = CLASH_FACTOR,
+    tolerance: float = 0.5,
+    frozen_tolerance: float = GATE_FROZEN_TOLERANCE,
+    warn_above: float = 0.3,
+) -> Validate:
+    """
+    The validity gate after a refinement: a Validate stage that drops the conformers
+    whose frozen atoms moved (FrozenCore), whose bonds or stereo changed
+    (Connectivity), with clashes (Clash) or with a broken restraint
+    (RestraintViolation). If more than warn_above of the conformers fail, a warning
+    says so: that points to a wrong charge, restraint or hypothesis rather than to
+    single bad conformers.
+
+    frozen_tolerance: MMFF/UFF hold the frozen atoms with stiff springs, which the
+    minimizer does not always pull fully onto the reference: they stay up to about
+    0.09 A away (the same in every conformer), so the gate allows 0.1 A. Broken anchors
+    move them much further.
+    """
+    return Validate(
+        FrozenCore(frozen_tolerance),
+        Connectivity(),
+        Clash(clash_factor),
+        RestraintViolation(tolerance),
+        on_fail="drop",
+        warn_above=warn_above,
+    )

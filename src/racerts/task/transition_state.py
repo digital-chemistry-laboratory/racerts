@@ -10,6 +10,7 @@ import numpy as np
 from rdkit import Chem
 
 from racerts.utils import seeds
+from racerts.utils.checks import is_integer
 
 from .base import FrozenSet, check_atom_indices, remapped
 
@@ -148,6 +149,10 @@ class TransitionState:
             else [tuple(sorted(map(int, b))) for b in active_bonds]
         )
         if active_window is not None:
+            if isinstance(active_window, bool):
+                raise ValueError(
+                    "active_window must be a number or (lo, hi), not a bool."
+                )
             if isinstance(active_window, Real):
                 if active_window <= 0:
                     raise ValueError("active_window must be positive.")
@@ -155,10 +160,18 @@ class TransitionState:
                 raise ValueError(
                     "active_window must be a number or (lo, hi) with 0 < lo < hi."
                 )
+        for name, value in (
+            ("window_force_constant", window_force_constant),
+            ("target_force_constant", target_force_constant),
+        ):
+            if not value > 0:
+                raise ValueError(f"{name} must be positive.")
         # Whether the number of targets was asked for (else it follows the conformers).
         self.stratify_given = stratify is not None
         if stratify is None:
             stratify = DEFAULT_TARGETS if active_window is not None else 0
+        if not is_integer(stratify):
+            raise ValueError(f"stratify must be an integer, not {stratify!r}.")
         if stratify < 0 or (stratify and active_window is None):
             raise ValueError(
                 "stratify needs an active_window and must not be negative."

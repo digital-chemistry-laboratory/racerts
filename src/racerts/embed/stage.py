@@ -171,8 +171,13 @@ class Embed:
             raise TypeError(f"n_conformers must be an integer, not {n_conformers!r}.")
         if n_conformers != -1 and n_conformers < 1:
             raise ValueError("n_conformers must be positive, or -1 for the default.")
+        if not is_integer(conf_factor) or conf_factor < 0:
+            raise ValueError("conf_factor must be a non-negative integer.")
         if isinstance(references, str) and references != "all":
             raise ValueError("references must be None, 'all' or conformer ids.")
+        if references is not None and not isinstance(references, str):
+            if len(set(references)) != len(list(references)):
+                raise ValueError("references must not repeat a conformer id.")
         if not 0 <= hint_share <= 1:
             raise ValueError("hint_share must be between 0 and 1.")
         if not 0 < restraint_fraction <= 1:

@@ -267,6 +267,10 @@ def test_attack_face_filter(aldol):
         (dict(active_window=-0.1), "active_window must be positive"),
         (dict(active_window=0.2, stratify=1), "at least 2 targets"),
         (dict(active_window=0.2, frozen_atoms=[1, 2]), "either frozen_atoms"),
+        (dict(active_window=True), "active_window must be a number or"),
+        (dict(active_window=0.2, stratify=2.9), "stratify must be an integer"),
+        (dict(active_window=0.2, target_force_constant=0), "target_force_constant"),
+        (dict(window_force_constant=-1.0), "window_force_constant must be positive"),
     ],
 )
 def test_invalid_window_settings(settings, message):

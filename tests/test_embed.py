@@ -73,6 +73,12 @@ def test_seed_zero_gives_identical_conformers_and_a_warning(hept_1_ene_ts, caplo
 def test_embed_checks_the_number_of_conformers(n):
     with pytest.raises((TypeError, ValueError), match="n_conformers"):
         racerts.Embed(n_conformers=n)
+    for settings, message in [
+        (dict(conf_factor=-80), "conf_factor"),  # was an OverflowError of the count
+        (dict(references=[0, 0]), "must not repeat"),  # embedded twice
+    ]:
+        with pytest.raises(ValueError, match=message):
+            racerts.Embed(**settings)
 
 
 @pytest.fixture

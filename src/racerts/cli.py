@@ -17,6 +17,7 @@ from dataclasses import replace
 from racerts.api import CONSERVE, SWAP_ROUTES, generate_gs, generate_ts, swap
 from racerts.config import PipelineConfig
 from racerts.embed import CHIRALITY_FALLBACK_MODES, COUNT_POLICIES, EMBED_MODES
+from racerts.embed.bounds import REFERENCE_BOUNDS
 from racerts.pipeline import Pipeline
 from racerts.refine import REFINE_BACKENDS
 from racerts.refine.forcefield import DIELECTRIC_MODELS
@@ -131,6 +132,7 @@ def _add_ts(sub, defaults) -> None:
         "or those of the frozen atoms first (default "
         f"{defaults.embed.chirality_fallback}).",
     )
+    _add_reference_bounds(command, defaults)
     _add_embedding_and_restraint_options(command, defaults)
     command.add_argument(
         "--keep-hbonds",
@@ -264,7 +266,19 @@ def _add_swap(sub, defaults) -> None:
     command.add_argument(
         "--hard", type=int, nargs="+", default=[], help="Further atoms held fixed."
     )
+    _add_reference_bounds(command, defaults)
     _add_pipeline_options(command, defaults)
+
+
+def _add_reference_bounds(command, defaults) -> None:
+    """An option of ts and swap, which embed around a reference geometry."""
+    command.add_argument(
+        "--reference-bounds",
+        choices=list(REFERENCE_BOUNDS),
+        help="Distance bounds of the graph that exclude a distance of the reference: "
+        "widened to it when embedding fails without (fallback), always, or never "
+        f"(default {defaults.embed.reference_bounds}).",
+    )
 
 
 def _add_embedding_and_restraint_options(command, defaults) -> None:
@@ -493,6 +507,7 @@ def _config_from_args(args) -> PipelineConfig:
             count_policy=args.count_policy,
             sequential_seeds=args.sequential_seeds,
             chirality_fallback=given("chirality_fallback"),
+            reference_bounds=given("reference_bounds"),
         ),
         refine=_replace(
             config.refine,

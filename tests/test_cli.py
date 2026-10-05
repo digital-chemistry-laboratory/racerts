@@ -67,6 +67,7 @@ def test_ts_rejects_invalid_settings(tmp_path, capsys):
         (["gs", "CCO", "--contact", "0", "2"], "unrecognized arguments: --contact"),
         (["gs", "CCO", "--chirality-fallback", "legacy"], "unrecognized arguments"),
         (["gs", "CCO", "--restraint-fraction", "0.5"], "unrecognized arguments"),
+        (["gs", "CCO", "--reference-bounds", "never"], "unrecognized arguments"),
         (["ts", EX, "-r", "3", "--link-fragments"], "unrecognized arguments"),
         (["ts", EX, "-r", "3", "--neighbor-window", "0.5"], "need --active-window"),
         (["ts", EX, "-r", "300", "-n", "2"], "Invalid reacting atoms"),
@@ -195,6 +196,7 @@ def test_ts_without_options_runs_the_defaults(call):
             ["--chirality-fallback", "frozen_first"],
             {"embed.chirality_fallback": "frozen_first"},
         ),
+        (["--reference-bounds", "always"], {"embed.reference_bounds": "always"}),
         (["--refine", "uff"], {"refine.backend": "uff"}),
         (["--converge"], {"refine.converge": True}),
         (["--anchor-free-energies"], {"refine.anchor_free_energies": True}),
@@ -349,6 +351,7 @@ def test_swap_options_reach_swap(call, sn2_ts):
         "swap", sn2_ts, "-s", "CCl", "[Cl-]", "-c", "-1", "--new", "[*]C", "--remove", "3",
         "-r", "0", "1", "2", "--conserve", "free", "--routes", "dg", "rigid",
         "--hard", "4", "5", "--multiplicity", "1", "-n", "6", "--seed", "3",
+        "--reference-bounds", "never",
     )  # fmt: skip
 
     assert isinstance(seen["task"], TransitionState)
@@ -359,7 +362,9 @@ def test_swap_options_reach_swap(call, sn2_ts):
         [4, 5],
     )
     assert seen["multiplicity"] == 1
-    assert seen["config"].to_dict() == _with({"embed.n_conformers": 6, "seed": 3})
+    assert seen["config"].to_dict() == _with(
+        {"embed.n_conformers": 6, "seed": 3, "embed.reference_bounds": "never"}
+    )
 
 
 def test_swap_command_rejects_what_it_does_not_use(tmp_path, sn2_ts, capsys):

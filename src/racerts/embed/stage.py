@@ -391,7 +391,11 @@ class Embed:
             embedder.embed(mol, reference, ctx.frozen, n)
         if check and mol.GetNumConformers() == 0:
             raise no_conformers_error(ctx.frozen)
-        return ConformerEnsemble(mol)
+        ensemble = ConformerEnsemble(mol)
+        widened = getattr(embedder, "widened", None)
+        if widened:  # bounds widened to the reference (see reference_bounds)
+            ensemble.add_provenance(widened_bounds=len(widened))
+        return ensemble
 
 
 def _with_seed_offset(embedder, k: int):

@@ -30,6 +30,7 @@ $ racerts gs "OC(=O)[C@@H]1CCCN1C(C)=C" [options]
 | `--etkdg`, `--no-etkdg` | ETKDGv3 instead of plain distance geometry (default: only for gs) |
 | `--sequential-seeds`, `--no-sequential-seeds` | one seed per conformer |
 | `--chirality-fallback` (ts) | `legacy` or `frozen_first` |
+| `--reference-bounds` (ts, swap) | `fallback`, `always` or `never`: bounds of the graph that exclude a distance of the reference are widened to it when embedding fails without, always, or never |
 | `--active-window`, `--active-bond`, `--stratify`, `--neighbor-window` (ts) | [active-bond windows](active-bonds.md) |
 | `--restraint`, `--hints`, `--restraint-half-width`, `--restraint-force-constant`; `--keep-hbonds`, `--contact`, `--keep-fragments` (ts); `--link-fragments` (gs) | [restraints](restraints.md) |
 | `--refine` | `mmff` or `uff` (`refine.backend`) |

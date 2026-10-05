@@ -1,7 +1,7 @@
 """Distance-geometry embedders: coordinate map (CmapEmbedder) or bounds matrix."""
 
 import logging
-from typing import Optional, Sequence, Union
+from typing import List, Optional, Sequence, Union
 
 import numpy as np
 from rdkit import Chem
@@ -19,10 +19,13 @@ from racerts.task import FrozenSet
 
 from .base import BaseEmbedder
 from .bounds import (
-    bounds_matrix,
+    check_reference_bounds,
     fixed_distance_pairs,
     hard_pairs,
     log_inconsistent_bounds,
+    smoothed_bounds,
+    widened_bounds,
+    widened_message,
 )
 
 logger = logging.getLogger(__name__)
@@ -60,6 +63,15 @@ class DistanceGeometryEmbedder(BaseEmbedder):
     derived from randomSeed (stream_start), so that the streams of different seeds do
     not overlap. Legacy racerts restarts the seed for the second call, so its first 3
     conformers are embedded twice.
+
+    reference_bounds decides what happens to distance bounds of the graph that exclude
+    a distance of the reference geometry (a TS core far from the graph's equilibrium
+    geometry, e.g. a metal over a ring bond; see bounds.widened_bounds):
+    - "fallback": they are widened to the reference only when triangle smoothing
+      fails without (RDKit embeds nothing then), with a warning;
+    - "never": as legacy racerts, no conformers then;
+    - "always": they are widened whenever they exclude the reference.
+    The embedder's attribute widened lists the widened pairs of its last embedding.
     """
 
     def __init__(
@@ -72,8 +84,10 @@ class DistanceGeometryEmbedder(BaseEmbedder):
         etkdg: bool = False,
         chirality_fallback: Union[bool, str] = True,
         sequential_seeds: bool = False,
+        reference_bounds: str = "fallback",
         num_threads: int = 1,
     ):
+        check_reference_bounds(reference_bounds)
         if chirality_fallback not in CHIRALITY_FALLBACKS:
             raise ValueError(
                 f"chirality_fallback must be one of {CHIRALITY_FALLBACKS}, not "
@@ -87,6 +101,8 @@ class DistanceGeometryEmbedder(BaseEmbedder):
         self.etkdg = etkdg
         self.chirality_fallback = chirality_fallback
         self.sequential_seeds = sequential_seeds
+        self.reference_bounds = reference_bounds
+        self.widened: List = []
         self.num_threads = num_threads
 
     def _configure(
@@ -102,6 +118,13 @@ class DistanceGeometryEmbedder(BaseEmbedder):
         windows of the restraints.
         """
         raise NotImplementedError
+
+    def _setup_fallback(self, params, mol, reference, frozen, restraints) -> bool:
+        """
+        Called when RDKit embedded nothing without trying (it could not set up its
+        bounds): whether params now hold bounds to try again with.
+        """
+        return False
 
     def embed(
         self,
@@ -131,6 +154,7 @@ class DistanceGeometryEmbedder(BaseEmbedder):
         params.useSmallRingTorsions = True
         params.embedFragmentsSeparately = False
         params.clearConfs = False
+        self.widened = []
         self._configure(params, mol, reference, frozen, restraints)
         if restraints and self.etkdg:
             # ETKDG's torsion terms override about 60 % of bounds windows otherwise
@@ -160,6 +184,13 @@ class DistanceGeometryEmbedder(BaseEmbedder):
 
         chiral_check = min(n, 3)
         result = embed_more(chiral_check)
+        if (
+            not len(result)
+            and not any(params.GetFailureCounts())
+            and self._setup_fallback(params, mol, reference, frozen, restraints)
+        ):
+            requested = 0
+            result = embed_more(chiral_check)
         fallback = self._chirality_problem(result, params, chiral_check)
         # After a fallback, remove the conformers with inverted stereo at the end.
         guard = fallback is not None and self.chirality_fallback == "frozen_first"
@@ -343,18 +374,53 @@ class CmapEmbedder(DistanceGeometryEmbedder):
     def _configure(self, params, mol, reference, frozen, restraints=()):
         if restraints:
             pairs = hard_pairs(frozen, reference)
-            params.SetBoundsMat(
-                bounds_matrix(mol, reference, pairs=pairs, windows=restraints)
+            bounds, self.widened = smoothed_bounds(
+                mol,
+                reference,
+                pairs=pairs,
+                windows=restraints,
+                reference_bounds=self.reference_bounds,
             )
+            params.SetBoundsMat(bounds)
         if reference is None:
             return
+        placed = self._placed(mol, frozen)
+        if not restraints and self.reference_bounds == "always":
+            self._widen(params, mol, reference, placed, fallback=False)
         conf = reference.GetConformer()
+        cmap = {i: conf.GetAtomPosition(i) for i in placed}
+        params.SetCoordMap(cmap)  # type: ignore
+
+    def _placed(self, mol, frozen) -> List[int]:
         # Soft atoms start at the reference too; refinement then lets them move.
         placed = [*frozen.hard, *frozen.soft]
         if self.chirality_fallback == "frozen_first":
             placed += stereo_anchors(mol, frozen)
-        cmap = {i: conf.GetAtomPosition(i) for i in placed}
-        params.SetCoordMap(cmap)  # type: ignore
+        return placed
+
+    def _setup_fallback(self, params, mol, reference, frozen, restraints) -> bool:
+        if restraints or reference is None or self.reference_bounds != "fallback":
+            return False  # windows: bounds_matrix falls back itself
+        return self._widen(
+            params, mol, reference, self._placed(mol, frozen), fallback=True
+        )
+
+    def _widen(self, params, mol, reference, placed, fallback) -> bool:
+        """
+        Bounds widened to the reference, with the distances between the placed atoms
+        fixed as the coordinate map fixes them; whether any bound was widened.
+        """
+        pairs = [(a, b) for k, a in enumerate(placed) for b in placed[k + 1 :]]
+        bounds, self.widened = widened_bounds(mol, reference, pairs)
+        if not self.widened:
+            return False
+        logger.log(
+            logging.WARNING if fallback else logging.INFO,
+            "%s.",
+            widened_message(mol, self.widened, fallback),
+        )
+        params.SetBoundsMat(bounds)
+        return True
 
 
 class BoundsMatrixEmbedder(DistanceGeometryEmbedder):
@@ -369,11 +435,12 @@ class BoundsMatrixEmbedder(DistanceGeometryEmbedder):
                 "Soft atoms are placed by a coordinate map: use the CmapEmbedder "
                 "(embed mode 'cmap')."
             )
-        bounds = bounds_matrix(
+        bounds, self.widened = smoothed_bounds(
             mol,
             reference=reference,
             pairs=fixed_distance_pairs(frozen),
             windows=restraints,
+            reference_bounds=self.reference_bounds,
         )
         log_inconsistent_bounds(bounds)
         params.SetBoundsMat(bounds)

@@ -18,6 +18,7 @@ from racerts.embed import (
     Embed,
     default_embedder,
 )
+from racerts.embed.bounds import REFERENCE_BOUNDS
 from racerts.pipeline import Pipeline
 from racerts.prune import (
     ClusterPruner,
@@ -60,6 +61,9 @@ class EmbedConfig:
         chirality_fallback: When chirality checks fail with atoms held at a reference:
             "legacy" (drop all chiral tags, or stop enforcing chirality) or
             "frozen_first" (drop the tags of the frozen atoms first).
+        reference_bounds: Distance bounds of the graph that exclude a distance of the
+            reference geometry: widened to it when embedding fails without them
+            ("fallback"), "always", or "never" (legacy racerts).
     """
 
     mode: str = "cmap"
@@ -70,9 +74,14 @@ class EmbedConfig:
     count_policy: str = "legacy"
     sequential_seeds: bool = False
     chirality_fallback: str = "legacy"
+    reference_bounds: str = "fallback"
 
     def __post_init__(self):
         _check_types(self, "embed")
+        if self.reference_bounds not in REFERENCE_BOUNDS:
+            raise ValueError(
+                f"embed.reference_bounds must be one of {REFERENCE_BOUNDS}."
+            )
         if self.mode not in EMBED_MODES:
             raise ValueError(f"embed.mode must be one of {sorted(EMBED_MODES)}.")
         if self.count_policy not in COUNT_POLICIES:
@@ -441,6 +450,7 @@ class PipelineConfig:
             mode=embed.mode,
             etkdg=embed.etkdg,
             chirality_fallback=embed.chirality_fallback,
+            reference_bounds=embed.reference_bounds,
             useRandomCoords=embed.use_random_coords,
             sequential_seeds=embed.sequential_seeds,
             num_threads=self.num_threads,

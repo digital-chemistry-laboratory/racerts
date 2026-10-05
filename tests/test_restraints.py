@@ -224,7 +224,8 @@ def test_without_restraints_the_cmap_embedder_uses_no_bounds_matrix(
     def no_bounds(*args, **kwargs):
         raise AssertionError("bounds matrix built without restraints")
 
-    monkeypatch.setattr(dg, "bounds_matrix", no_bounds)
+    monkeypatch.setattr(dg, "smoothed_bounds", no_bounds)
+    monkeypatch.setattr(dg, "widened_bounds", no_bounds)
     mol = _sn2_water(sn2_ts_water)
     config = PipelineConfig(embed=EmbedConfig(n_conformers=5))
     assert len(racerts.generate(mol, TransitionState(REACTING), config=config)) > 0

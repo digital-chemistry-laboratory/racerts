@@ -364,6 +364,7 @@ def swap(
                 chirality_fallback="frozen_first",
                 useRandomCoords=config.embed.use_random_coords,
                 sequential_seeds=config.embed.sequential_seeds,
+                reference_bounds=config.embed.reference_bounds,
                 num_threads=config.num_threads,
             )
             several = new_task.needs_reference and result.mol.GetNumConformers() > 1

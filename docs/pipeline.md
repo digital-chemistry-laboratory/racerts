@@ -38,6 +38,15 @@ within 0.3 Å by position restraints in MMFF/UFF refinement (e.g. the kept atoms
 [swap](swap.md)). In the bounds-matrix embedder (`embed.mode = "bounds"`), the distances
 between the `core` atoms (for a TS the reacting atoms) and all hard atoms are fixed.
 
+The distance bounds of the graph assume its equilibrium geometry, which a TS core need
+not have: with the product SMILES of an oxidative addition, for example, the graph puts
+the metal in the plane of the aryl ring it sits over in the TS. When the bounds cannot
+be reconciled with the frozen atoms, RDKit embeds nothing. racerts then widens the bounds
+that exclude a distance of the reference to that distance (`embed.reference_bounds =
+"fallback"`, with a warning that names the pairs; the conformers record
+`widened_bounds` in their provenance). The SMILES of the other side of the reaction may
+fit the core better.
+
 ```python
 # Ground states (ETKDGv3 embedding, nothing frozen, stereocentres kept)
 ensemble = racerts.generate_gs("OC(=O)[C@@H]1CCCN1C(C)=C")
@@ -73,6 +82,7 @@ ensemble = racerts.generate_ts("ts.xyz", [3, 4, 5], config=config)
 | | `use_random_coords` | true | |
 | | `count_policy` | `legacy` | how -1 is counted: `legacy`; `fragments` (adds 3 or 6 rigid-body degrees of freedom per fragment without frozen atoms, e.g. a solvent molecule); `per_bond` (max(7, 10 × rotatable bonds)) |
 | | `sequential_seeds` | false | one seed per conformer, in a stream that starts at a value derived from `seed` (different seeds do not overlap); legacy racerts embeds its first 3 conformers twice |
+| | `reference_bounds` | `fallback` | bounds of the graph that exclude a distance of the reference: widened to it when embedding fails without (`fallback`), `always`, or `never` (as legacy racerts: no conformers then) |
 | | `chirality_fallback` | `legacy` | what happens when the frozen atoms make the chirality checks fail: `legacy` or `frozen_first` (see below) |
 | `refine` | `backend` | `mmff` | `mmff` or `uff` |
 | | `fallback` | true | UFF if MMFF has no parameters |

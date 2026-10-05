@@ -30,6 +30,7 @@ class BaseEmbedder(racerts.embed.BaseEmbedder):
     etkdg = False
     chirality_fallback = True
     sequential_seeds = False
+    reference_bounds = "fallback"
 
     def embed(self, mol, reference, frozen, n):
         return self.embed_TS(
@@ -64,6 +65,7 @@ class _LegacyDefaults(racerts.embed.DistanceGeometryEmbedder):
         etkdg=False,
         chirality_fallback=True,
         sequential_seeds=False,
+        reference_bounds="fallback",
         **kwargs,
     ):
         super().__init__(
@@ -75,6 +77,7 @@ class _LegacyDefaults(racerts.embed.DistanceGeometryEmbedder):
             etkdg=etkdg,
             chirality_fallback=chirality_fallback,
             sequential_seeds=sequential_seeds,
+            reference_bounds=reference_bounds,
             num_threads=kwargs.get("num_threads", 1),
         )
         self.remove_all_conformers = remove_all_conformers

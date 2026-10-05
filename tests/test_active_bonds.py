@@ -96,7 +96,9 @@ def test_stratified_targets(aldol):
         target = ensemble.provenance(conf_id)["active_bond_targets"]["10-12"]
         assert abs(_length(ensemble, conf_id) - target) < 0.05
         targets[target] += 1
-    assert sorted(targets) == pytest.approx([2.0, 2.225, 2.45, 2.675, 2.9])
+    # The midpoints of five equal parts of the window: none on its edges.
+    assert sorted(targets) == pytest.approx([2.09, 2.27, 2.45, 2.63, 2.81])
+    assert all(count == 5 for count in targets.values())
 
     # The default pipeline prunes each target on its own: every target stays.
     config = PipelineConfig.from_dict({"embed": {"n_conformers": 25}})
@@ -114,6 +116,27 @@ def test_stratified_targets(aldol):
     assert (
         lengths and float(lengths[1]) < 2.2 and float(lengths[2]) > 2.7
     )  # all targets
+
+
+def test_targets_are_the_midpoints_of_equal_parts(aldol):
+    def lengths(task, count=None):
+        return [round(t[CC], 4) for t in task.targets(aldol, count)]
+
+    # +/- 0.25 A around the reference (2.2 A): the reference is a target for odd k.
+    around = TransitionState(
+        REACTING, active_bonds=[CC], active_window=0.25, stratify=5
+    )
+    assert lengths(around) == pytest.approx([2.0, 2.1, 2.2, 2.3, 2.4], abs=1e-3)
+    three = TransitionState(REACTING, active_bonds=[CC], active_window=0.3, stratify=3)
+    assert lengths(three) == pytest.approx([2.0, 2.2, 2.4], abs=1e-3)
+    two = TransitionState(
+        REACTING, active_bonds=[CC], active_window=(2.0, 2.8), stratify=2
+    )
+    assert lengths(two) == pytest.approx([2.2, 2.6])
+    # Fewer conformers than targets: as many parts as conformers, not the first ones.
+    assert lengths(around, 2) == pytest.approx([2.075, 2.325], abs=1e-3)
+    assert lengths(around, 1) == pytest.approx([2.2], abs=1e-3)
+    assert lengths(around, 9) == lengths(around)
 
 
 def test_attack_face_filter(aldol):
@@ -174,7 +197,7 @@ def test_cli_writes_active_bonds(tmp_path):
     # Named after the output, so that runs in one folder do not overwrite each other.
     lines = (tmp_path / "ts.active_bonds.csv").read_text().splitlines()
     assert lines[0] == "conf_id,energy_kcal_mol,target_10-12,length_10-12"
-    assert {line.split(",")[2] for line in lines[1:]} == {"2.0000", "2.9000"}
+    assert {line.split(",")[2] for line in lines[1:]} == {"2.2250", "2.6750"}
     assert not (tmp_path / "active_bonds.csv").exists()
 
 
@@ -185,8 +208,11 @@ def test_the_ensemble_writes_its_active_bonds(aldol, tmp_path):
     lines = path.read_text().splitlines()
     assert lines[0] == "conf_id,energy_kcal_mol,target_10-12,length_10-12"
     first = lines[1].split(",")
-    assert first[:3] == [str(ensemble.conf_ids[0]), "137.7000", "2.0000"]
-    assert abs(float(first[3]) - 2.0) < 0.05
+    assert first[:3] == [str(ensemble.conf_ids[0]), "137.7000", "2.2250"]
+    # The length is that of the conformer (embedded, so only near its target).
+    assert float(first[3]) == pytest.approx(
+        _length(ensemble, ensemble.conf_ids[0]), abs=1e-4
+    )
     # After a free refinement the targets are released: empty cells, the lengths stay.
     released = racerts.Refine(_Recording(), fallback=False, anchors=False).run(
         ctx, ensemble
@@ -209,7 +235,8 @@ class _Recording(racerts.refine.BaseOptimizer):
 
 
 def _two_targets(aldol, energies):
-    """Three conformers at each of two targets (2.0 and 2.9 A), with these energies."""
+    """Three conformers at each of two targets (2.225 and 2.675 A), with these
+    energies."""
     task = TransitionState(
         REACTING, active_window=(2.0, 2.9), active_bonds=[CC], stratify=2
     )
@@ -221,13 +248,13 @@ def _two_targets(aldol, energies):
         ensemble.provenance(i)["active_bond_targets"]["10-12"]
         for i in ensemble.conf_ids
     ]
-    assert targets == [2.0] * 3 + [2.9] * 3
+    assert targets == [2.225] * 3 + [2.675] * 3
     for conf_id, energy in zip(ensemble.conf_ids, energies):
         ensemble.mol.GetConformer(conf_id).SetDoubleProp("energy", energy)
     return ctx, ensemble
 
 
-ENERGIES = [137.7, 158.9, 160.7, 82.8, 72.0, 94.9]  # 2.0 A, then 2.9 A
+ENERGIES = [137.7, 158.9, 160.7, 82.8, 72.0, 94.9]  # the short target, then the long
 
 
 def test_counts_and_families_are_chosen_per_target(aldol):
@@ -267,7 +294,7 @@ def test_a_free_refinement_releases_the_windows_of_the_task(aldol):
     assert free.sources == {"user"}
     provenance = released.provenance(released.conf_ids[0])
     assert provenance["active_bond_targets"] is None
-    assert provenance["released_targets"] == {"10-12": 2.0}
+    assert provenance["released_targets"] == {"10-12": 2.225}
     assert "10-12" in provenance["active_bond_lengths"]
     # Afterwards the conformers are one group: a TS reached from two targets is one.
     assert len(set(window_bins(ctx, released).values())) == 1
@@ -476,6 +503,12 @@ def test_fewer_conformers_than_targets_is_reported(aldol, caplog):
         )
     assert len(ensemble) == 3
     assert "3 conformers for 5 targets" in caplog.text
+    # They spread over the window: three parts, one conformer in the middle of each.
+    targets = [
+        ensemble.provenance(i)["active_bond_targets"]["10-12"]
+        for i in ensemble.conf_ids
+    ]
+    assert targets == pytest.approx([2.15, 2.45, 2.75])
 
 
 def test_window_problems_are_explained(sn2_ts, hept_1_ene_ts, caplog):

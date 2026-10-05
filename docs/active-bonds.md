@@ -41,7 +41,11 @@ What changes with a window (`TransitionState(..., active_window=...)`):
       proton transfer.
 - **Sampling:** with `stratify=0`, distance geometry places the lengths in the window,
   most of them at its lower edge; with `stratify=k` (k ≥ 2), the embedding batches cycle
-  through k target lengths evenly spaced in the window, which covers it evenly.
+  through k target lengths, which covers the window evenly. The targets are the
+  midpoints of k equal parts of the window: for the reference ± 0.25 Å and k = 5 the
+  reference, ± 0.1 and ± 0.2 Å. None lies on an edge of the window, where a saddle
+  search most often leaves for the reactant or the product. With fewer conformers than
+  targets the window is divided into as many parts as conformers.
   Conformers embedded outside the window are reported; if all are, the frozen atoms
   cannot take the window, and embedding raises.
 - **Refinement:** MMFF/UFF and ASE calculators (xTB, MLIPs) hold each conformer at its

@@ -52,8 +52,10 @@ class TransitionState:
         neighbor_window: +/- A for the distances of the reacting atoms to their bonded
             neighbours, in window mode.
         stratify: 0: the embedding places the lengths in the window (not evenly:
-            distance geometry puts most at its lower edge); k >= 2: k target lengths
-            evenly spaced in the window, one per embedding batch. Either way,
+            distance geometry puts most at its lower edge); k >= 2: k target lengths,
+            one per embedding batch: the midpoints of k equal parts of the window (for
+            the reference +/- 0.25 A and k = 5: the reference, +/- 0.1 and +/- 0.2 A).
+            Either way,
             refinement holds each conformer at its target (+/- 0.02 A, with
             target_force_constant; a flat-bottom window would let the force field push
             all conformers to one edge). The provenance records the targets
@@ -197,15 +199,19 @@ class TransitionState:
                 windows[(a, b)] = tuple(map(float, self.active_window))
         return windows
 
-    def targets(self, mol: Chem.Mol) -> List[Dict[Tuple[int, int], float]]:
-        """The target lengths of each batch (stratify > 0): k evenly spaced per bond."""
+    def targets(
+        self, mol: Chem.Mol, count: Optional[int] = None
+    ) -> List[Dict[Tuple[int, int], float]]:
+        """
+        The target lengths of each batch (stratify > 0): the window of every bond in
+        k equal parts, each with its midpoint as the target. count: the number of
+        conformers, if there are fewer than targets: then as many parts as conformers.
+        """
+        k = self.stratify if count is None else max(1, min(self.stratify, count))
         windows = self.active_windows(mol)
         return [
-            {
-                pair: lo + (hi - lo) * i / (self.stratify - 1)
-                for pair, (lo, hi) in windows.items()
-            }
-            for i in range(self.stratify)
+            {pair: lo + (hi - lo) * (i + 0.5) / k for pair, (lo, hi) in windows.items()}
+            for i in range(k)
         ]
 
     def restraints(self, mol: Chem.Mol):

@@ -116,8 +116,8 @@ def _add_ts(sub, defaults) -> None:
         type=int,
         default=0,
         metavar="K",
-        help="K target lengths evenly spaced in the window (default: placed by the "
-        "embedding).",
+        help="K target lengths, the midpoints of K equal parts of the window "
+        "(default: placed by the embedding).",
     )
     command.add_argument(
         "--neighbor-window",

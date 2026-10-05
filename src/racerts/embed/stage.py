@@ -333,17 +333,18 @@ class Embed:
         groups = [(n, base, {})]
         if getattr(ctx.task, "stratify", 0):
             targets = ctx.task.targets(ctx.mol)
-            sizes = [
-                n // len(targets) + (i < n % len(targets)) for i in range(len(targets))
-            ]
             if n < len(targets):
                 logger.warning(
-                    "%d conformers for %d targets: only the first %d targets are "
-                    "sampled.",
+                    "%d conformers for %d targets: the window is sampled at %d "
+                    "targets.",
                     n,
                     len(targets),
                     n,
                 )
+                targets = ctx.task.targets(ctx.mol, n)
+            sizes = [
+                n // len(targets) + (i < n % len(targets)) for i in range(len(targets))
+            ]
             groups = [
                 (
                     size,

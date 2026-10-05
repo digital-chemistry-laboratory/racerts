@@ -409,8 +409,9 @@ racerts.ConformerEnsemble.from_frames(mol, frames)  # external geometries (Atoms
 Graphs for geometries from elsewhere: `racerts.system.mol_from_geometry(atoms, smiles)`
 takes the bond orders, charges and radicals of an explicit-hydrogen SMILES onto the
 connectivity of a geometry and raises if they do not fit; `mol_from_explicit_h_smiles`
-and `bondless_mol` are the pieces. `generate_gs` gives SMILES with radical electrons
-(e.g. `[CH2]`) the multiplicity 1 + their number.
+and `bondless_mol` are the pieces. A ground state (`generate_gs`, or `generate` with
+`GroundState()`) whose graph has radical electrons (e.g. `[CH2]`) gets the multiplicity
+1 + their number, unless one is given.
 
 Ensembles can be pickled (e.g. to return them from worker processes) with all their
 data; plain RDKit pickling of `ensemble.mol` drops the properties.

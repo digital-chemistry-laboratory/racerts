@@ -51,7 +51,8 @@ class Task(Protocol):
     geometry as its conformer, if the task needs one) and returns the FrozenSet.
 
     A task may also have: remap(index_map), the task for new atom indices (needed by
-    racerts.swap); restraints(mol), distance windows of its own; and, for sampled
+    racerts.swap); restraints(mol), distance windows of its own; multiplicity(mol), the
+    multiplicity where none is given (None: the lowest one); and, for sampled
     active bonds as in TransitionState, windowed, stratify, stereo_filter, targets,
     active_pairs, active_windows, active_lengths and target_force_constant.
     """

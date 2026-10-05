@@ -102,7 +102,8 @@ class Context:
     ) -> "Context":
         """
         A context for a copy of mol: charge and multiplicity are settled and stored as
-        properties of the copy (see set_charge_and_multiplicity), then the frozen atoms
+        properties of the copy (see set_charge_and_multiplicity; without a given
+        multiplicity the task is asked first, see Task), then the frozen atoms
         of the task are determined and checked. Restraints between two frozen atoms
         are left out (their distance is fixed), with a warning. roles: overrides of
         the fragment roles (see fragments).
@@ -114,6 +115,9 @@ class Context:
                 f"{task!r} needs a reference geometry (a conformer of mol)."
             )
         mol = Chem.Mol(mol)
+        if multiplicity is None and not mol.HasProp("multiplicity"):
+            of_the_task = getattr(task, "multiplicity", None)
+            multiplicity = of_the_task(mol) if callable(of_the_task) else None
         set_charge_and_multiplicity(mol, charge, multiplicity)
         frozen = task.frozen_atoms(mol)
         check_atom_indices(mol, frozen.hard + frozen.core + frozen.soft, "frozen atoms")

@@ -156,3 +156,15 @@ def test_runs_that_ignore_the_seed_are_refused():
     fixed = racerts.Pipeline([embed, racerts.Refine()])
     with pytest.raises(ValueError, match="same conformers.*seed"):
         racerts.generate_runs(mol, GroundState(), seeds=[1, 2], pipeline=fixed)
+
+
+def test_a_fully_frozen_ts_gives_the_same_conformer_for_every_seed(sn2_ts):
+    # Nothing is free to sample: the runs agree because the task leaves no choice, not
+    # because the pipeline ignores the seed.
+    from racerts.system import build_mol
+
+    mol = build_mol(sn2_ts, -1, [0, 1, 2], input_smiles=["CCl", "[Cl-]"])
+    task = racerts.TransitionState([0, 1, 2])
+    assert set(task.frozen_atoms(mol).hard) == set(range(mol.GetNumAtoms()))
+    runs = racerts.generate_runs(mol, task, seeds=[1, 2])
+    assert [len(e) for e in runs.ensembles] == [1, 1] and len(runs.merged) == 1

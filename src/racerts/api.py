@@ -119,6 +119,8 @@ def generate_runs(
     if len(set(seeds)) != len(seeds):
         raise ValueError(f"generate_runs needs different seeds, not {seeds}.")
     config = config if config is not None else PipelineConfig()
+    # With every atom frozen nothing is sampled: all seeds give the reference.
+    sampled = len(set(task.frozen_atoms(mol).hard)) < mol.GetNumAtoms()
     ensembles = []
     for seed in seeds:
         ensemble = generate(
@@ -132,7 +134,7 @@ def generate_runs(
             restraints=restraints,
         )
         for earlier, other in zip(seeds, ensembles):
-            if _same_conformers(ensemble, other):
+            if sampled and _same_conformers(ensemble, other):
                 raise ValueError(
                     f"Seeds {earlier} and {seed} gave the same conformers: the "
                     "pipeline does not take the seed of the run (a component with a "

@@ -2,10 +2,43 @@
 
 from typing import Collection, Dict, List, Optional
 
+import numpy as np
 from rdkit import Chem
 
 UNSPECIFIED_BOND = (Chem.BondStereo.STEREONONE, Chem.BondStereo.STEREOANY)
 TETRAHEDRAL = (Chem.ChiralType.CHI_TETRAHEDRAL_CW, Chem.ChiralType.CHI_TETRAHEDRAL_CCW)
+# Below this volume of the three unit vectors to its neighbours a centre is flat.
+FLAT_VOLUME = 0.05
+
+
+def geometry_tags(
+    mol: Chem.Mol, conf_id: int, atoms: Collection[int]
+) -> Dict[int, Chem.ChiralType]:
+    """
+    The chiral tags that conformer conf_id gives the atoms (unspecified where it gives
+    none). RDKit reads them from the structure (AssignAtomChiralTagsFromStructure),
+    except for a stereocentre with three neighbours and a lone pair (P, As, a ring N),
+    which it leaves without a tag. There the tag follows from the volume of the three
+    neighbours in the order of the atom's bonds: counter-clockwise if it is positive,
+    as RDKit has it for a centre with an implicit hydrogen.
+    """
+    probe = Chem.Mol(mol)
+    Chem.AssignAtomChiralTagsFromStructure(
+        probe, confId=conf_id, replaceExistingTags=True
+    )
+    positions = mol.GetConformer(conf_id).GetPositions()
+    tags = {}
+    for i in atoms:
+        atom = probe.GetAtomWithIdx(i)
+        tags[i] = atom.GetChiralTag()
+        if tags[i] in TETRAHEDRAL or atom.GetDegree() != 3:
+            continue
+        arms = [positions[b.GetOtherAtomIdx(i)] - positions[i] for b in atom.GetBonds()]
+        arms = [arm / np.linalg.norm(arm) for arm in arms]
+        volume = float(np.dot(arms[0], np.cross(arms[1], arms[2])))
+        if abs(volume) > FLAT_VOLUME:
+            tags[i] = TETRAHEDRAL[1] if volume > 0 else TETRAHEDRAL[0]
+    return tags
 
 
 class StereoCheck:
@@ -13,10 +46,10 @@ class StereoCheck:
     Compares conformers with the stereo that graph specifies (unspecified stereo is a
     wildcard), except that of the exempt atoms.
 
-    - Stereocentres: the chiral tag from the geometry
-      (AssignAtomChiralTagsFromStructure) must equal the graph's. Tags refer to the
-      order of the neighbours, which a conformer of the same graph shares, so this also
-      covers stereo without CIP labels, such as cis/trans on rings.
+    - Stereocentres: the chiral tag from the geometry (geometry_tags) must equal the
+      graph's. Tags refer to the order of the neighbours, which a conformer of the same
+      graph shares, so this also covers stereo without CIP labels, such as cis/trans on
+      rings, and centres with a lone pair.
     - Double bonds: the CIP label (E/Z) from the geometry must equal the graph's, where
       the graph has one.
     """
@@ -50,15 +83,8 @@ class StereoCheck:
         conf_id = geometry.AddConformer(Chem.Conformer(conf), assignId=True)
         wrong = []
         if self.atoms:
-            probe = Chem.Mol(geometry)
-            Chem.AssignAtomChiralTagsFromStructure(
-                probe, confId=conf_id, replaceExistingTags=True
-            )
-            wrong += [
-                f"atom {i}"
-                for i, tag in self.atoms.items()
-                if probe.GetAtomWithIdx(i).GetChiralTag() != tag
-            ]
+            found = geometry_tags(geometry, conf_id, self.atoms)
+            wrong += [f"atom {i}" for i, tag in self.atoms.items() if found[i] != tag]
         if self.bonds:
             probe = Chem.Mol(geometry)
             for bond in probe.GetBonds():
@@ -74,9 +100,10 @@ class StereoCheck:
 def reference_tags(mol: Chem.Mol, reference: Chem.Mol, atoms: Collection[int]) -> dict:
     """The chiral tags that the reference geometry gives the atoms of mol."""
     probe = Chem.Mol(mol, True)
-    probe.AddConformer(Chem.Conformer(reference.GetConformer()), assignId=True)
-    Chem.AssignAtomChiralTagsFromStructure(probe, replaceExistingTags=True)
-    return {i: probe.GetAtomWithIdx(i).GetChiralTag() for i in atoms}
+    conf_id = probe.AddConformer(
+        Chem.Conformer(reference.GetConformer()), assignId=True
+    )
+    return geometry_tags(probe, conf_id, atoms)
 
 
 def reference_fixed(mol: Chem.Mol, frozen) -> List[int]:

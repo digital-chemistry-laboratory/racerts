@@ -417,6 +417,47 @@ def test_ring_stereo_without_cip_labels():
     assert len(racerts.generate_gs("C[C@H]1CC[C@@H](C)CC1", config=config)) >= 1
 
 
+@pytest.mark.parametrize(
+    "smiles, centres",
+    [
+        ("C[P@](CC)c1ccccc1", [1]),
+        ("C[P@@](CC)c1ccccc1", [1]),
+        ("C[As@](CC)c1ccccc1", [1]),
+        ("C[C@H]1C[N@]1Cl", [1, 3]),  # a ring nitrogen that does not invert
+    ],
+)
+def test_stereocentres_with_a_lone_pair_are_read_from_the_geometry(smiles, centres):
+    # RDKit reads no chiral tag from the structure for a centre with three neighbours
+    # and a lone pair; "no tag" must not count as inverted.
+    from racerts.system.stereo import StereoCheck
+
+    mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
+    AllChem.EmbedMultipleConfs(mol, 3, randomSeed=11)
+    check = StereoCheck(mol)
+    assert sorted(check.atoms) == centres
+    assert [check.mismatch(conf) for conf in mol.GetConformers()] == [None] * 3
+    # The mirror image has every centre inverted.
+    mirrored = Chem.Mol(mol)
+    for conf in mirrored.GetConformers():
+        for i, p in enumerate(conf.GetPositions()):
+            conf.SetAtomPosition(i, Point3D(-p[0], p[1], p[2]))
+    expected = "stereo of " + ", ".join(f"atom {i}" for i in centres) + " inverted"
+    assert [check.mismatch(conf) for conf in mirrored.GetConformers()] == [expected] * 3
+    # A flat centre has no handedness: not the one of the graph.
+    flat = Chem.Mol(mol)
+    conf = flat.GetConformer()
+    centre = centres[-1]
+    around = [n.GetIdx() for n in flat.GetAtomWithIdx(centre).GetNeighbors()]
+    positions = conf.GetPositions()
+    conf.SetAtomPosition(centre, Point3D(*positions[around].mean(axis=0)))
+    assert f"atom {centre}" in check.mismatch(conf)
+
+    config = racerts.PipelineConfig.from_dict(
+        {"embed": {"n_conformers": 6}, "prune": {"check_stereo": True}}
+    )
+    assert len(racerts.generate_gs(smiles, config=config)) >= 1
+
+
 def test_reaction_core_catches_another_saddle(ts_ensemble):
     # Free saddle searches from windowed conformers can reach saddles of other steps
     # (e.g. a proton on the other partner, 1.0 A off) that pass ImaginaryModes and

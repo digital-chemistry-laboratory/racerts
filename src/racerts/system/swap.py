@@ -18,7 +18,7 @@ from rdkit.Chem import AllChem
 from racerts.utils.checks import is_integer
 
 from .spec import infer_charge_and_multiplicity
-from .stereo import TETRAHEDRAL, UNSPECIFIED_BOND
+from .stereo import TETRAHEDRAL, UNSPECIFIED_BOND, geometry_tags
 
 logger = logging.getLogger(__name__)
 
@@ -798,13 +798,8 @@ def _stereo_3d(mol: Chem.Mol, conf_id: int, candidates):
         if b.GetBondType() == Chem.BondType.DOUBLE
         and b.GetStereo() not in UNSPECIFIED_BOND
     }
-    raw = Chem.Mol(one)
-    Chem.AssignAtomChiralTagsFromStructure(raw, replaceExistingTags=True)
-    atoms = {}
-    for i in atoms_found | candidates[0]:
-        tag = raw.GetAtomWithIdx(i).GetChiralTag()
-        if tag in TETRAHEDRAL:
-            atoms[i] = tag
+    found = geometry_tags(one, one.GetConformer().GetId(), atoms_found | candidates[0])
+    atoms = {i: tag for i, tag in found.items() if tag in TETRAHEDRAL}
     positions = one.GetConformer().GetPositions()
     bonds = {}
     for pair in bonds_found | candidates[1]:

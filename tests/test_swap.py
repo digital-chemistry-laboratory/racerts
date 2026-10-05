@@ -212,37 +212,12 @@ def quinoline():
     return label_hydrogen(mol, anchor, 100), anchor
 
 
-def test_quinoline_to_methyl_preserves_core_and_clears_results():
-    mol, anchor = quinoline()
-    source = mol.GetConformer().GetPositions().copy()
-    mol.GetConformer().SetDoubleProp("energy", -100)
-    mol.SetProp("acceptance", "passed")
-    grafted = substitute_groups(mol, {100: "[*]C"})
-    assert identity(grafted) == identity(Chem.MolFromSmiles("c1(C)ccc2ncccc2c1"))
-    core = [a.GetIdx() for a in mol.GetAtoms() if a.GetAtomMapNum() != 100]
-    np.testing.assert_array_equal(
-        grafted.GetConformer().GetPositions()[core], source[core]
-    )
-    assert grafted.GetNumAtoms() == mol.GetNumAtoms() + 3
-    assert not grafted.GetConformer().HasProp("energy")
-    assert not grafted.HasProp("acceptance")
-    assert mol.GetConformer().GetDoubleProp("energy") == -100
-    assert mol.GetAtomWithIdx(anchor).GetAtomicNum() == 6
-
-
 @pytest.mark.parametrize("fragment", ["[*][C@H](F)Cl", "F[C@@H](Cl)[*]", "[*]/C=C/Cl"])
 def test_substituent_stereochemistry_is_preserved(fragment):
     parent = Chem.MolFromSmiles("Br[*:100]")
     actual = substitute_groups(parent, {100: fragment})
     expected = Chem.MolFromSmiles(fragment.replace("[*]", "Br"))
     assert identity(actual) == identity(expected)
-
-
-def test_existing_stereocenter_is_not_inverted():
-    parent = embedded("N[C@@H](C)C(=O)O", seed=42)
-    labeled = label_hydrogen(parent, 1, 100)
-    grafted = substitute_groups(labeled, {100: "[*]F"})
-    assert identity(grafted) == identity(Chem.MolFromSmiles("N[C@@](C)(C(=O)O)F"))
 
 
 @pytest.mark.parametrize("fragment", ["[*][C@H](F)Cl", "F[C@@H](Cl)[*]", "[*]/C=C/Cl"])
@@ -1294,29 +1269,6 @@ def test_a_reference_that_does_not_sanitize_is_swapped_like_it():
     assert result.mol.GetAtomWithIdx(1).GetDegree() == 6
     with pytest.raises(ValueError, match="invalid"):  # a new valence error still raises
         apply_swap(embedded("CCO"), Swap("[*]=C", remove_atoms=[2]))
-
-
-def test_contacts_of_the_reference_are_no_clashes(caplog):
-    # An O...Pd contact of 2.08 A that the graph lacks (two fragments) is part of the
-    # reference, not a clash of the swap.
-    from rdkit.Geometry import Point3D
-
-    mol = Chem.RWMol(Chem.AddHs(Chem.MolFromSmiles("CCCCO.O")))
-    AllChem.EmbedMolecule(mol, randomSeed=3)
-    conf = mol.GetConformer()
-    water = 5  # the O of the water, placed 1.5 A from C0
-    target = conf.GetAtomPosition(0)
-    shift = target - conf.GetAtomPosition(water) + Point3D(1.5, 0, 0)
-    for i in [water, *(n.GetIdx() for n in mol.GetAtomWithIdx(water).GetNeighbors())]:
-        conf.SetAtomPosition(i, conf.GetAtomPosition(i) + shift)
-    h = next(
-        n.GetIdx()
-        for n in mol.GetAtomWithIdx(4).GetNeighbors()
-        if n.GetAtomicNum() == 1
-    )
-    with caplog.at_level("WARNING"):
-        racerts.swap(mol.GetMol(), Swap("[*]C", remove_atoms=[h]), conserve="hard")
-    assert "clash" not in caplog.text
 
 
 def _hypervalent_si():

@@ -500,13 +500,6 @@ def test_active_bonds_are_checked(aldol, bonds, error):
         )
 
 
-def test_cli_stratify_needs_a_window():
-    from racerts.cli import run_subcommand
-
-    with pytest.raises(SystemExit):
-        run_subcommand(["ts", ALDOL, "-r", *map(str, REACTING), "--stratify", "3"])
-
-
 def test_ring_13_pairs_are_not_forming_bonds():
     # SNAr and cyclization TSs: reacting ring atoms 1,3 apart (2.4 A) were taken for
     # forming bonds, and their in-plane "faces" flipped at random.

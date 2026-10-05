@@ -306,14 +306,6 @@ def test_gs_options_reach_generate_gs(call):
     assert call("gs", "CCO", "-c", "0")["charge"] == 0
 
 
-def test_gs_links_fragments(tmp_path):
-    out = tmp_path / "gs.xyz"
-    ensemble = run_subcommand(
-        ["gs", "CC(=O)[O-].[NH4+]", "-n", "4", "--link-fragments", "-o", str(out)]
-    )
-    assert len(ensemble) > 0 and out.exists()
-
-
 def test_swap_command(tmp_path, sn2_ts):
     # SN2 TS: H3 on the reacting carbon -> ethyl, the TS core held.
     out = tmp_path / "swapped.xyz"

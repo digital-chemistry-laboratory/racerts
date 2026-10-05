@@ -1670,3 +1670,75 @@ def test_ring_atoms_are_replaced_by_a_chain_of_another_length():
     assert len(ensemble) >= 3 and set(_labels(ensemble.mol)[1]) == {
         canonical("C1CCCCCCCCC1")
     }
+
+
+def test_the_configuration_can_be_given_instead_of_chosen_by_the_hydrogens():
+    # stereo names what the swap creates: cis or trans of a ring closed on a double
+    # bond, E or Z, R or S. It wins over the hydrogens that leave.
+    ethene, first, cis, trans = _ethene_hydrogens()
+    for size in (7, 8):
+        chain = f"[*:1]{'C' * (size - 2)}[*:2]"
+        for word, low, high in (("cis", 0.0, 30.0), ("trans", 90.0, 180.0)):
+            for other in (cis, trans):  # whichever hydrogens leave
+                change = Swap(chain, remove_atoms=[first, other], stereo={(0, 1): word})
+                result = apply_swap(ethene, change)
+                ensemble = racerts.swap(ethene, change, n_conformers=6)
+                angles = _ring_dihedrals(ensemble, result)
+                assert angles and all(low <= angle <= high for angle in angles)
+
+    # E or Z by the CIP rules of the product, for either hydrogen of styrene's CH2.
+    styrene = embedded("C=Cc1ccccc1")
+    hydrogens = [
+        n.GetIdx()
+        for n in styrene.GetAtomWithIdx(0).GetNeighbors()
+        if n.GetAtomicNum() == 1
+    ]
+    for word, smiles in (("E", "C/C=C/c1ccccc1"), ("Z", "C/C=C\\c1ccccc1")):
+        graphs = {
+            identity(
+                apply_swap(
+                    styrene, Swap("[*]C", remove_atoms=[h], stereo={(0, 1): word})
+                ).mol
+            )
+            for h in hydrogens
+        }
+        assert graphs == {canonical(smiles)}
+
+    # R or S of a centre that the swap creates, for either hydrogen.
+    alcohol = embedded("OCc1ccccc1")
+    hydrogens = [
+        n.GetIdx()
+        for n in alcohol.GetAtomWithIdx(1).GetNeighbors()
+        if n.GetAtomicNum() == 1
+    ]
+    for word, smiles in (("R", "C[C@@H](O)c1ccccc1"), ("S", "C[C@H](O)c1ccccc1")):
+        for h in hydrogens:
+            change = Swap("[*]C", remove_atoms=[h], stereo={1: word})
+            assert identity(apply_swap(alcohol, change).mol) == canonical(smiles)
+        ensemble = racerts.swap(alcohol, change, n_conformers=8)
+        assert set(_labels(ensemble.mol)[1]) == {canonical(smiles)}
+
+
+@pytest.mark.parametrize(
+    "stereo, message",
+    [
+        ({(0, 1): "left"}, "cis, trans, E or Z"),
+        ({0: "E"}, "R or S"),
+        ({(0, 1, 2): "E"}, "an atom or a pair of atoms"),
+        ({(0, 9): "E"}, "leaves in the swap or is no atom"),
+        ({(0, 2): "E"}, "not joined by a double bond"),
+        ({(0, 1): "cis"}, "binds with at both ends"),
+        ({2: "R"}, "no stereocentre"),
+        ({(1, 0): "E"}, "two equal substituents"),
+    ],
+)
+def test_stereo_that_cannot_be_given_is_refused(stereo, message):
+    # Propene (C0=C1-C2, the hydrogen that leaves on C2): no stereo to give at all.
+    propene = embedded("C=CC")
+    hydrogen = next(
+        n.GetIdx()
+        for n in propene.GetAtomWithIdx(2).GetNeighbors()
+        if n.GetAtomicNum() == 1
+    )
+    with pytest.raises(SwapError, match=message):
+        apply_swap(propene, Swap("[*]F", remove_atoms=[hydrogen], stereo=stereo))

@@ -52,6 +52,13 @@ The new fragment is a SMILES with one dummy per attachment (`[*]`, or `[*:1]`,
        Otherwise, e.g. around the rest of a grafted fragment, it stays unspecified
        and both configurations are generated. A warning names a centre whose tag is
        lost this way, and reference conformers that disagree.
+    3. What `stereo` names wins over the geometry, for stereo at kept atoms (by their
+       reference indices): `stereo={c: "R"}` or `"S"` for a centre and
+       `stereo={(a, b): "E"}` or `"Z"` for a double bond, by the CIP rules of the
+       result; `stereo={(a, b): "cis"}` or `"trans"` for the two atoms that the
+       fragment binds with at the ends of a double bond. Kept neighbours on the
+       other side (the remaining hydrogen) are sampled to fit, and every conformer
+       is checked against it.
 - Charge: that of the reference, changed by the formal charges of the fragment and of
   the atoms that leave; the multiplicity of the reference, if it has one.
 - A kept atom may not lose bond order (e.g. C=O replaced by C–F would leave the carbon
@@ -99,7 +106,9 @@ racerts.swap(alkene, racerts.Swap("[*:1]CCCCC[*:2]", remove_atoms=[h_a, h_b]))
 - A pattern over part of a ring maps the ring atoms that stay at both ends
   (`[C:1]...[C:2]`); with one end mapped, what leaves would run round the ring.
 - Which hydrogens leave chooses cis or trans of a ring closed on a double bond, by the
-  rule for created stereo: the two hydrogens on the same side give the cis ring.
+  rule for created stereo: the two hydrogens on the same side give the cis ring. Or
+  name it, whichever hydrogens leave:
+  `racerts.Swap("[*:1]CCCCC[*:2]", remove_atoms=[h_a, h_b], stereo={(a, b): "trans"})`.
 - RDKit's graphs have cis and trans only for double bonds in rings of eight atoms and
   more. racerts keeps the configuration of smaller rings as well: it is set on the
   bond with its two reference atoms, embedded, and checked on every conformer.

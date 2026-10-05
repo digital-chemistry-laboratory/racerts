@@ -13,7 +13,7 @@ from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 from rdkit import Chem, rdBase
-from rdkit.Chem import AllChem
+from rdkit.Chem import AllChem, rdCIPLabeler
 
 from racerts.utils import seeds
 from racerts.utils.checks import is_integer
@@ -30,6 +30,8 @@ BOND_TYPES = {
     "dative": Chem.BondType.DATIVE,
 }
 MODES = ("append", "renumber")
+BOND_STEREO = ("cis", "trans", "E", "Z")
+ATOM_STEREO = ("R", "S")
 MIN_KEPT_SHARE = 0.3  # below: warn, the swap is close to a new embedding
 FLIPPED_DIRECTIONS = {
     Chem.BondDir.ENDUPRIGHT: Chem.BondDir.ENDDOWNRIGHT,
@@ -72,6 +74,14 @@ class Swap:
             the cut bonds, by kept atom index, pair with the dummies in number order.
         bond_types: Dummy number -> "single", "double", "triple" or "dative" (from the
             fragment atom), overriding the bond of the SMILES.
+        stereo: The configuration of stereo that the swap creates at kept atoms,
+            instead of the one that the reference geometry gives it (which hydrogen
+            leaves): {atom: "R" or "S"} for a centre and {(atom, atom): "E" or "Z"}
+            for a double bond, by the CIP rules of the result; {(atom, atom): "cis" or
+            "trans"} for the two atoms that the fragment binds with at the ends of a
+            double bond (a ring closed on it). Atoms are reference indices of kept
+            atoms. Kept neighbours on the other side are sampled to fit; every
+            conformer is checked.
         mode: "append": new atoms take the slots of removed ones and the rest are
             appended, so the kept atoms keep their indices when the
             fragment has at least as many atoms as leave; otherwise the unused slots
@@ -88,6 +98,7 @@ class Swap:
     attach_map: Optional[Mapping[int, int]] = None
     bond_types: Optional[Mapping[int, str]] = None
     mode: str = "append"
+    stereo: Optional[Mapping] = None
 
     def __post_init__(self):
         selectors = [
@@ -105,6 +116,19 @@ class Swap:
             raise SwapError("center and substructure go together.")
         if self.mode not in MODES:
             raise SwapError(f"mode must be one of {MODES}, not {self.mode!r}.")
+        for key, word in (self.stereo or {}).items():
+            pair = isinstance(key, (tuple, list)) and len(key) == 2
+            if not (is_integer(key) or (pair and all(is_integer(i) for i in key))):
+                raise SwapError(
+                    f"stereo is given for an atom or a pair of atoms, not {key!r}."
+                )
+            if pair and word not in BOND_STEREO:
+                raise SwapError(
+                    f"stereo of the double bond {tuple(key)} is cis, trans, E or Z, "
+                    f"not {word!r}."
+                )
+            if not pair and word not in ATOM_STEREO:
+                raise SwapError(f"stereo of atom {key} is R or S, not {word!r}.")
         for number, kind in (self.bond_types or {}).items():
             if kind not in BOND_TYPES:
                 raise SwapError(
@@ -210,7 +234,8 @@ def apply_swap(
             frag_to_new[a.root] for a in attachments if a.partner is not None
         }
     settled = _settle_stereo(result, anchored, carried_atoms, carried_bonds)
-    _perceive_stereo(result, carried_bonds | settled)
+    given = _given_stereo(swap, result, ref_to_new, attachments, frag_to_new)
+    _perceive_stereo(result, carried_bonds | settled | given)
     for i in sorted(dropped):  # a tag that was neither carried nor settled
         if result.GetAtomWithIdx(i).GetChiralTag() not in TETRAHEDRAL and (
             i in _stereo_candidates(result)[0]
@@ -971,6 +996,89 @@ def _settle_stereo(result, anchored, carried_atoms, carried_bonds) -> set:
         bond.SetStereoAtoms(*stereo_atoms)
         bond.SetStereo(stereo)
     return set(agreed_bonds)
+
+
+def _given_stereo(swap, result, ref_to_new, attachments, frag_to_new) -> set:
+    """
+    Sets the configurations of swap.stereo in the result, over what the geometry gave,
+    and returns the double bonds (atom pairs) among them.
+    """
+    bound = {}  # kept atom -> the fragment atoms bound to it
+    for a in attachments:
+        bound.setdefault(ref_to_new[a.kept], []).append(frag_to_new[a.root])
+
+    def kept(i):
+        if int(i) not in ref_to_new:
+            raise SwapError(f"stereo: atom {i} leaves in the swap or is no atom.")
+        return ref_to_new[int(i)]
+
+    bonds = set()
+    for key, word in (swap.stereo or {}).items():
+        if is_integer(key):
+            _set_centre(result, kept(key), key, word)
+            continue
+        a, b = (kept(i) for i in key)
+        bond = result.GetBondBetweenAtoms(a, b)
+        if bond is None or bond.GetBondType() != Chem.BondType.DOUBLE:
+            raise SwapError(
+                f"stereo: atoms {tuple(key)} are not joined by a double bond in the "
+                "result."
+            )
+        if word in ("cis", "trans"):
+            if len(bound.get(a, [])) != 1 or len(bound.get(b, [])) != 1:
+                raise SwapError(
+                    f"stereo: cis and trans of {tuple(key)} are those of the two atoms "
+                    "that the fragment binds with at both ends of the double bond; "
+                    "here give E or Z."
+                )
+            ends, cis = [bound[a][0], bound[b][0]], word == "cis"
+        else:
+            ends, cis = _highest_neighbours(result, a, b, key), word == "Z"
+        if bond.GetBeginAtomIdx() != a:  # RDKit: the begin atom's side first
+            ends.reverse()
+        bond.SetStereoAtoms(*ends)
+        bond.SetStereo(
+            Chem.BondStereo.STEREOCIS if cis else Chem.BondStereo.STEREOTRANS
+        )
+        bonds.add(frozenset((a, b)))
+    return bonds
+
+
+def _highest_neighbours(result, a, b, key) -> list:
+    """The neighbour of highest CIP rank at each end of the double bond a=b: E and Z
+    are trans and cis of these two."""
+    probe = Chem.Mol(result)
+    Chem.AssignStereochemistry(
+        probe, cleanIt=False, force=True, flagPossibleStereoCenters=True
+    )
+    ends = []
+    for end, other in ((a, b), (b, a)):
+        ranked = sorted(
+            (int(n.GetProp("_CIPRank")), n.GetIdx())
+            for n in probe.GetAtomWithIdx(end).GetNeighbors()
+            if n.GetIdx() != other
+        )
+        if not ranked or (len(ranked) == 2 and ranked[0][0] == ranked[1][0]):
+            raise SwapError(
+                f"stereo: the double bond {tuple(key)} has no E or Z: an end has no "
+                "substituent, or two equal substituents."
+            )
+        ends.append(ranked[-1][1])
+    return ends
+
+
+def _set_centre(result, atom: int, key, word: str) -> None:
+    """The chiral tag of atom for which its CIP label in the result is word."""
+    target = result.GetAtomWithIdx(atom)
+    for tag in TETRAHEDRAL:
+        target.SetChiralTag(tag)
+        probe = Chem.Mol(result)
+        rdCIPLabeler.AssignCIPLabels(probe)
+        labelled = probe.GetAtomWithIdx(atom)
+        if labelled.HasProp("_CIPCode") and labelled.GetProp("_CIPCode") == word:
+            return
+    target.SetChiralTag(Chem.ChiralType.CHI_UNSPECIFIED)
+    raise SwapError(f"stereo: atom {key} is no stereocentre in the result (no R or S).")
 
 
 def _accept_problems_of_the_reference(mol, result, ref_to_new, error) -> None:

@@ -945,6 +945,37 @@ def test_new_double_bond_stereo_does_not_depend_on_how_the_bond_is_stored():
     assert graphs == {canonical("C/C=C/c1ccccc1"), canonical("C/C=C\\c1ccccc1")}
 
 
+def test_an_atom_replaced_by_a_chain_keeps_the_stereo_at_both_ends():
+    # One atom between two kept atoms becomes a chain of two: each kept neighbour gets
+    # the new atom at its own end in place of the removed one.
+    # (R)-2-chloropentane, the CH2 next to the centre -> O-CH2, the two attachment
+    # points numbered either way: the same product, with the centre as it was.
+    mol = embedded("C[C@H](Cl)CCC", seed=11)
+    for fragment, attach in (
+        ("[*:1]OC[*:2]", {1: 1, 2: 4}),
+        ("[*:2]OC[*:1]", {2: 1, 1: 4}),
+    ):
+        result = apply_swap(mol, Swap(fragment, remove_atoms=[3], attach_map=attach))
+        centre = result.mol.GetAtomWithIdx(result.ref_to_new[1])
+        assert centre.GetChiralTag() in TETRAHEDRAL_TAGS
+        assert identity(result.mol) == canonical("C[C@H](Cl)OCCC")
+        assert _stereo_agrees(result.mol)
+    # A centre at each end: (2R,4R)-2,4-dichloropentane, the CH2 between -> CH2-CH2.
+    mol = embedded("C[C@H](Cl)C[C@H](Cl)C", seed=11)
+    change = Swap("[*:1]CC[*:2]", remove_atoms=[3])
+    result = apply_swap(mol, change)
+    assert identity(result.mol) == canonical("C[C@H](Cl)CC[C@H](Cl)C")
+    ensemble = racerts.swap(mol, change, n_conformers=10)
+    assert len(ensemble) > 0 and _stereo_agrees(ensemble.mol)
+    # A double bond at one end: its stereo atom is the removed atom.
+    mol = embedded("C/C=C/CCCl", seed=11)
+    for attach in (None, {1: 2, 2: 4}, {1: 4, 2: 2}):
+        result = apply_swap(
+            mol, Swap("[*:1]CC[*:2]", remove_atoms=[3], attach_map=attach)
+        )
+        assert identity(result.mol) == canonical("C/C=C/CCCCl")
+
+
 def test_charge_and_multiplicity_carry_over(sn2_ts):
     from racerts.system import GRAPH_METHODS, build_mol
 

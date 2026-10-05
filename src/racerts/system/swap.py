@@ -591,53 +591,75 @@ def _build(mol, swap, fragment, attachments, slots, frag_to_new, ref_to_new):
             result.AddBond(ends[0], ends[1], bond.GetBondType())
         else:
             _copy_bond(result, bond, *ends)
-    # Double-bond stereo refers to neighbour atoms: map them.
-    partner_to_root = {
-        a.partner: frag_to_new[a.root] for a in attachments if a.partner is not None
+    # Stereo refers to neighbour atoms: map them. A removed atom is replaced, at each
+    # kept atom it was bound to, by the fragment atom attached there (one atom between
+    # two kept atoms can become a chain: each end has its own new neighbour).
+    took_over = {
+        (a.kept, a.partner): frag_to_new[a.root]
+        for a in attachments
+        if a.partner is not None
     }
-    ref_map = {**{i: ref_to_new[i] for i in ref_to_new}, **partner_to_root}
     frag_map = {**frag_to_new, **dummy_to_kept}
+
+    def ref_image(atom, seen_from):
+        if atom in ref_to_new:
+            return ref_to_new[atom]
+        return took_over.get((seen_from, atom))
+
+    def frag_image(atom, seen_from):
+        return frag_map.get(atom)
+
     carried_bonds, carried_atoms = set(), set()
-    for source, index_map in ((mol, ref_map), (fragment, frag_map)):
+    for source, image in ((mol, ref_image), (fragment, frag_image)):
         for bond in source.GetBonds():
             stereo_atoms = list(bond.GetStereoAtoms())
             i, j = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
-            if not stereo_atoms or i not in index_map or j not in index_map:
+            new_i, new_j = image(i, j), image(j, i)
+            if not stereo_atoms or new_i is None or new_j is None:
                 continue
-            target = result.GetBondBetweenAtoms(index_map[i], index_map[j])
+            target = result.GetBondBetweenAtoms(new_i, new_j)
             if target is None or bond.GetStereo() in UNSPECIFIED_BOND:
                 continue
             # as cis/trans of the stereo atoms, which the swap keeps (E/Z may not)
             stereo = GEOMETRIC.get(bond.GetStereo(), bond.GetStereo())
             ends = []
-            for end, other, atom in ((i, j, stereo_atoms[0]), (j, i, stereo_atoms[1])):
-                if atom not in index_map:  # it leaves: the other neighbour of its end
+            for end, new_end, other, atom in (
+                (i, new_i, j, stereo_atoms[0]),
+                (j, new_j, i, stereo_atoms[1]),
+            ):
+                found = image(atom, end)
+                if found is None:  # it leaves: the other neighbour of its end
                     others = [
-                        n.GetIdx()
+                        image(n.GetIdx(), end)
                         for n in source.GetAtomWithIdx(end).GetNeighbors()
-                        if n.GetIdx() not in (other, atom) and n.GetIdx() in index_map
+                        if n.GetIdx() not in (other, atom)
                     ]
+                    others = [k for k in others if k is not None]
                     if not others:
                         break
-                    atom = others[0]
+                    found = others[0]
                     stereo = FLIPPED_STEREO[stereo]
-                ends.append(index_map[atom])
+                if result.GetBondBetweenAtoms(new_end, found) is None:
+                    break  # the end itself was replaced by a chain: no such neighbour
+                ends.append(found)
             if len(ends) < 2:
                 continue
+            if target.GetBeginAtomIdx() != new_i:  # RDKit: the begin atom's side first
+                ends.reverse()
             target.SetStereoAtoms(*ends)
             target.SetStereo(stereo)
             carried_bonds.add(frozenset(_ends(target)))
     # Chiral tags refer to the order of the neighbours: carry them over by parity.
-    for source, index_map, kind in (
-        (mol, ref_map, "ref"),
-        (fragment, frag_map, "frag"),
+    for source, image, kind in (
+        (mol, ref_image, "ref"),
+        (fragment, frag_image, "frag"),
     ):
         own = ref_to_new if kind == "ref" else frag_to_new
         for old, new_index in own.items():
             atom = source.GetAtomWithIdx(old)
             if atom.GetChiralTag() == Chem.ChiralType.CHI_UNSPECIFIED:
                 continue
-            expected = [index_map.get(n.GetIdx()) for n in atom.GetNeighbors()]
+            expected = [image(n.GetIdx(), old) for n in atom.GetNeighbors()]
             target = result.GetAtomWithIdx(new_index)
             actual = [n.GetIdx() for n in target.GetNeighbors()]
             if None in expected or sorted(expected) != sorted(actual):

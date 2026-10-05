@@ -7,7 +7,7 @@ from rdkit.Chem import AllChem
 
 import racerts
 from racerts import TransitionState
-from racerts.recipes import staged
+from racerts.recipes import Level, staged
 from racerts.refine import MMFFOptimizer, Refine, Rescore
 from racerts.system import build_mol
 from racerts.validate import gate
@@ -41,20 +41,109 @@ def _thresholds(pipeline):
     return [s.pruner.threshold for s in pipeline.stages if s.name == "prune_energy"]
 
 
-def test_the_stages():
+def _described(pipeline):
+    """The stage names, with the threshold of an energy window and the size of a pool."""
+    described = []
+    for stage in pipeline.stages:
+        text = stage.name
+        if stage.name == "prune_energy":
+            text += f" {stage.pruner.threshold:g}"
+        if hasattr(stage, "n_max"):
+            text += f" {stage.n_max}"
+        described.append(text)
+    return described
+
+
+def test_one_optimizer_is_the_usual_two_levels():
     pipeline = staged(LJ)
     assert [s.name for s in pipeline.stages] == STEPS
     assert _thresholds(pipeline) == [25.0, 8.0, 6.0]
     cheap, expensive = [s for s in pipeline.stages if s.name == "refine"]
-    # The cheap level is the refinement of the default settings: MMFF, not converged.
+    # The first level is the refinement of the default settings: MMFF, not converged.
     assert isinstance(cheap.optimizer, MMFFOptimizer) and not cheap.optimizer.converge
     assert cheap.optimizer.energies_without_anchors and cheap.stereo_anchors
     assert expensive.optimizer is LJ
     exploit = pipeline.stages[STEPS.index("exploit")]
-    assert exploit.refine is expensive  # the same refinement as step 4
+    assert exploit.refine is expensive  # the search refines as its level does
+    written_out = staged([Level(window=25.0), Level(LJ, exploit={})])
+    assert _described(written_out) == _described(pipeline)
 
 
-def test_embedding_and_cheap_refinement_follow_the_config(hept_1_ene_ts):
+MIDDLE = ASEOptimizer(LennardJones(), method="middle")
+RANK = Rescore(LennardJones(), method="lj-rank")
+LEVEL = ["refine", "validate"]  # a refinement and the gate
+LEVELS = {
+    "one level": (
+        [Level(LJ)],
+        ["embed", "validate", *LEVEL, "attack_face", "prune_energy 8", "prune_rmsd",
+         "prune_energy 6"],
+    ),
+    "a level in between with its own search, and a pool": (
+        [Level(window=25), Level(MIDDLE, 12, exploit={"batch": 4}),
+         Level(LJ, exploit={}, pool=20)],
+        ["embed", "validate", *LEVEL, "attack_face", "prune_energy 25", "prune_rmsd",
+         *LEVEL, "prune_energy 12", "prune_rmsd", "exploit", "prune_rmsd",
+         "select_families 20", *LEVEL, "prune_energy 8", "prune_rmsd", "exploit",
+         "prune_rmsd", "prune_energy 6"],
+    ),
+    "a pool by energy and a ranking energy, no search": (
+        [Level(MMFFOptimizer(), 30), Level(LJ, 10, rank=RANK, pool=5, pool_by="energy")],
+        ["embed", "validate", *LEVEL, "attack_face", "prune_energy 30", "prune_rmsd",
+         "prune_count 5", *LEVEL, "rescore", "prune_energy 10", "prune_rmsd",
+         "prune_energy 6"],
+    ),
+    "optimizers in the list are levels of them": (
+        [MMFFOptimizer(), Refine(LJ, anchors=False)],
+        ["embed", "validate", *LEVEL, "attack_face", "prune_energy 8", "prune_rmsd",
+         *LEVEL, "prune_energy 8", "prune_rmsd", "prune_energy 6"],
+    ),
+}  # fmt: skip
+
+
+@pytest.mark.parametrize("levels, stages", LEVELS.values(), ids=list(LEVELS))
+def test_the_stages_of_the_levels(levels, stages):
+    assert _described(staged(levels)) == stages
+
+
+def test_a_level_passes_its_settings_on():
+    own = racerts.Exploit(LJ, batch=3)
+    rescore = Rescore(LennardJones(), method="lj-sp")
+    pipeline = staged(
+        [
+            Level(window=25),
+            Level(MIDDLE, 12, exploit={"batch": 4, "max_optimizations": 9}),
+            Level(Refine(LJ, anchors=False), rank=RANK, exploit={}),
+            Level(LJ, exploit=own),
+        ],
+        final_window=5,
+        rescore=rescore,
+        clash_filter=None,
+    )
+    names = [s.name for s in pipeline.stages]
+    assert names[1] == "refine" and names[-1] == "rescore"  # no clash filter
+    assert pipeline.stages[-1] is rescore and _thresholds(pipeline)[-1] == 5
+    refines = [s for s in pipeline.stages if s.name == "refine"]
+    searches = [s for s in pipeline.stages if s.name == "exploit"]
+    # A search refines and ranks as its level does, with the settings given.
+    assert searches[0].refine is refines[1] and searches[0].rank is None
+    assert (searches[0].batch, searches[0].max_optimizations) == (4, 9)
+    assert searches[1].refine is refines[2] and searches[1].rank is RANK
+    assert refines[2].anchors is False  # a Refine stage is taken as it is
+    assert searches[2] is own  # and so is an Exploit stage
+
+
+def test_levels_and_windows_are_checked():
+    with pytest.raises(ValueError, match="at least one level"):
+        staged([])
+    with pytest.raises(ValueError, match="window"):
+        Level(LJ, window=0)
+    with pytest.raises(ValueError, match="pool_by"):
+        Level(LJ, pool=3, pool_by="random")
+    with pytest.raises(ValueError, match="final_window"):
+        staged(LJ, final_window=-1)
+
+
+def test_embedding_and_first_level_follow_the_config(hept_1_ene_ts):
     ctx = racerts.Context.create(hept_1_ene_ts, TransitionState([3, 4, 5]), seed=5)
 
     def embedded(config):
@@ -80,119 +169,29 @@ def test_embedding_and_cheap_refinement_follow_the_config(hept_1_ene_ts):
     assert not cheap.optimizer.energies_without_anchors and not cheap.stereo_anchors
     with pytest.raises(ValueError, match="config"):  # nothing left for it to set
         staged(
-            LJ,
+            [Level(MMFFOptimizer(), 25), LJ],
             embed=racerts.Embed(),
-            cheap=MMFFOptimizer(),
             config=racerts.PipelineConfig(),
         )
 
 
-def test_options():
-    rescore = Rescore(LennardJones(), method="lj-sp")
-    pipeline = staged(
-        Refine(LJ, anchors=False),
-        cheap=MMFFOptimizer(),
-        windows=(30, 10, 5),
-        exploit=None,
-        rescore=rescore,
-        clash_filter=None,
-    )
-    names = [s.name for s in pipeline.stages]
-    assert "exploit" not in names and names.count("validate") == 2
-    assert names[-1] == "rescore" and pipeline.stages[-1] is rescore
-    assert _thresholds(pipeline) == [30, 10, 5]
-    assert pipeline.stages[names.index("refine", 2)].anchors is False
-    exploit = staged(LJ, exploit={"batch": 3, "max_optimizations": 9}).stages[11]
-    assert exploit.batch == 3 and exploit.max_optimizations == 9
-
-
-def test_the_pool_for_the_expensive_level():
-    # Without a pool every conformer that passes the cheap level is refined at the
-    # expensive one. With one, the conformers are chosen by structural family (the
-    # best of each cluster first): the cheap energies often misrank.
-    names = [s.name for s in staged(LJ, pool=30).stages]
-    cheap_duplicates = names.index("prune_rmsd")
-    assert names[cheap_duplicates + 1 : cheap_duplicates + 3] == [
-        "select_families", "refine",
-    ]  # fmt: skip
-    selector = staged(LJ, pool=30).stages[cheap_duplicates + 1]
-    assert selector.n_max == 30
-    by_energy = staged(LJ, pool=30, pool_by="energy").stages[cheap_duplicates + 1]
-    assert by_energy.name == "prune_count" and by_energy.n_max == 30
-    assert "select_families" not in [s.name for s in staged(LJ).stages]
-    with pytest.raises(ValueError, match="pool_by"):
-        staged(LJ, pool=30, pool_by="random")
-    with pytest.raises((TypeError, ValueError), match="n_max"):
-        staged(LJ, pool=0)
-
-
-def test_the_pool_limits_the_expensive_refinements():
+def test_the_pool_limits_the_refinements_of_its_level():
     class Counting(ASEOptimizer):
         def __init__(self):
             super().__init__(LennardJones(), method="counting")
             self.calls = 0
 
         def _refine(self, mol, reference, anchors, restraints=()):
-            for k, conf in enumerate(mol.GetConformers()):
+            for conf in mol.GetConformers():
                 self.calls += 1
-                conf.SetDoubleProp("energy", float(k))
+                conf.SetDoubleProp("energy", 0.0)
             return 0
 
-    mol = Chem.AddHs(Chem.MolFromSmiles("CCCCCCO"))
     counting = Counting()
-    config = racerts.PipelineConfig.from_dict({"embed": {"n_conformers": 30}})
-    pipeline = staged(counting, pool=4, exploit=None, config=config)
-    ensemble = racerts.generate(mol, racerts.GroundState(), pipeline=pipeline)
-    assert counting.calls == 4 and 1 <= len(ensemble) <= 4
-
-
-def test_a_middle_level_with_its_own_search():
-    # e.g. GFN-FF or GFN2-xTB between the force field and the MLIP: it removes what the
-    # force field misranks before the expensive level, and Exploit there is cheap
-    # (ring flips, torsions), so the pool for the expensive level draws on more.
-    middle = ASEOptimizer(LennardJones(), method="middle")
-    pipeline = staged(
-        LJ, middle=middle, middle_window=12.0, middle_exploit={"batch": 4}, pool=20
-    )
-    names = [s.name for s in pipeline.stages]
-    first = names.index("prune_rmsd")  # the end of the cheap level
-    assert names[first + 1 : first + 9] == [
-        "refine", "validate", "prune_energy", "prune_rmsd",  # the middle level
-        "exploit", "prune_rmsd",  # its search
-        "select_families",  # the pool
-        "refine",  # the expensive level
-    ]  # fmt: skip
-    middle_stage = pipeline.stages[first + 1]
-    assert middle_stage.optimizer is middle
-    assert _thresholds(pipeline) == [25.0, 12.0, 8.0, 6.0]
-    search = pipeline.stages[first + 5]
-    assert search.refine is middle_stage and search.batch == 4
-    assert names.count("exploit") == 2  # and the one at the expensive level
-
-    # Without a search at the middle level; a search needs the level.
-    plain = [s.name for s in staged(LJ, middle=middle).stages]
-    assert plain.count("exploit") == 1 and plain.count("refine") == 3
-    with pytest.raises(ValueError, match="middle"):
-        staged(LJ, middle_exploit={})
-    with pytest.raises(ValueError, match="middle_window"):
-        staged(LJ, middle=middle, middle_window=0)
-
-
-def test_a_ranking_energy_follows_every_expensive_refinement():
-    rank = Rescore(LennardJones(), method="lj-rank")
-    pipeline = staged(LJ, rank=rank)
-    names = [s.name for s in pipeline.stages]
-    expensive = names.index("refine", 3)  # after the cheap one
-    # refine, gate, the ranking energy, then the window and the duplicates
-    assert names[expensive : expensive + 5] == [
-        "refine", "validate", "rescore", "prune_energy", "prune_rmsd",
-    ]  # fmt: skip
-    assert pipeline.stages[expensive + 2] is rank
-    exploit = pipeline.stages[names.index("exploit")]
-    assert exploit.rank is rank
-    # A ready Exploit stage keeps its own setting.
-    own = racerts.Exploit(LJ)
-    assert staged(LJ, rank=rank, exploit=own).stages[names.index("exploit")] is own
+    config = racerts.PipelineConfig(embed={"n_conformers": 20})
+    pipeline = staged([Level(window=25), Level(counting, pool=4)], config=config)
+    ensemble = racerts.generate_gs("CCCCCCO", pipeline=pipeline)
+    assert counting.calls == 4 and len(ensemble) >= 1
 
 
 class _FailsWhenMarked(LennardJones):
@@ -229,9 +228,8 @@ def test_a_failed_optimization_costs_one_conformer(rank):
     # it came with: it must not be ranked, and must not stop the others.
     expensive = _FirstFails(_FailsWhenMarked(), method="expensive", max_steps=3)
     config = racerts.PipelineConfig(embed={"n_conformers": 8})
-    pipeline = staged(
-        expensive, config=config, exploit=None, rank=rank, windows=(1e6, 1e6, 1e6)
-    )
+    levels = [Level(window=1e6), Level(expensive, window=1e6, rank=rank)]
+    pipeline = staged(levels, config=config, final_window=1e6)
     ensemble = racerts.generate_gs("CCCCO", pipeline=pipeline)
     assert len(ensemble) >= 2 and expensive.failed not in ensemble.conf_ids
     assert all(ensemble.energy(i) is not None for i in ensemble.conf_ids)
@@ -281,12 +279,6 @@ def test_the_saddle_recipe_takes_a_hessian_and_further_checks():
     with pytest.raises(ValueError, match="calculator= or hessian="):
         saddles(free)
     assert saddles(free, hessian=hessian).stages[1].validators[1].hessian is hessian
-
-
-@pytest.mark.parametrize("windows", [(25, 8), (25, 8, -1)])
-def test_windows_are_checked(windows):
-    with pytest.raises(ValueError, match="windows"):
-        staged(LJ, windows=windows)
 
 
 def _diol(factors):
@@ -342,10 +334,10 @@ def _passes_the_gate(ensemble, task, reference=None):
 def test_a_ground_state_end_to_end():
     TBLite = pytest.importorskip("tblite.ase").TBLite
     gfn2 = ASEOptimizer(TBLite(method="GFN2-xTB", verbosity=0), method="GFN2")
+    search = {"max_optimizations": 8, "batch": 4}
     pipeline = staged(
-        gfn2,
+        [Level(window=25), Level(gfn2, exploit=search)],
         embed=racerts.Embed(n_conformers=6),
-        exploit={"max_optimizations": 8, "batch": 4},
     )
     ensemble = racerts.generate_gs("CCCCO", pipeline=pipeline)
     assert len(ensemble) >= 1 and ensemble.energy_method == "GFN2"
@@ -360,10 +352,10 @@ def test_a_ground_state_end_to_end():
 def test_a_ts_with_waters_end_to_end(sn2_ts_two_waters):
     TBLite = pytest.importorskip("tblite.ase").TBLite
     gfn2 = ASEOptimizer(TBLite(method="GFN2-xTB", verbosity=0), method="GFN2")
+    search = {"max_optimizations": 8, "batch": 4}
     pipeline = staged(
-        gfn2,
+        [Level(window=25), Level(gfn2, exploit=search)],
         embed=racerts.Embed(n_conformers=6),
-        exploit={"max_optimizations": 8, "batch": 4},
     )
     mol = build_mol(sn2_ts_two_waters, -1, [0, 1, 2], input_smiles=["CCl.[Cl-].O.O"])
     task = TransitionState([0, 1, 2])

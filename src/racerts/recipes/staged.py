@@ -1,8 +1,10 @@
-"""The staged workflow: cheap filters, ranking at a higher level, Exploit, rescoring."""
+"""
+The staged workflow: levels of refinement from cheap to expensive, each with its gate,
+energy window and RMSD pruning, and optionally a search (Exploit).
+"""
 
-from dataclasses import replace
-from types import MappingProxyType
-from typing import Optional, Sequence
+from dataclasses import dataclass, replace
+from typing import Any, Mapping, Optional, Union
 
 from racerts.config import PipelineConfig
 from racerts.embed import Embed
@@ -10,11 +12,77 @@ from racerts.exploit import Exploit
 from racerts.pipeline import Pipeline
 from racerts.prune import FamilySelector, PruneCount, PruneEnergy, PruneRMSD
 from racerts.prune.energy import EnergyPruner
-from racerts.refine import Refine
+from racerts.refine import Refine, Rescore
 from racerts.validate import OVERLAP_FACTOR, AttackFace, Clash, Validate, gate
 
-WINDOWS = (25.0, 8.0, 6.0)  # kcal/mol: cheap level, expensive level, final
+CHEAP_WINDOW = 25.0  # kcal/mol: of the force-field level, which should not decide
+WINDOW = 8.0  # kcal/mol: of a level whose energies rank
+FINAL_WINDOW = 6.0  # kcal/mol: of the result
 POOLS = ("family", "energy")
+
+
+@dataclass(frozen=True)
+class Level:
+    """
+    One level of the staged workflow: a refinement, the validity gate
+    (racerts.validate.gate), the energy window and the RMSD pruning.
+
+    Attributes:
+        optimizer: The refinement: an optimizer or a Refine stage. None: the force
+            field of the settings (the config of staged; MMFF, not converged).
+        window: The energy window after the refinement (kcal/mol).
+        exploit: Settings of an Exploit search at this level (a dict; {} for the
+            defaults), or an Exploit stage; None: no search. Exploit needs an
+            ASEOptimizer.
+        rank: A Rescore stage for the energy that the window, the RMSD pruning and
+            Exploit use, if not the energy of the refinement: e.g. that energy plus a
+            solvation correction (Rescore(batch=..., add=True)).
+        pool: The most conformers that enter the level (default: all), which limits
+            its cost.
+        pool_by: How the pool is chosen: "family" (spread over structural families;
+            FamilySelector) or "energy" (the lowest of the level before; PruneCount).
+    """
+
+    optimizer: Any = None
+    window: float = WINDOW
+    exploit: Union[None, Mapping, Exploit] = None
+    rank: Optional[Rescore] = None
+    pool: Optional[int] = None
+    pool_by: str = "family"
+
+    def __post_init__(self):
+        if not self.window > 0:
+            raise ValueError(f"window must be a positive energy, not {self.window}.")
+        if self.pool_by not in POOLS:
+            raise ValueError(f"pool_by must be one of {POOLS}, not {self.pool_by!r}.")
+
+    def stages(self, config: PipelineConfig, faces: bool = False) -> list:
+        """The stages of the level; faces: with the forming-bond stereo filter of
+        windowed TSs after the gate (the first level)."""
+        if self.optimizer is None:
+            refine = config.refine_stage()
+        elif isinstance(self.optimizer, Refine):
+            refine = self.optimizer
+        else:
+            refine = Refine(self.optimizer)
+        stages = []
+        if self.pool is not None:
+            by_family = self.pool_by == "family"
+            stages.append(
+                FamilySelector(self.pool) if by_family else PruneCount(self.pool)
+            )
+        stages += [refine, gate()]
+        if faces:
+            stages.append(_WindowedTS(Validate(AttackFace())))
+        if self.rank is not None:
+            stages.append(self.rank)
+        stages += [PruneEnergy(EnergyPruner(threshold=self.window)), PruneRMSD()]
+        if self.exploit is not None:
+            exploit = self.exploit
+            if not isinstance(exploit, Exploit):
+                exploit = Exploit(refine, **{"rank": self.rank, **dict(exploit)})
+            stages += [exploit, PruneRMSD()]
+        return stages
 
 
 class _WindowedTS:
@@ -46,90 +114,59 @@ class _DefaultEmbed:
         return config.embed_stage(ctx.task).run(ctx, ensemble)
 
 
-def _refine(stage_or_optimizer) -> Refine:
-    if isinstance(stage_or_optimizer, Refine):
-        return stage_or_optimizer
-    return Refine(stage_or_optimizer)
-
-
 def staged(
-    expensive,
-    cheap=None,
-    windows: Sequence[float] = WINDOWS,
+    levels,
     embed: Optional[Embed] = None,
-    exploit=MappingProxyType({}),
-    rescore=None,
-    clash_filter: Optional[float] = OVERLAP_FACTOR,
     config: Optional[PipelineConfig] = None,
-    rank=None,
-    pool: Optional[int] = None,
-    pool_by: str = "family",
-    middle=None,
-    middle_window: float = 15.0,
-    middle_exploit=None,
+    clash_filter: Optional[float] = OVERLAP_FACTOR,
+    final_window: float = FINAL_WINDOW,
+    rescore: Optional[Rescore] = None,
 ) -> Pipeline:
     """
     The staged workflow as a pipeline:
 
     1. embed (one Embed stage: its batches mix biased and unbiased settings), then drop
        conformers whose heavy atoms overlap;
-    2. refine at the cheap level (default: the force field of the settings), the
-       validity gate
-       (racerts.validate.gate), the forming-bond stereo filter for windowed TSs, and a
-       loose energy window (windows[0]) with the RMSD pruning: this removes embedding
-       artifacts and duplicates, while the cheap energies do not decide much; with
-       middle, a level in between (below); with pool, at most that many conformers
-       go on;
-    3. refine at the expensive level (an ASE calculator: xTB, an MLIP), the gate again,
-       the ranking energy if it is another one (rank), the ranking window (windows[1])
-       and the RMSD pruning;
-    4. Exploit with the same refinement and ranking energy (unless exploit is None);
-    5. the RMSD pruning of the whole, the final window (windows[2]), and optionally a
-       Rescore stage (single points at a higher level or in the target solvent).
+    2. the levels in their order, from cheap to expensive. Each (Level): with pool, at
+       most that many conformers; the refinement; the validity gate
+       (racerts.validate.gate); after the first level the forming-bond stereo filter
+       of windowed TSs; the ranking energy if it is another one (rank); the energy
+       window and the RMSD pruning; with exploit, Exploit with the same refinement and
+       ranking energy and the RMSD pruning of the whole;
+    3. the final window, and optionally a Rescore stage (single points at a higher
+       level or in the target solvent).
 
     For TSs the result goes to a saddle search with its checks:
     racerts.recipes.saddles.
 
     Args:
-        expensive: The refinement of steps 3 and 4: a Refine stage, or an optimizer
-            for one (an ASEOptimizer, e.g. with method="UMA-s-1p2").
-        cheap: The refinement of step 2 (a Refine stage or an optimizer); default:
-            that of the default pipeline (config; MMFF, not converged: it only has
-            to remove the artifacts of the embedding).
-        windows: The energy windows (kcal/mol) of steps 2, 3 and 5.
+        levels: The levels in their order (Level; an optimizer or a Refine stage in
+            the list stands for Level of it). A single optimizer or Refine stage
+            instead of a list is the usual workflow with it,
+            [Level(window=25), Level(optimizer, exploit={})]: the force field of the
+            settings, which removes the artifacts of the embedding while its energies
+            do not decide much, then the ranking and the search at the expensive
+            level.
         embed: The Embed stage; default: that of the default pipeline (config).
-        exploit: Settings of Exploit (a dict), an Exploit stage, or None for none.
-        rescore: A Rescore stage at the end, or None.
+        config: The settings of the default embedding and of the force-field level
+            (default: PipelineConfig()); of no use if nothing takes them.
         clash_filter: Drop embedded conformers with heavy atoms closer than this times
             their vdW sum (Clash; None: no filter). The default, 0.5, is below every
             lower bound of RDKit's distance geometry for these pairs, so it drops
             overlaps only: contacts at the edge of the bounds are relaxed by refinement
             (the gate after it checks clashes at 0.7), and dropping them can lose the
             conformer that is the lowest afterwards.
-        config: The settings of the default embedding and cheap refinement (default:
-            PipelineConfig()); of no use with both embed and cheap given.
-        pool: The most conformers that go on to the expensive level (default: all
-            that pass step 2), which limits its cost.
-        pool_by: How the pool is chosen: "family" (spread over structural families:
-            the best of each cluster, then the second best, ...; FamilySelector) or
-            "energy" (the lowest by the cheap energy; PruneCount). The cheap level
-            often misranks a flexible system, and Exploit searches only around what
-            it gets: families keep more regions in the pool.
-        middle: A refinement between the cheap and the expensive level (a Refine
-            stage or an optimizer, e.g. an ASEOptimizer with GFN-FF or GFN2-xTB and
-            worker processes), followed by the gate, its energy window (middle_window,
-            kcal/mol) and the RMSD pruning. It removes what the force field misranks
-            before the expensive level sees it.
-        middle_exploit: Settings of an Exploit at the middle level (a dict; None:
-            none). Ring flips and torsion moves are cheap there, and the pool for the
-            expensive level then draws on the minima they find.
-        rank: A Rescore stage for the energy that steps 3 to 5 rank by, if not the
-            energy of the expensive refinement: e.g. that energy plus a solvation
-            correction (Rescore(batch=..., add=True)). It follows every expensive
-            refinement, also in Exploit (not in an Exploit stage given ready-made).
+        final_window: The energy window of the result (kcal/mol).
+        rescore: A Rescore stage at the end, or None.
     """
-    if config is not None and embed is not None and cheap is not None:
-        raise ValueError("Give embed and cheap, or config for the default ones.")
+    if not isinstance(levels, (list, tuple)):
+        levels = [Level(window=CHEAP_WINDOW), Level(levels, exploit={})]
+    levels = [lv if isinstance(lv, Level) else Level(lv) for lv in levels]
+    if not levels:
+        raise ValueError("staged needs at least one level.")
+    uses_config = embed is None or any(level.optimizer is None for level in levels)
+    if config is not None and not uses_config:
+        raise ValueError("config is not used: every level and embed are given.")
     config = config if config is not None else PipelineConfig()
     if clash_filter is not None and (
         isinstance(clash_filter, bool) or not isinstance(clash_filter, (int, float))
@@ -139,53 +176,14 @@ def staged(
         )
     if clash_filter is not None and not 0 < clash_filter <= 1:
         raise ValueError(f"clash_filter must be in (0, 1], not {clash_filter}.")
-    windows = tuple(windows)
-    if len(windows) != 3 or not all(w > 0 for w in windows):
-        raise ValueError("windows needs three positive energies (kcal/mol).")
-    if pool_by not in POOLS:
-        raise ValueError(f"pool_by must be one of {POOLS}, not {pool_by!r}.")
-    select = []
-    if pool is not None:
-        select = [FamilySelector(pool) if pool_by == "family" else PruneCount(pool)]
-    between = []
-    if middle is not None:
-        if not middle_window > 0:
-            raise ValueError("middle_window must be a positive energy (kcal/mol).")
-        middle = _refine(middle)
-        between = [
-            middle,
-            gate(),
-            PruneEnergy(EnergyPruner(threshold=middle_window)),
-            PruneRMSD(),
-        ]
-        if middle_exploit is not None:
-            between += [Exploit(middle, **dict(middle_exploit)), PruneRMSD()]
-    elif middle_exploit is not None:
-        raise ValueError("middle_exploit needs the middle level (middle=...).")
-    cheap = _refine(cheap) if cheap is not None else config.refine_stage()
-    expensive = _refine(expensive)
+    if not final_window > 0:
+        raise ValueError("final_window must be a positive energy (kcal/mol).")
     stages = [embed if embed is not None else _DefaultEmbed(config)]
     if clash_filter is not None:
         stages.append(Validate(Clash(clash_filter), warn_above=0.3))
-    stages += [
-        cheap,
-        gate(),
-        _WindowedTS(Validate(AttackFace())),
-        PruneEnergy(EnergyPruner(threshold=windows[0])),
-        PruneRMSD(),
-        *between,
-        *select,
-        expensive,
-        gate(),
-        *([rank] if rank is not None else []),
-        PruneEnergy(EnergyPruner(threshold=windows[1])),
-        PruneRMSD(),
-    ]
-    if exploit is not None:
-        if not isinstance(exploit, Exploit):
-            exploit = Exploit(expensive, **{"rank": rank, **dict(exploit)})
-        stages.append(exploit)
-    stages += [PruneRMSD(), PruneEnergy(EnergyPruner(threshold=windows[2]))]
+    for k, level in enumerate(levels):
+        stages += level.stages(config, faces=k == 0)
+    stages.append(PruneEnergy(EnergyPruner(threshold=final_window)))
     if rescore is not None:
         stages.append(rescore)
     return Pipeline(stages)

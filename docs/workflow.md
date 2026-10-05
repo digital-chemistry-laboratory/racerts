@@ -1,48 +1,59 @@
 # Staged workflow
 
-The staged workflow refines conformers in levels, from cheap to expensive, and searches
-around the best ones at the expensive level before the final ranking.
+The staged workflow refines conformers in levels, from cheap to expensive, and can
+search around the best ones at a level before the final ranking.
 `racerts.recipes.staged` builds it as a pipeline:
 
 ```python
 import racerts
-from racerts.recipes import staged
+from racerts.recipes import Level, staged
 from racerts.refine import ASEOptimizer
 
-uma = ASEOptimizer(uma_calculator, method="UMA-s-1p2", fmax=0.02)
+uma = ASEOptimizer(uma_calculator, method="UMA-s-1p2", fmax=0.02)  # any ASE calculator
 pipeline = staged(uma, config=racerts.PipelineConfig(embed={"n_conformers": 100}))
-ensemble = racerts.generate_ts("ts.xyz", [3, 4, 5], smiles="...", pipeline=pipeline)
+ensemble = racerts.generate_ts("ts.xyz", [3, 4, 5], smiles="CCCCCC=C", pipeline=pipeline)
+```
+
+One optimizer stands for the usual two levels. Written out:
+
+```python
+pipeline = staged([
+    Level(window=25),         # the force field of the settings
+    Level(uma, exploit={}),   # window 8 kcal/mol, with a search
+])
 ```
 
 | Step | Stages | Purpose |
 | --- | --- | --- |
 | 1 | `Embed`, `Validate(Clash(0.5))` | one embedding: its batches mix biased (restraints, hints, active-bond targets) and unbiased settings, and every conformer records its batch; conformers with overlapping heavy atoms are dropped |
-| 2 | `Refine(cheap)`, the gate, `AttackFace` (windowed TSs), `PruneEnergy` (25 kcal/mol), `PruneRMSD`, with `pool`: `FamilySelector` | remove embedding artifacts and duplicates; the window is loose, since the cheap energies should not decide populations |
-| 3 | `Refine(expensive)`, the gate, `PruneEnergy` (8 kcal/mol), `PruneRMSD` | rank at the expensive level: the first point where "low energy" means anything |
-| 4 | `Exploit` | Monte Carlo around the best conformers with the same refinement ([Exploit](pipeline.md#exploit)); its acceptance already applies an energy window and the RMSD check |
-| 5 | `PruneRMSD`, `PruneEnergy` (6 kcal/mol), optionally `Rescore` | the final ensemble; rescoring (a higher level, the target solvent) restores the populations after the biasing upstream |
+| 2, per level | with `pool`: `FamilySelector`; then `Refine`, the gate, `AttackFace` (first level, windowed TSs), with `rank`: the ranking energy, `PruneEnergy` (the window of the level), `PruneRMSD` | the first level removes embedding artifacts and duplicates, with a loose window, since force-field energies should not decide populations; the later levels rank |
+| 3, with `exploit` | `Exploit`, `PruneRMSD` | Monte Carlo around the best conformers, with the refinement and the ranking energy of the level ([Exploit](pipeline.md#exploit)) |
+| 4 | `PruneEnergy` (6 kcal/mol), optionally `Rescore` | the final ensemble; rescoring (a higher level, the target solvent) restores the populations after the biasing upstream |
 
-Arguments:
+A `Level` has:
 
-- **`expensive`:** the refinement of steps 3 and 4, an optimizer or a `Refine` stage. It
-  should be an `ASEOptimizer` (xTB, an MLIP), since `Exploit` needs one.
-- **`cheap`:** default: the refinement of the default pipeline (MMFF, not converged:
-  it only has to remove the artifacts of the embedding).
-- **`windows`:** the three energy windows in kcal/mol.
+- **`optimizer`:** the refinement, an optimizer or a `Refine` stage. Without one it is
+  the refinement of the default pipeline (MMFF, not converged: it only has to remove
+  the artifacts of the embedding). A level with a search needs an `ASEOptimizer` (xTB,
+  an MLIP).
+- **`window`:** the energy window after the refinement in kcal/mol (default 8).
+- **`exploit`:** the settings of `Exploit` as a dict (`{}`: its defaults); without it
+  the level has no search.
+- **`rank`:** a `Rescore` stage for the energy that the level ranks by, when that is
+  not the energy of its refinement (see below).
+- **`pool`, `pool_by`:** the most conformers that enter the level (default: all),
+  chosen by structural family (`"family"`, the default: the best of each cluster, then
+  the second best, ...) or by the energy of the level before (`"energy"`). A cheap
+  level often misranks a flexible system, and Exploit searches only around what it
+  gets.
+
+The other arguments of `staged`:
+
 - **`embed`:** the `Embed` stage; default: that of the default pipeline.
-- **`config`:** the [settings](pipeline.md#settings) of the default embedding and cheap
-  refinement, e.g. `PipelineConfig(embed={"n_conformers": 100})`.
-- **`exploit`:** the settings of `Exploit` as a dict, or `None` to leave it out.
-- **`pool`, `pool_by`:** the most conformers that go on to the expensive level (default:
-  all that pass step 2), chosen by structural family (`"family"`, the default: the best
-  of each cluster, then the second best, ...) or by the cheap energy (`"energy"`). The
-  cheap level often misranks a flexible system, and Exploit searches only around what
-  it gets.
-- **`middle`, `middle_window`, `middle_exploit`:** a level between the cheap and the
-  expensive one (below).
+- **`config`:** the [settings](pipeline.md#settings) of the default embedding and of a
+  level without an optimizer, e.g. `PipelineConfig(embed={"n_conformers": 100})`.
+- **`final_window`:** the energy window of the result (6 kcal/mol).
 - **`rescore`:** a `Rescore` stage at the end.
-- **`rank`:** a `Rescore` stage for the energy that steps 3 to 5 rank by, when that is
-  not the energy of the expensive refinement (see below).
 - **`clash_filter`:** step 1 drops conformers with heavy atoms closer than this times
   their vdW sum (default 0.5; `None`: no filter). Distance geometry may place atoms four
   bonds apart at their lower bound, 0.7 times the vdW sum (0.555 for some), and
@@ -54,30 +65,39 @@ Arguments:
 
 A force field misranks the conformers of a flexible system, and it does not sample ring
 conformations that distance geometry missed. A semiempirical level between the two
-levels helps with both:
+helps with both:
 
 ```python
 from tblite.ase import TBLite
 
-gfn2 = ASEOptimizer(lambda: TBLite(method="GFN2-xTB", verbosity=0), method="GFN2-xTB",
-                    fmax=0.05, max_steps=300, num_workers=None)   # all CPUs
-pipeline = staged(uma, middle=gfn2, middle_exploit={"max_optimizations": 400}, pool=30)
+def gfn2_calculator():
+    return TBLite(method="GFN2-xTB", verbosity=0)
+
+gfn2 = ASEOptimizer(gfn2_calculator, method="GFN2-xTB", fmax=0.05, max_steps=300,
+                    num_workers=None)   # all CPUs
+pipeline = staged([
+    Level(window=25),
+    Level(gfn2, window=15, exploit={"max_optimizations": 400}),
+    Level(uma, exploit={}, pool=30),
+])
 ```
 
-- `middle` refines what passed the cheap level, with the gate, an energy window
-  (`middle_window`, 15 kcal/mol) and the RMSD pruning.
-- `middle_exploit` runs `Exploit` there: ring flips and torsion moves cost little at this
+- The level refines what passed the force field, with the gate, its energy window and
+  the RMSD pruning.
+- Its `exploit` runs `Exploit` there: ring flips and torsion moves cost little at this
   level, and the pool for the expensive level then draws on the minima they find.
 - An `ASEOptimizer` with a calculator factory and `num_workers` runs in worker processes,
-  one single-threaded calculator each. The force-field level has `refine.num_workers` for
+  one single-threaded calculator each. The factory must be a function of a module (a
+  lambda cannot be sent to the workers), and a script that starts workers needs the
+  `if __name__ == "__main__":` guard. The force-field level has `refine.num_workers` for
   the same.
 
 ## The ranking energy
 
 The energy that optimizes the geometries need not be the one that ranks them. A common
 case: an MLIP in the gas phase for the geometries, and a solvation term from a cheaper
-method on top. `rank` is a `Rescore` stage that follows every expensive refinement, in
-step 3 and inside `Exploit`; the windows, the duplicates, Exploit's parents and its stop
+method on top. The `rank` of a level is a `Rescore` stage that follows its refinement,
+also inside its `Exploit`; the window, the duplicates, Exploit's parents and its stop
 then use its energies:
 
 ```python
@@ -97,7 +117,8 @@ def alpb(structures):
         corrections.append(energies[1] - energies[0])
     return corrections
 
-pipeline = staged(uma, rank=Rescore(batch=alpb, method="ALPB(dioxane)", add=True))
+solvated = Rescore(batch=alpb, method="ALPB(dioxane)", add=True)
+pipeline = staged([Level(window=25), Level(uma, exploit={}, rank=solvated)])
 ```
 
 - `Rescore(..., add=True)` adds its single points to the energies (a correction);

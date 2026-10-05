@@ -45,7 +45,7 @@ def saddles(
             optimizer_cls=Sella, optimizer_kwargs={"order": 1}, fmax=0.01,
             max_steps=300), or a Refine stage of one with anchors=False.
         calculator: Of the finite-difference Hessians (default: that of search).
-        pool, pool_by: As in staged ("family" or "energy").
+        pool, pool_by: As of a Level of staged ("family" or "energy").
         min_stretch: Of ReactionMode.
         tolerance: Of ReactionCore (A).
         hessian: Instead of the finite differences (6 N force calls per conformer): a

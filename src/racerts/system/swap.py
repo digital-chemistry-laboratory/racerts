@@ -929,6 +929,12 @@ def _settle_stereo(result, anchored, carried_atoms, carried_bonds) -> set:
     for conf in result.GetConformers():
         probe = Chem.Mol(result, False, conf.GetId())
         positions = probe.GetConformer().GetPositions()
+        for i in set(range(result.GetNumAtoms())) - anchored:
+            # New atoms without coordinates lie on top of each other at the origin,
+            # which RDKit cannot read stereo around. Apart from each other they can be
+            # read past: no element next to them is taken from the geometry.
+            spot = (50.0 + 1.7 * i, 0.9 * (i % 5), 1.3 * (i % 7))
+            probe.GetConformer().SetAtomPosition(i, spot)
         for i, k in virtual.items():  # the missing neighbour opposite the others
             arms = [positions[j] - positions[i] for j in neighbours(i) if j != k]
             arms = [arm / np.linalg.norm(arm) for arm in arms]

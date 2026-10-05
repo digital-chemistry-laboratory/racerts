@@ -1742,3 +1742,34 @@ def test_stereo_that_cannot_be_given_is_refused(stereo, message):
     )
     with pytest.raises(SwapError, match=message):
         apply_swap(propene, Swap("[*]F", remove_atoms=[hydrogen], stereo=stereo))
+
+
+def test_new_atoms_without_coordinates_do_not_stop_the_reading_of_stereo():
+    # New atoms start at the origin unless the swap is a graft on one bond. With a
+    # centre that RDKit reads from the geometry among them (P, S), reading the stereo
+    # of the result on a 3D reference raised "Cannot normalize a zero length vector".
+    butane = embedded("CCCC")
+    ends = [
+        next(
+            n.GetIdx()
+            for n in butane.GetAtomWithIdx(c).GetNeighbors()
+            if n.GetAtomicNum() == 1
+        )
+        for c in (0, 3)
+    ]
+    for chain, product in (
+        ("[*:1]CS(=O)C[*:2]", "O=S1CCCCCC1"),
+        ("[*:1]CP(c1ccccc1)C[*:2]", "c1ccc(P2CCCCCC2)cc1"),
+    ):
+        result = apply_swap(butane, Swap(chain, remove_atoms=ends))
+        assert identity(result.mol) == canonical(product)
+    # An addition: a phosphine on a metal with a geometry.
+    complex_ = Chem.AddHs(Chem.MolFromSmiles("Cl[Pd]Cl"))
+    conf = Chem.Conformer(3)
+    for atom, x in enumerate((-2.3, 0.0, 2.3)):
+        conf.SetAtomPosition(atom, (x, 0.0, 0.0))
+    complex_.AddConformer(conf)
+    added = apply_swap(
+        complex_, Swap("[*:1]<-P(C)(C)C", remove_atoms=[], attach_map={1: 1})
+    )
+    assert identity(added.mol) == canonical("CP(C)(C)->[Pd](Cl)Cl")

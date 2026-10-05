@@ -98,15 +98,22 @@ def test_legacy_help_points_to_the_subcommands(capsys):
     assert all(f"racerts {name} -h" in out for name in ("ts", "gs", "swap"))
 
 
-def test_the_console_script_exits_with_status_0(tmp_path):
+@pytest.mark.parametrize(
+    "start",
+    [
+        ["-c", "from racerts.cli import main; import sys; sys.exit(main())"],
+        ["-m", "racerts.cli"],
+    ],
+    ids=["the console script", "python -m racerts.cli"],
+)
+def test_the_command_exits_with_status_0(tmp_path, start):
     import subprocess
     import sys
 
     out = tmp_path / "gs.xyz"
     env = dict(os.environ, PYTHONPATH=os.pathsep.join(sys.path))
-    command = "from racerts.cli import main; import sys; sys.exit(main())"
     result = subprocess.run(
-        [sys.executable, "-c", command, "gs", "CO", "-n", "3", "-o", str(out)],
+        [sys.executable, *start, "gs", "CO", "-n", "3", "-o", str(out)],
         env=env,
         capture_output=True,
         text=True,
@@ -114,23 +121,6 @@ def test_the_console_script_exits_with_status_0(tmp_path):
 
     assert result.returncode == 0, result.stderr
     assert result.stdout == "" and out.exists()
-
-
-def test_python_m_racerts_cli(tmp_path):
-    import subprocess
-    import sys
-
-    out = tmp_path / "gs.xyz"
-    env = dict(os.environ, PYTHONPATH=os.pathsep.join(sys.path))
-    result = subprocess.run(
-        [sys.executable, "-m", "racerts.cli", "gs", "CO", "-n", "3", "-o", str(out)],
-        env=env,
-        capture_output=True,
-        text=True,
-    )
-
-    assert result.returncode == 0, result.stderr
-    assert out.exists()
 
 
 @pytest.fixture

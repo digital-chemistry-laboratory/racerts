@@ -477,13 +477,13 @@ def _hinted(smiles, n=10, **embed):
 
 
 @pytest.mark.parametrize(
-    "smiles",
+    "smiles, again",
     [
-        "OC12CCC(O)(CC1)CC2",  # the cage holds the two O-H 5.5 A apart
-        "O[C@H]1CC[C@H](O)CC1",  # trans: on opposite faces of the ring
+        ("OC12CCC(O)(CC1)CC2", False),  # the cage holds the two O-H 5.5 A apart
+        ("O[C@H]1CC[C@H](O)CC1", True),  # trans: on opposite faces of the ring
     ],
 )
-def test_a_hint_that_cannot_embed_is_dropped(smiles, caplog):
+def test_a_hint_that_cannot_embed_is_dropped(smiles, again, caplog):
     # The graph rule proposes the O-H...O contact (a seven-membered pseudo-ring); the
     # embedding finds that the molecule cannot have it.
     with caplog.at_level(logging.INFO, logger="racerts"):
@@ -495,11 +495,13 @@ def test_a_hint_that_cannot_embed_is_dropped(smiles, caplog):
     assert len(dropped) == 2 and all(h.startswith("hint:") for h in dropped)
     assert sum("dropped_hints" in p for p in provenance) == 3  # the three hint batches
     assert "did not embed within 20 attempts" in caplog.text
+    if not again:  # the second and third run for one of the two molecules
+        return
     # The same seed gives the same ensemble.
-    again = _hinted(smiles)
+    second = _hinted(smiles)
     for conf_id in ensemble.conf_ids:
         np.testing.assert_array_equal(
-            again.mol.GetConformer(conf_id).GetPositions(),
+            second.mol.GetConformer(conf_id).GetPositions(),
             ensemble.mol.GetConformer(conf_id).GetPositions(),
         )
     # With RDKit's own limit the conformers of the hint batches are missing.

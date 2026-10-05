@@ -130,27 +130,23 @@ def _failing(n_bad, n):
     return Fails()
 
 
-@pytest.mark.parametrize("n_bad, level", [(2, logging.INFO), (4, logging.WARNING)])
-def test_warn_above(water_ts, caplog, n_bad, level):
+@pytest.mark.parametrize(
+    "n_bad, settings, level",
+    [
+        (2, {"warn_above": 0.3}, logging.INFO),
+        (4, {"warn_above": 0.3}, logging.WARNING),
+        (1, {}, logging.WARNING),  # by default any failure warns
+    ],
+)
+def test_warn_above(water_ts, caplog, n_bad, settings, level):
     ctx = racerts.Context.create(water_ts, TransitionState(REACTING))
     ensemble = _ensemble(ctx, [_seed(ctx)] * 10)
     with caplog.at_level(logging.INFO, logger="racerts"):
-        Validate(_failing(n_bad, 10), warn_above=0.3).run(ctx, ensemble)
+        Validate(_failing(n_bad, 10), **settings).run(ctx, ensemble)
     records = [r for r in caplog.records if "failed validation" in r.getMessage()]
     assert [r.levelno for r in records] == [level]
     assert "fails: " in records[0].getMessage()  # the count per check
     assert len(ensemble) == 10 - n_bad
-
-
-def test_any_failure_warns_by_default(water_ts, caplog):
-    ctx = racerts.Context.create(water_ts, TransitionState(REACTING))
-    ensemble = _ensemble(ctx, [_seed(ctx)] * 10)
-    with caplog.at_level(logging.INFO, logger="racerts"):
-        Validate(_failing(1, 10)).run(ctx, ensemble)
-    assert any(
-        r.levelno == logging.WARNING and "failed validation" in r.getMessage()
-        for r in caplog.records
-    )
 
 
 def test_warn_above_is_a_share():

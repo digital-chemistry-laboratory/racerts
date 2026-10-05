@@ -33,7 +33,8 @@ def test_generate_ts_returns_an_ensemble_with_provenance():
 
 
 def test_ground_state_conformers_without_a_reference():
-    ensemble = racerts.generate_gs("CCCCCC=C", config=PipelineConfig(seed=3))
+    config = PipelineConfig(seed=3, embed={"n_conformers": 30})
+    ensemble = racerts.generate_gs("CCCCCC=C", config=config)
 
     assert len(ensemble) > 1
     assert ensemble.record(ensemble.best()).energy_method == "MMFFOptimizer"

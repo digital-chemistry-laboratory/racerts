@@ -48,11 +48,6 @@ def _mirror(ensemble, conf_id):
         conf.SetAtomPosition(i, Point3D(-p[0], p[1], p[2]))
 
 
-def test_connectivity_passes_a_ts_ensemble(ts_ensemble):
-    ensemble, ctx = ts_ensemble
-    assert Connectivity().validate(ctx, ensemble) == {}
-
-
 def test_bonds_between_reacting_atoms_are_exempt(ts_ensemble):
     # A graph without the C3-C4 bond, which the geometry has: 3 and 4 are reacting
     # atoms, whose bonds form or break, so the difference is not checked.
@@ -67,6 +62,7 @@ def test_bonds_between_reacting_atoms_are_exempt(ts_ensemble):
 
 def test_connectivity_finds_a_broken_bond(ts_ensemble):
     ensemble, ctx = ts_ensemble
+    assert Connectivity().validate(ctx, ensemble) == {}
     conf_id = ensemble.conf_ids[1]
     _move(ensemble, conf_id, 0, (10.0, 0.0, 0.0))  # a terminal carbon pulled away
     reasons = Connectivity().validate(ctx, ensemble)

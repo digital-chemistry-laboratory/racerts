@@ -41,16 +41,39 @@ def test_the_default_pipeline():
     assert prune_rmsd.pruner.threshold == 0.125
     assert prune_rmsd.pruner.energy_threshold == 0.1
 
+    # Decided 2026-10-01: sequential seeds, frozen_first with the stereo check after
+    # refinement, energies without the anchor terms and the fragments count; converged
+    # refinement stays opt-in. The legacy API and PipelineConfig.legacy() keep the
+    # legacy values.
+    config = PipelineConfig()
+    assert config.embed.sequential_seeds is True
+    assert config.embed.chirality_fallback == "frozen_first"
+    assert config.embed.count_policy == "fragments"
+    assert config.refine.energies_without_anchors is True
+    assert config.refine.converge is False
+    assert config.prune.check_stereo is True
+    assert embed.count_policy == "fragments"
+    assert embedder.sequential_seeds is True
+    assert embedder.chirality_fallback == "frozen_first"
+    assert refine.stereo_anchors is True
+    assert optimizer.energies_without_anchors is True
+    assert optimizer.converge is False
 
-def test_etkdg_by_default_only_without_frozen_atoms():
-    def etkdg(task, **embed):
+
+def test_the_defaults_of_the_embedder_follow_the_task():
+    def embedder(task, **embed):
         config = PipelineConfig(embed=EmbedConfig(**embed))
-        return config.build(task).stages[0].embedder.etkdg
+        return config.build(task).stages[0].embedder
 
-    assert etkdg(GroundState()) is True
-    assert etkdg(TransitionState([0])) is False
-    assert etkdg(Constrained([0])) is False
-    assert etkdg(TransitionState([0]), etkdg=True) is True
+    # ETKDG where nothing is frozen, the chirality fallback where something is.
+    for task, etkdg, fallback in [
+        (GroundState(), True, False),
+        (TransitionState([0]), False, "frozen_first"),
+        (Constrained([0]), False, "frozen_first"),
+    ]:
+        made = embedder(task)
+        assert (made.etkdg, made.chirality_fallback) == (etkdg, fallback)
+    assert embedder(TransitionState([0]), etkdg=True).etkdg is True
 
 
 def test_settings_reach_the_components():
@@ -182,38 +205,6 @@ def test_a_failed_yaml_write_leaves_the_file_alone(tmp_path, monkeypatch):
     with pytest.raises(ImportError):
         PipelineConfig().to_file(str(path))
     assert path.read_text() == "seed: 7\n"
-
-
-def test_ground_states_have_no_chirality_fallback():
-    def fallback(task):
-        return PipelineConfig().build(task).stages[0].embedder.chirality_fallback
-
-    assert fallback(GroundState()) is False
-    assert fallback(TransitionState([0])) == "frozen_first"
-    assert fallback(Constrained([0])) == "frozen_first"
-
-
-def test_the_defaults_of_the_new_api():
-    # Decided 2026-10-01: sequential seeds, frozen_first with the stereo check after
-    # refinement, energies without the anchor terms and the fragments count; converged
-    # refinement stays opt-in. The legacy API and PipelineConfig.legacy() keep the
-    # legacy values.
-    config = PipelineConfig()
-    assert config.embed.sequential_seeds is True
-    assert config.embed.chirality_fallback == "frozen_first"
-    assert config.embed.count_policy == "fragments"
-    assert config.refine.energies_without_anchors is True
-    assert config.refine.converge is False
-    assert config.prune.check_stereo is True
-    stages = config.build(TransitionState([0])).stages
-    embed, refine = stages[:2]
-    assert embed.count_policy == "fragments"
-    assert embed.embedder.sequential_seeds is True
-    assert embed.embedder.chirality_fallback == "frozen_first"
-    assert refine.stereo_anchors is True
-    assert refine.optimizer.energies_without_anchors is True
-    assert refine.optimizer.converge is False
-    assert "validate" in [stage.name for stage in stages]  # the stereo check
 
 
 def test_the_legacy_preset(tmp_path):

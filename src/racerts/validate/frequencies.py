@@ -1,6 +1,6 @@
 """Validation of stationary points by their imaginary vibrational modes."""
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -70,6 +70,92 @@ class ImaginaryModes:
         return vibrational_frequencies(hessian, atoms.get_masses(), atoms.positions)
 
 
+class ReactionMode(ImaginaryModes):
+    """
+    Whether each conformer is a transition state of the reaction: exactly one imaginary
+    mode, and that mode moves an active bond. A first-order saddle point can be one of
+    another motion (a rotor of a loosely bound complex, another reaction step), which
+    ImaginaryModes does not tell apart.
+
+    The stretch of a bond is the change of its length along the mode, for a
+    displacement of unit length over all atoms: 1.41 for the stretch of two atoms
+    alone, about 0 for a mode elsewhere in the molecule.
+
+    Args:
+        calculator, threshold, delta: As ImaginaryModes.
+        bonds: The atom pairs; default: the active bonds of the task (for a
+            TransitionState the bonds that form or break, see its active_bonds).
+        min_stretch: The least stretch of one of the bonds.
+
+    Every conformer with one imaginary mode records it in its provenance:
+    "imaginary_frequency" (cm^-1) and "mode_stretch" ({"a-b": stretch}).
+    """
+
+    name = "reaction_mode"
+
+    def __init__(
+        self,
+        calculator: Any,
+        bonds: Optional[Sequence[Tuple[int, int]]] = None,
+        min_stretch: float = 0.3,
+        threshold: float = 50.0,
+        delta: float = 0.005,
+    ):
+        super().__init__(calculator, expected=1, threshold=threshold, delta=delta)
+        self.bonds = None if bonds is None else [tuple(map(int, b)) for b in bonds]
+        self.min_stretch = min_stretch
+
+    def validate(self, ctx, ensemble: ConformerEnsemble) -> Dict[int, str]:
+        bonds = self.bonds
+        if bonds is None:
+            active = getattr(ctx.task, "active_pairs", None)
+            bonds = list(active(ctx.mol)) if active is not None else []
+        if not bonds:
+            raise ValueError(
+                "ReactionMode needs the bonds that the reaction changes: a "
+                "TransitionState task with active bonds, or bonds=[(a, b), ...]."
+            )
+        reasons = {}
+        for conf_id in ensemble.conf_ids:
+            atoms = rdkit_conformer_to_ase_atoms(ensemble.mol, conf_id)
+            atoms.calc = self._calculator()
+            try:
+                hessian = hessian_by_finite_differences(atoms, self.delta)
+            except Exception as exc:  # e.g. an SCF failure: the conformer fails
+                reasons[conf_id] = f"frequencies failed: {type(exc).__name__}: {exc}"
+                continue
+            positions = atoms.get_positions()
+            frequencies, modes = vibrational_modes(
+                hessian, atoms.get_masses(), positions
+            )
+            imaginary = frequencies[frequencies < -self.threshold]
+            if len(imaginary) != 1:
+                listed = ", ".join(f"{f:.0f}" for f in imaginary) or "none"
+                reasons[conf_id] = (
+                    f"{len(imaginary)} imaginary modes (expected 1; cm^-1: {listed})"
+                )
+                continue
+            mode = modes[0]  # the lowest: the imaginary one
+            stretch = {}
+            for a, b in bonds:
+                axis = positions[b] - positions[a]
+                stretch[f"{a}-{b}"] = float(
+                    abs((mode[b] - mode[a]) @ axis) / np.linalg.norm(axis)
+                )
+            ensemble.add_provenance(
+                conf_id,
+                imaginary_frequency=float(imaginary[0]),
+                mode_stretch={k: round(v, 4) for k, v in stretch.items()},
+            )
+            if max(stretch.values()) < self.min_stretch:
+                listed = ", ".join(f"{k}: {v:.2f}" for k, v in stretch.items())
+                reasons[conf_id] = (
+                    f"the imaginary mode ({imaginary[0]:.0f} cm^-1) moves no active "
+                    f"bond (stretch {listed}; at least {self.min_stretch:g})"
+                )
+        return reasons
+
+
 def hessian_by_finite_differences(atoms, delta: float = 0.005) -> np.ndarray:
     """The Hessian (eV/A^2, 3N x 3N) from central differences of the forces."""
     positions = atoms.get_positions().copy()
@@ -111,6 +197,31 @@ def vibrational_frequencies(
         2 * np.pi * units._c * 100
     )
     return np.sign(internal) * np.sqrt(np.abs(internal)) * to_wavenumber
+
+
+def vibrational_modes(
+    hessian: np.ndarray, masses: np.ndarray, positions: np.ndarray
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    The frequencies of vibrational_frequencies and their modes: for each, the
+    Cartesian displacements of the atoms (n_atoms x 3), of unit length over all atoms.
+    """
+    units = require("ase.units", "ase")
+    sqrt_m = np.repeat(np.sqrt(masses), 3)
+    weighted = hessian / np.outer(sqrt_m, sqrt_m)
+    external = _external_modes(masses, positions)
+    projector = np.eye(len(weighted)) - external @ external.T
+    eigenvalues, vectors = np.linalg.eigh(projector @ weighted @ projector)
+    order = np.argsort(np.abs(eigenvalues))[external.shape[1] :]
+    order = order[np.argsort(eigenvalues[order])]
+    to_wavenumber = np.sqrt(units._e / (units._amu * 1e-20)) / (
+        2 * np.pi * units._c * 100
+    )
+    values = eigenvalues[order]
+    frequencies = np.sign(values) * np.sqrt(np.abs(values)) * to_wavenumber
+    cartesian = (vectors[:, order] / sqrt_m[:, None]).T
+    cartesian /= np.linalg.norm(cartesian, axis=1)[:, None]
+    return frequencies, cartesian.reshape(len(order), -1, 3)
 
 
 def _external_modes(masses: np.ndarray, positions: np.ndarray) -> np.ndarray:

@@ -117,9 +117,47 @@ The active-bond windows of a TS act in embedding only:
   length or target (± 0.02 Å). `Exploit` keeps each child's targets.
 - **Comparing energies:** energies at different held lengths are not comparable, so the
   energy windows and the RMSD pruning work per window bin.
-- **Output:** the result is a set of TS-like structures for a TS optimization, e.g.
-  `Refine(ASEOptimizer(..., optimizer_cls=Sella), anchors=False)` followed by
-  `Validate(ImaginaryModes(...), ReactionCore())`.
+- **Output:** the result is a set of TS-like structures for a TS optimization (next
+  section).
+
+## From TS-like conformers to transition states
+
+`racerts.recipes.saddles` is the saddle search with its checks, as a pipeline for the
+result of `staged` (or of the default pipeline):
+
+```python
+from sella import Sella
+from racerts.recipes import saddles
+
+search = ASEOptimizer(uma_calculator, optimizer_cls=Sella,
+                      optimizer_kwargs={"order": 1, "internal": True},
+                      fmax=0.01, max_steps=300, method="UMA-s-1p2")
+ctx = racerts.Context.create(ts_like.mol, task)
+transition_states = saddles(search, pool=20).run(ctx, ts_like)
+```
+
+| Step | Stages | Purpose |
+| --- | --- | --- |
+| 1 | with `pool`: `FamilySelector` | at most that many searches, spread over structural families (`pool_by="energy"`: the lowest) |
+| 2 | `Refine(search, anchors=False)` | the free saddle search: the frozen atoms and the windows of the task are released |
+| 3 | `Validate(Converged(), ReactionMode(calculator), ReactionCore(), Connectivity())` | keep the transition states of the reaction (below) |
+| 4 | `PruneRMSD` | several TS-like conformers can end in one saddle point |
+
+A converged search with one imaginary mode is not yet a TS of the reaction:
+
+- `Converged`: a search that stopped at its step limit is no stationary point.
+- `ReactionMode`: exactly one imaginary mode, and it moves an active bond (the stretch
+  of the bond along the mode, for a displacement of unit length over all atoms: 1.41 for
+  two atoms alone, about 0 for a rotor elsewhere; at least `min_stretch`, 0.3). The
+  provenance records `imaginary_frequency` and `mode_stretch`.
+- `ReactionCore`: the distances between the reacting atoms are those of the reference
+  within 0.5 Å; another saddle of the same atoms (a proton already transferred) fails.
+- `Connectivity`: the bonds and the stereo of the graph outside the reacting atoms.
+
+The Hessians are finite differences of the forces of `calculator` (default: that of the
+search), 6 N force calls per conformer. In Cartesian coordinates a search can leave a
+symmetric start for another saddle point; internal coordinates (`"internal": True` for
+Sella) are more robust, and the checks drop what went wrong.
 
 ## Cost
 

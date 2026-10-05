@@ -7,6 +7,7 @@ from .checks import (
     AttackFace,
     Clash,
     Connectivity,
+    Converged,
     FrozenCore,
     IdentityFilter,
     ReactionCore,
@@ -15,7 +16,7 @@ from .checks import (
     first_clash,
     gate,
 )
-from .frequencies import ImaginaryModes
+from .frequencies import ImaginaryModes, ReactionMode
 
 __all__ = [
     "CLASH_FACTOR",
@@ -23,11 +24,13 @@ __all__ = [
     "AttackFace",
     "Clash",
     "Connectivity",
+    "Converged",
     "FrozenCore",
     "FunctionValidator",
     "IdentityFilter",
     "ImaginaryModes",
     "ReactionCore",
+    "ReactionMode",
     "RestraintViolation",
     "Validate",
     "Validator",

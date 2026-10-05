@@ -183,6 +183,26 @@ class ReactionCore:
         return reasons
 
 
+class Converged:
+    """
+    Whether the last optimization of each conformer converged, as its optimizer
+    recorded (the provenance "converged" of ASEOptimizer; conformers without a record
+    pass). A search that stopped at its step limit is no stationary point, whatever
+    its Hessian says.
+    """
+
+    name = "converged"
+
+    def validate(self, ctx, ensemble: ConformerEnsemble) -> Dict[int, str]:
+        reasons = {}
+        for conf_id in ensemble.conf_ids:
+            provenance = ensemble.provenance(conf_id)
+            if provenance.get("converged") is False:
+                steps = provenance.get("n_steps")
+                reasons[conf_id] = f"the optimization did not converge ({steps} steps)"
+        return reasons
+
+
 def _max_deviation(positions: np.ndarray, reference: np.ndarray) -> float:
     """Largest atom deviation after the best superposition (Kabsch, rotations only)."""
     q = reference - reference.mean(axis=0)

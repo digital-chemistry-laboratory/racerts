@@ -127,3 +127,38 @@ def test_saddle_search_and_validation_with_plug_ins(sn2_ts):
         p = ensemble.mol.GetConformer(conf_id).GetPositions()
         d1, d2 = np.linalg.norm(p[0] - p[1]), np.linalg.norm(p[0] - p[2])
         assert d1 == pytest.approx(d2, abs=0.02) and 2.1 < d1 < 2.5
+
+
+def test_the_saddle_recipe_finds_the_sn2_transition_state(sn2_ts_symmetric):
+    # From the TS-like geometry (both C-Cl at 2.32 A) to the GFN2 saddle point: one
+    # imaginary mode, which moves the two C-Cl bonds.
+    Sella = pytest.importorskip("sella").Sella
+    from racerts.recipes import saddles
+
+    search = ASEOptimizer(
+        gfn2,
+        optimizer_cls=Sella,
+        # internal coordinates: from this symmetric start, a search in Cartesian
+        # coordinates sometimes ends on another saddle point (which the checks drop)
+        optimizer_kwargs={"order": 1, "internal": True},
+        fmax=0.01,
+        max_steps=200,
+        method="GFN2-xTB",
+    )
+    start = racerts.Pipeline([racerts.Embed(n_conformers=2), racerts.Refine()])
+    ensemble = racerts.generate_ts(
+        sn2_ts_symmetric, [0, 1, 2], charge=-1, smiles="CCl.[Cl-]", pipeline=start
+    )
+    task = TransitionState([0, 1, 2], active_bonds=[(0, 1), (0, 2)])
+    ctx = racerts.Context.create(ensemble.mol, task)
+    found = saddles(search).run(ctx, ensemble)
+    assert len(found) == 1  # the embedded conformers are one TS
+    provenance = found.provenance(found.conf_ids[0])
+    assert provenance["validation"] == {
+        "converged": "ok",
+        "reaction_mode": "ok",
+        "reaction_core": "ok",
+        "connectivity": "ok",
+    }
+    assert provenance["imaginary_frequency"] < -100
+    assert max(provenance["mode_stretch"].values()) > 0.5

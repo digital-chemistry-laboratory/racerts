@@ -226,6 +226,91 @@ def test_imaginary_modes_counts_the_modes_of_every_conformer():
     assert minimum.validate(None, _h2()) == {}
 
 
+class Springs:
+    """Harmonic springs between atom pairs as an ASE calculator: {pair: k}, r0."""
+
+    def __init__(self, springs, r0=0.74):
+        from ase.calculators.calculator import Calculator, all_changes
+
+        class _Springs(Calculator):
+            implemented_properties = ["energy", "forces"]
+
+            def calculate(inner, atoms=None, properties=None, changes=all_changes):
+                super(_Springs, inner).calculate(atoms, properties, changes)
+                energy, forces = 0.0, np.zeros((len(atoms), 3))
+                for (a, b), k in springs.items():
+                    d = atoms.positions[b] - atoms.positions[a]
+                    r = np.linalg.norm(d)
+                    energy += 0.5 * k * (r - r0) ** 2
+                    f = -k * (r - r0) * d / r
+                    forces[a] -= f
+                    forces[b] += f
+                inner.results["energy"] = energy
+                inner.results["forces"] = forces
+
+        self.calculator = _Springs()
+
+
+def _two_pairs():
+    """Two hydrogen pairs 5 A apart: atoms 0 and 1 are not bonded in the graph (the
+    forming bond of a TS), atoms 2 and 3 are."""
+    mol = Chem.MolFromSmiles("[H].[H].[H][H]")
+    conf = Chem.Conformer(4)
+    for atom, position in enumerate([(0, 0, 0), (0, 0, 0.74), (5, 0, 0), (5, 0, 0.74)]):
+        conf.SetAtomPosition(atom, Point3D(*map(float, position)))
+    mol.AddConformer(conf, assignId=True)
+    ctx = racerts.Context.create(mol, racerts.TransitionState([0, 1]))
+    return ctx, racerts.ConformerEnsemble(Chem.Mol(ctx.mol))
+
+
+@pytest.mark.ase
+def test_the_reaction_mode_moves_an_active_bond():
+    pytest.importorskip("ase")
+    from racerts.validate import ReactionMode
+
+    ctx, ensemble = _two_pairs()
+    assert ctx.task.active_pairs(ctx.mol) == [(0, 1)]
+    # The imaginary mode is the stretch of the forming bond 0-1.
+    forming = Springs({(0, 1): -36.0, (2, 3): 36.0}).calculator
+    assert ReactionMode(forming).validate(ctx, ensemble) == {}
+    provenance = ensemble.provenance(ensemble.conf_ids[0])
+    assert provenance["imaginary_frequency"] < -1000
+    assert provenance["mode_stretch"] == {"0-1": pytest.approx(2**0.5, abs=1e-3)}
+    # One imaginary mode elsewhere (here the bond 2-3; in a real molecule a rotor or
+    # another reaction step): a first-order saddle point, but not of this reaction.
+    elsewhere = Springs({(0, 1): 36.0, (2, 3): -36.0}).calculator
+    assert ImaginaryModes(elsewhere, expected=1).validate(ctx, ensemble) == {}
+    reasons = ReactionMode(elsewhere).validate(ctx, ensemble)
+    assert "moves no active bond" in reasons[ensemble.conf_ids[0]]
+    assert "0-1: 0.00" in reasons[ensemble.conf_ids[0]]
+    # The bonds can be named; the number of modes is checked as by ImaginaryModes.
+    assert ReactionMode(elsewhere, bonds=[(2, 3)]).validate(ctx, ensemble) == {}
+    minimum = Springs({(0, 1): 36.0, (2, 3): 36.0}).calculator
+    reasons = ReactionMode(minimum).validate(ctx, ensemble)
+    assert reasons[ensemble.conf_ids[0]].startswith("0 imaginary modes (expected 1")
+    both = Springs({(0, 1): -36.0, (2, 3): -36.0}).calculator
+    assert "2 imaginary modes" in ReactionMode(both).validate(ctx, ensemble)[0]
+
+    # Without active bonds there is nothing to compare the mode with.
+    ground = racerts.Context.create(ctx.mol, racerts.GroundState())
+    with pytest.raises(ValueError, match="bonds"):
+        ReactionMode(forming).validate(ground, ensemble)
+
+
+def test_converged_reads_the_record_of_the_optimizer():
+    from racerts.validate import Converged
+
+    ctx, ensemble = _two_pairs()
+    (conf_id,) = ensemble.conf_ids
+    assert Converged().validate(ctx, ensemble) == {}  # no optimization on record
+    ensemble.add_provenance(conf_id, converged=True, n_steps=12)
+    assert Converged().validate(ctx, ensemble) == {}
+    ensemble.add_provenance(conf_id, converged=False, n_steps=300)
+    assert Converged().validate(ctx, ensemble) == {
+        conf_id: "the optimization did not converge (300 steps)"
+    }
+
+
 def test_imaginary_modes_needs_a_calculator():
     with pytest.raises(ValueError, match="calculator"):
         ImaginaryModes(None)

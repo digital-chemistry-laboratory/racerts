@@ -162,6 +162,27 @@ def test_a_ranking_energy_follows_every_expensive_refinement():
     assert staged(LJ, rank=rank, exploit=own).stages[names.index("exploit")] is own
 
 
+def test_the_saddle_recipe():
+    from racerts.recipes import saddles
+    from racerts.validate import Connectivity, Converged, ReactionCore, ReactionMode
+
+    pipeline = saddles(LJ)
+    assert [s.name for s in pipeline.stages] == ["refine", "validate", "prune_rmsd"]
+    search, checks, _ = pipeline.stages
+    assert search.optimizer is LJ and search.anchors is False and not search.fallback
+    kinds = [type(v) for v in checks.validators]
+    assert kinds == [Converged, ReactionMode, ReactionCore, Connectivity]
+    assert checks.validators[1].calculator is LJ.calculator  # of the Hessian
+
+    other = LennardJones()
+    pipeline = saddles(Refine(LJ, anchors=False), calculator=other, pool=5)
+    assert [s.name for s in pipeline.stages][0] == "select_families"
+    assert pipeline.stages[2].validators[1].calculator is other
+    assert saddles(LJ, pool=5, pool_by="energy").stages[0].name == "prune_count"
+    with pytest.raises(ValueError, match="anchors=False"):
+        saddles(Refine(LJ))  # a search with the frozen atoms held is no free search
+
+
 @pytest.mark.parametrize("windows", [(25, 8), (25, 8, -1)])
 def test_windows_are_checked(windows):
     with pytest.raises(ValueError, match="windows"):

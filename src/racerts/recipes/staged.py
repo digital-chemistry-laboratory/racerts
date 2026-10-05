@@ -83,9 +83,8 @@ def staged(
     5. the RMSD pruning of the whole, the final window (windows[2]), and optionally a
        Rescore stage (single points at a higher level or in the target solvent).
 
-    For TSs the result goes to a TS optimization, e.g.
-    Refine(ASEOptimizer(..., optimizer_cls=Sella), anchors=False) with
-    Validate(ImaginaryModes(...), ReactionCore()).
+    For TSs the result goes to a saddle search with its checks:
+    racerts.recipes.saddles.
 
     Args:
         expensive: The refinement of steps 3 and 4: a Refine stage, or an optimizer

@@ -276,6 +276,9 @@ Built-in validators (`racerts.validate`):
 - `FrozenCore(tolerance)`: the frozen atoms are at the reference.
 - `ImaginaryModes(calculator, expected=1)`: finite-difference frequencies, for
   stationary points.
+- `ReactionMode(calculator)`: one imaginary mode that moves an active bond of the TS
+  (a rotor of a loose complex is a first-order saddle point too), and `Converged()`:
+  see [the saddle search](workflow.md#from-ts-like-conformers-to-transition-states).
 - `ReactionCore(tolerance=0.5)`: the distances between the reacting atoms are those of
   the reference TS within tolerance (Å). After a free saddle search it tells a TS of the
   reaction from other saddles of the same atoms, which pass the two checks above.

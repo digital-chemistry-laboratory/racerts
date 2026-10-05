@@ -51,6 +51,8 @@ class ASEOptimizer(BaseOptimizer):
             calculator instance before its first conformer, with the reference
             geometry (or the first conformer), e.g. to warm GFN-FF on the TS topology.
             Must be picklable for worker processes.
+        method: The name of the energies (the molecule property "energy_method" that
+            Refine records), e.g. "GFN2-xTB" or "UMA-s-1p2"; default: the class name.
 
     Every conformer records "converged", "n_steps" and "wall_time" in its provenance.
     """
@@ -71,6 +73,7 @@ class ASEOptimizer(BaseOptimizer):
         multiplicity: Optional[int] = None,
         drop_unconverged: bool = False,
         prepare: Optional[Callable[[Any, Any], None]] = None,
+        method: Optional[str] = None,
     ):
         if calculator is None:
             raise ValueError("`calculator` must be provided.")
@@ -91,6 +94,7 @@ class ASEOptimizer(BaseOptimizer):
         self.multiplicity = multiplicity
         self.drop_unconverged = drop_unconverged
         self.prepare = prepare
+        self.method = method
 
         if num_threads != 1:
             warnings.warn(

@@ -32,6 +32,7 @@ from .config import (
     RestraintConfig,
 )
 from .embed import Embed
+from .exploit import Exploit
 from .pipeline import ConformerEnsemble, ConformerRecord, Context, Pipeline, Stage
 from .prune import PruneCluster, PruneCount, PruneEnergy, PruneRMSD
 from .refine import Refine, Rescore
@@ -46,6 +47,7 @@ __all__ = [
     "Context",
     "Embed",
     "EmbedConfig",
+    "Exploit",
     "FrozenSet",
     "GroundState",
     "Pipeline",

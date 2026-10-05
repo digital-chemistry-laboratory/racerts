@@ -21,6 +21,14 @@ logger = logging.getLogger(__name__)
 REFINE_BACKENDS = {"mmff": MMFFOptimizer, "uff": UFFOptimizer}
 
 
+def energy_label(optimizer) -> str:
+    """
+    The name of an optimizer's energies (the molecule property "energy_method"): its
+    method label if it has one (ASEOptimizer(method=...)), else its class name.
+    """
+    return getattr(optimizer, "method", None) or type(optimizer).__name__
+
+
 def refine_with_fallback(
     optimizer: BaseOptimizer,
     run: Callable[[BaseOptimizer], object],
@@ -34,7 +42,8 @@ def refine_with_fallback(
     the MMFFOptimizer) instead. Other errors are passed on.
 
     Returns:
-        str: The class name of the optimizer that produced the energies.
+        str: The name of the energies (energy_label of the optimizer that produced
+        them).
     """
     try:
         run(optimizer)
@@ -59,7 +68,7 @@ def refine_with_fallback(
             if hasattr(failed, setting):
                 setattr(optimizer, setting, getattr(failed, setting))
         run(optimizer)
-    return type(optimizer).__name__
+    return energy_label(optimizer)
 
 
 class Refine:

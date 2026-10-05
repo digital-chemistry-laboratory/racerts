@@ -172,6 +172,7 @@ More stages:
 | `PruneCluster(ClusterPruner(...))` | keeps one conformer per cluster (`ClusterPruner` from `racerts.prune`): Butina, hierarchical (scipy) or leader clustering, on the RMSD after superposition with fixed atoms (`kernel="aligned"`, e.g. for TS graphs without bonds), the symmetry-aware RMSD (`"symmetric"`), or any `metric(mol, a, b)`; the lowest or the central member |
 | `racerts.prune.FamilySelector(n_max, clusterer)` | up to `n_max` conformers spread over the clusters: the best of each, then the second best, ... (families ordered by their best member) |
 | `Validate(*validators, on_fail="drop" or "flag")` | checks the conformers (see below) |
+| `Exploit(Refine(ASEOptimizer(...)))` | usage-directed Monte Carlo around the pruned conformers: new minima nearby, from torsions and rigid-body moves of fragments, refined by an ASE calculator (xTB, MLIPs); stops when new minima become rare (see below) |
 
 `Pipeline.run(ctx, ensemble)` continues an ensemble (e.g. to refine it with another
 method) and leaves the ensemble passed in unchanged; stages may change the ensemble they
@@ -183,6 +184,46 @@ an optimizer) keep their own settings; stages create default ones for the task, 
 The pipeline logs every stage with its number of conformers and run time (logger
 `racerts.pipeline.runner`, level INFO); `generate`, `generate_ts` and `generate_gs` take
 `verbose=True` to show these messages.
+
+### Exploit
+
+`Exploit` searches around the conformers it gets, after the pruners: it never leaves
+their neighbourhood, so its value depends on them (`Embed → Refine → PruneEnergy →
+PruneRMSD → Exploit → PruneRMSD`). It is usage-directed multiple-minimum Monte Carlo
+(Chang, Guida, Still 1989):
+
+- each iteration takes the `batch` least-used conformers within `energy_window` of the
+  minimum and applies one to three random moves: torsions (never the side with frozen
+  atoms; not amide or ester bonds, not methyl groups) and rotations of fragments without
+  frozen atoms (about their restrained atom, or shifted as well);
+- candidates whose heavy atoms clash are drawn again; the others are refined in one
+  call by the stage's refiner, which must be an `ASEOptimizer` (xTB, MLIPs: force-field
+  minima would be the wrong ones; with MMFF/UFF, Exploit warns and changes nothing);
+- a refined candidate is kept if it passes the gate checks, lies within `energy_window`
+  of the minimum and is further than `rmsd_threshold` from every conformer; a duplicate
+  counts as a re-find. Structures that stop on a torsional barrier (turning a moved
+  torsion by ±10° lowers the energy) are optimized again;
+- it stops when the estimated chance of a new minimum within `stop_window` of the
+  minimum drops below `saturation` (Good–Turing: the conformers found once, divided by
+  the optimizations), or after `max_optimizations`.
+
+```python
+from racerts.refine import ASEOptimizer
+
+uma = ASEOptimizer(uma_calculator, method="UMA-s-1p2", fmax=0.02)
+pipeline = racerts.Pipeline([
+    racerts.Embed(), racerts.Refine(), racerts.PruneEnergy(), racerts.PruneRMSD(),
+    racerts.Refine(uma), racerts.PruneEnergy(), racerts.PruneRMSD(),
+    racerts.Exploit(uma, max_optimizations=200),
+    racerts.PruneRMSD(),
+])
+```
+
+The conformers it gets must carry the energies of Exploit's refiner (`energy_method`,
+e.g. the `method` label of the `ASEOptimizer`). New conformers record `route="mc"`, `parent`,
+`moves` and `mc_iteration`; every conformer records `mc_usage` and `mc_hits`, and
+`exploit.stats` the numbers of the run. For a windowed TS, children keep their parent's
+active-bond targets, and energies are compared per window bin.
 
 ## Plug-in points
 

@@ -56,11 +56,23 @@ def _target_groups(ctx, ensemble):
     The conformer ids per target of the active bonds of a windowed TS: per target
     (stratified) or per fifth of the window (unstratified); else one group.
     """
+    groups = {}
+    for conf_id, key in window_bins(ctx, ensemble).items():
+        groups.setdefault(key, []).append(conf_id)
+    return list(groups.values()) or [ensemble.conf_ids]
+
+
+def window_bins(ctx, ensemble) -> dict:
+    """
+    The window bin of every conformer of a windowed TS, whose energies and geometries
+    are comparable only within it: its targets (stratified) or the fifths of the
+    windows that its targets fall in (uniform). () for every conformer otherwise.
+    """
     if ctx is None or not getattr(ctx.task, "windowed", False):
-        return [ensemble.conf_ids]
+        return {conf_id: () for conf_id in ensemble.conf_ids}
     windows = {f"{a}-{b}": w for (a, b), w in ctx.task.active_windows(ctx.mol).items()}
     stratified = getattr(ctx.task, "stratify", 0)
-    groups = {}
+    bins = {}
     for conf_id in ensemble.conf_ids:
         targets = ensemble.provenance(conf_id).get("active_bond_targets") or {}
         key = []
@@ -75,8 +87,8 @@ def _target_groups(ctx, ensemble):
                         min(int((t - lo) / (hi - lo) * LENGTH_BINS), LENGTH_BINS - 1),
                     )
                 )
-        groups.setdefault(tuple(key), []).append(conf_id)
-    return list(groups.values())
+        bins[conf_id] = tuple(key)
+    return bins
 
 
 class PruneEnergy(_Prune):

@@ -33,7 +33,8 @@ class Level:
         window: The energy window after the refinement (kcal/mol).
         exploit: Settings of an Exploit search at this level (a dict; {} for the
             defaults), or an Exploit stage; None: no search. Exploit needs an
-            ASEOptimizer.
+            ASEOptimizer. The search takes the refinement, the ranking energy and
+            the energy window of the level, unless its settings say otherwise.
         rank: A Rescore stage for the energy that the window, the RMSD pruning and
             Exploit use, if not the energy of the refinement: e.g. that energy plus a
             solvation correction (Rescore(batch=..., add=True)).
@@ -80,7 +81,8 @@ class Level:
         if self.exploit is not None:
             exploit = self.exploit
             if not isinstance(exploit, Exploit):
-                exploit = Exploit(refine, **{"rank": self.rank, **dict(exploit)})
+                settings = {"rank": self.rank, "energy_window": self.window}
+                exploit = Exploit(refine, **{**settings, **dict(exploit)})
             stages += [exploit, PruneRMSD()]
         return stages
 

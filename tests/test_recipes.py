@@ -130,6 +130,10 @@ def test_a_level_passes_its_settings_on():
     assert searches[1].refine is refines[2] and searches[1].rank is RANK
     assert refines[2].anchors is False  # a Refine stage is taken as it is
     assert searches[2] is own  # and so is an Exploit stage
+    # The search accepts what the window of its level keeps, unless told otherwise.
+    assert (searches[0].energy_window, searches[1].energy_window) == (12, 8.0)
+    told = staged([Level(LJ, 3, exploit={"energy_window": 5.0})]).stages[-3]
+    assert told.name == "exploit" and told.energy_window == 5.0
 
 
 def test_levels_and_windows_are_checked():

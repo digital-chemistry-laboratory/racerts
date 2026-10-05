@@ -22,8 +22,8 @@ class ImaginaryModes:
         threshold: Imaginary modes with |frequency| below this (cm^-1) are noise.
         delta: Displacement of the finite differences (A).
 
-    The reason of a failed conformer lists its imaginary frequencies (cm^-1); see
-    frequencies() for all of them.
+    The reason of a failed conformer lists its imaginary frequencies (cm^-1); modes()
+    gives all frequencies and modes of one structure.
     """
 
     name = "imaginary_modes"
@@ -45,9 +45,8 @@ class ImaginaryModes:
         reasons = {}
         for conf_id in ensemble.conf_ids:
             atoms = rdkit_conformer_to_ase_atoms(ensemble.mol, conf_id)
-            atoms.calc = self._calculator()
             try:
-                frequencies = self.frequencies(atoms)
+                frequencies, modes = self.modes(atoms)
             except Exception as exc:  # e.g. an SCF failure: the conformer fails
                 reasons[conf_id] = f"frequencies failed: {type(exc).__name__}: {exc}"
                 continue
@@ -58,16 +57,28 @@ class ImaginaryModes:
                     f"{len(imaginary)} imaginary modes (expected {self.expected}; "
                     f"cm^-1: {listed})"
                 )
+                continue
+            reason = self._judge(ctx, ensemble, conf_id, atoms, imaginary, modes)
+            if reason is not None:
+                reasons[conf_id] = reason
         return reasons
 
-    def _calculator(self):
-        return self.calculator() if self._calculator_is_factory else self.calculator
+    def modes(self, atoms) -> Tuple[np.ndarray, np.ndarray]:
+        """The frequencies (cm^-1, imaginary negative, without the 5-6 external modes)
+        and the modes of atoms (see vibrational_modes)."""
+        calculator = self.calculator
+        atoms.calc = calculator() if self._calculator_is_factory else calculator
+        hessian = hessian_by_finite_differences(atoms, self.delta)
+        return vibrational_modes(hessian, atoms.get_masses(), atoms.get_positions())
 
     def frequencies(self, atoms) -> np.ndarray:
-        """Vibrational frequencies (cm^-1, imaginary negative), without the 5-6
-        external modes."""
-        hessian = hessian_by_finite_differences(atoms, self.delta)
-        return vibrational_frequencies(hessian, atoms.get_masses(), atoms.positions)
+        """The frequencies of modes(atoms)."""
+        return self.modes(atoms)[0]
+
+    def _judge(self, ctx, ensemble, conf_id, atoms, imaginary, modes) -> Optional[str]:
+        """The reason why a conformer with the expected number of imaginary modes still
+        fails, or None."""
+        return None
 
 
 class ReactionMode(ImaginaryModes):
@@ -101,11 +112,15 @@ class ReactionMode(ImaginaryModes):
         threshold: float = 50.0,
         delta: float = 0.005,
     ):
-        super().__init__(calculator, expected=1, threshold=threshold, delta=delta)
+        super().__init__(calculator, 1, threshold, delta)
         self.bonds = None if bonds is None else [tuple(map(int, b)) for b in bonds]
         self.min_stretch = min_stretch
 
     def validate(self, ctx, ensemble: ConformerEnsemble) -> Dict[int, str]:
+        self._active(ctx)  # raises before the first Hessian
+        return super().validate(ctx, ensemble)
+
+    def _active(self, ctx) -> list:
         bonds = self.bonds
         if bonds is None:
             active = getattr(ctx.task, "active_pairs", None)
@@ -115,45 +130,28 @@ class ReactionMode(ImaginaryModes):
                 "ReactionMode needs the bonds that the reaction changes: a "
                 "TransitionState task with active bonds, or bonds=[(a, b), ...]."
             )
-        reasons = {}
-        for conf_id in ensemble.conf_ids:
-            atoms = rdkit_conformer_to_ase_atoms(ensemble.mol, conf_id)
-            atoms.calc = self._calculator()
-            try:
-                hessian = hessian_by_finite_differences(atoms, self.delta)
-            except Exception as exc:  # e.g. an SCF failure: the conformer fails
-                reasons[conf_id] = f"frequencies failed: {type(exc).__name__}: {exc}"
-                continue
-            positions = atoms.get_positions()
-            frequencies, modes = vibrational_modes(
-                hessian, atoms.get_masses(), positions
+        return bonds
+
+    def _judge(self, ctx, ensemble, conf_id, atoms, imaginary, modes) -> Optional[str]:
+        positions, mode = atoms.get_positions(), modes[0]  # the lowest: the imaginary
+        stretch = {}
+        for a, b in self._active(ctx):
+            axis = positions[b] - positions[a]
+            stretch[f"{a}-{b}"] = float(
+                abs((mode[b] - mode[a]) @ axis) / np.linalg.norm(axis)
             )
-            imaginary = frequencies[frequencies < -self.threshold]
-            if len(imaginary) != 1:
-                listed = ", ".join(f"{f:.0f}" for f in imaginary) or "none"
-                reasons[conf_id] = (
-                    f"{len(imaginary)} imaginary modes (expected 1; cm^-1: {listed})"
-                )
-                continue
-            mode = modes[0]  # the lowest: the imaginary one
-            stretch = {}
-            for a, b in bonds:
-                axis = positions[b] - positions[a]
-                stretch[f"{a}-{b}"] = float(
-                    abs((mode[b] - mode[a]) @ axis) / np.linalg.norm(axis)
-                )
-            ensemble.add_provenance(
-                conf_id,
-                imaginary_frequency=float(imaginary[0]),
-                mode_stretch={k: round(v, 4) for k, v in stretch.items()},
-            )
-            if max(stretch.values()) < self.min_stretch:
-                listed = ", ".join(f"{k}: {v:.2f}" for k, v in stretch.items())
-                reasons[conf_id] = (
-                    f"the imaginary mode ({imaginary[0]:.0f} cm^-1) moves no active "
-                    f"bond (stretch {listed}; at least {self.min_stretch:g})"
-                )
-        return reasons
+        ensemble.add_provenance(
+            conf_id,
+            imaginary_frequency=float(imaginary[0]),
+            mode_stretch={k: round(v, 4) for k, v in stretch.items()},
+        )
+        if max(stretch.values()) >= self.min_stretch:
+            return None
+        listed = ", ".join(f"{k}: {v:.2f}" for k, v in stretch.items())
+        return (
+            f"the imaginary mode ({imaginary[0]:.0f} cm^-1) moves no active bond "
+            f"(stretch {listed}; at least {self.min_stretch:g})"
+        )
 
 
 def hessian_by_finite_differences(atoms, delta: float = 0.005) -> np.ndarray:
@@ -176,35 +174,14 @@ def hessian_by_finite_differences(atoms, delta: float = 0.005) -> np.ndarray:
     return 0.5 * (hessian + hessian.T)
 
 
-def vibrational_frequencies(
-    hessian: np.ndarray, masses: np.ndarray, positions: np.ndarray
-) -> np.ndarray:
-    """
-    Frequencies (cm^-1, imaginary ones negative) of a Hessian in eV/A^2, after
-    projecting out translations and rotations (in mass-weighted coordinates).
-    """
-    units = require("ase.units", "ase")
-    sqrt_m = np.repeat(np.sqrt(masses), 3)
-    weighted = hessian / np.outer(sqrt_m, sqrt_m)
-    external = _external_modes(masses, positions)
-    projector = np.eye(len(weighted)) - external @ external.T
-    eigenvalues = np.linalg.eigvalsh(projector @ weighted @ projector)
-    # Drop the external modes: the eigenvalues closest to zero.
-    order = np.argsort(np.abs(eigenvalues))
-    internal = np.sort(eigenvalues[order[external.shape[1] :]])
-    # eV / (A^2 amu) -> s^-2 -> cm^-1
-    to_wavenumber = np.sqrt(units._e / (units._amu * 1e-20)) / (
-        2 * np.pi * units._c * 100
-    )
-    return np.sign(internal) * np.sqrt(np.abs(internal)) * to_wavenumber
-
-
 def vibrational_modes(
     hessian: np.ndarray, masses: np.ndarray, positions: np.ndarray
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
-    The frequencies of vibrational_frequencies and their modes: for each, the
-    Cartesian displacements of the atoms (n_atoms x 3), of unit length over all atoms.
+    The frequencies (cm^-1, imaginary ones negative, ascending) of a Hessian in
+    eV/A^2, after projecting out translations and rotations (in mass-weighted
+    coordinates), and their modes: for each, the Cartesian displacements of the atoms
+    (n_atoms x 3), of unit length over all atoms.
     """
     units = require("ase.units", "ase")
     sqrt_m = np.repeat(np.sqrt(masses), 3)
@@ -212,8 +189,10 @@ def vibrational_modes(
     external = _external_modes(masses, positions)
     projector = np.eye(len(weighted)) - external @ external.T
     eigenvalues, vectors = np.linalg.eigh(projector @ weighted @ projector)
+    # Drop the external modes: the eigenvalues closest to zero.
     order = np.argsort(np.abs(eigenvalues))[external.shape[1] :]
     order = order[np.argsort(eigenvalues[order])]
+    # eV / (A^2 amu) -> s^-2 -> cm^-1
     to_wavenumber = np.sqrt(units._e / (units._amu * 1e-20)) / (
         2 * np.pi * units._c * 100
     )

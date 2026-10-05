@@ -196,9 +196,19 @@ A converged search with one imaginary mode is not yet a TS of the reaction:
 - `Connectivity`: the bonds and the stereo of the graph outside the reacting atoms.
 
 The Hessians are finite differences of the forces of `calculator` (default: that of the
-search), 6 N force calls per conformer. In Cartesian coordinates a search can leave a
-symmetric start for another saddle point; internal coordinates (`"internal": True` for
-Sella) are more robust, and the checks drop what went wrong.
+search), 6 N force calls per conformer. Two arguments take code from outside:
+
+- `hessian=`: a function of ASE `Atoms` that returns the Hessian (eV/Å², 3N × 3N)
+  instead, e.g. an analytical Hessian of the calculator or one by automatic
+  differentiation: `saddles(search, hessian=my_hessian)`. The same argument exists on
+  `ImaginaryModes` and `ReactionMode`.
+- `checks=`: further validators after the four above, e.g. one that follows the
+  imaginary mode downhill to both sides and compares the two minima with the expected
+  ones (a function per conformer becomes a validator with `racerts.validate.validator`).
+
+In Cartesian coordinates a search can leave a symmetric start for another saddle point;
+internal coordinates (`"internal": True` for Sella) are more robust, and the checks drop
+what went wrong.
 
 ## Cost
 

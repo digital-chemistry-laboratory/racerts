@@ -1,6 +1,6 @@
 """Validation of stationary points by their imaginary vibrational modes."""
 
-from typing import Any, Dict, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -12,15 +12,19 @@ from racerts.utils.optional import require
 class ImaginaryModes:
     """
     Whether each conformer has the expected number of imaginary modes (1 for a
-    transition state, 0 for a minimum), from a finite-difference Hessian of any ASE
-    calculator, with translations and rotations projected out. Meaningful only at
-    stationary points, e.g. after a saddle-point search (ASEOptimizer with Sella).
+    transition state, 0 for a minimum), with translations and rotations projected out.
+    Meaningful only at stationary points, e.g. after a saddle-point search
+    (ASEOptimizer with Sella).
 
     Args:
-        calculator: An ASE calculator, or a callable that returns one.
+        calculator: An ASE calculator, or a callable that returns one: the Hessian is
+            then by finite differences of its forces (6 N force calls per conformer).
         expected: The number of imaginary modes.
         threshold: Imaginary modes with |frequency| below this (cm^-1) are noise.
         delta: Displacement of the finite differences (A).
+        hessian: Instead of the calculator: hessian(atoms) -> the Hessian (eV/A^2,
+            3N x 3N) of ASE Atoms, which carry the charge and the multiplicity in
+            atoms.info; e.g. an analytical Hessian, or one by automatic differentiation.
 
     The reason of a failed conformer lists its imaginary frequencies (cm^-1); modes()
     gives all frequencies and modes of one structure.
@@ -30,13 +34,20 @@ class ImaginaryModes:
 
     def __init__(
         self,
-        calculator: Any,
+        calculator: Any = None,
         expected: int = 1,
         threshold: float = 50.0,
         delta: float = 0.005,
+        hessian: Optional[Callable[[Any], np.ndarray]] = None,
     ):
+        if hessian is None:
+            self._calculator_is_factory = check_calculator(calculator)
+        elif calculator is not None:
+            raise ValueError(
+                "Give either a calculator or a hessian function, not both."
+            )
         self.calculator = calculator
-        self._calculator_is_factory = check_calculator(calculator)
+        self.hessian = hessian
         self.expected = expected
         self.threshold = threshold
         self.delta = delta
@@ -66,9 +77,12 @@ class ImaginaryModes:
     def modes(self, atoms) -> Tuple[np.ndarray, np.ndarray]:
         """The frequencies (cm^-1, imaginary negative, without the 5-6 external modes)
         and the modes of atoms (see vibrational_modes)."""
-        calculator = self.calculator
-        atoms.calc = calculator() if self._calculator_is_factory else calculator
-        hessian = hessian_by_finite_differences(atoms, self.delta)
+        if self.hessian is not None:
+            hessian = self.hessian(atoms)
+        else:
+            calculator = self.calculator
+            atoms.calc = calculator() if self._calculator_is_factory else calculator
+            hessian = hessian_by_finite_differences(atoms, self.delta)
         return vibrational_modes(hessian, atoms.get_masses(), atoms.get_positions())
 
     def frequencies(self, atoms) -> np.ndarray:
@@ -93,7 +107,7 @@ class ReactionMode(ImaginaryModes):
     alone, about 0 for a mode elsewhere in the molecule.
 
     Args:
-        calculator, threshold, delta: As ImaginaryModes.
+        calculator, threshold, delta, hessian: As ImaginaryModes.
         bonds: The atom pairs; default: the active bonds of the task (for a
             TransitionState the bonds that form or break, see its active_bonds).
         min_stretch: The least stretch of one of the bonds.
@@ -106,13 +120,14 @@ class ReactionMode(ImaginaryModes):
 
     def __init__(
         self,
-        calculator: Any,
+        calculator: Any = None,
         bonds: Optional[Sequence[Tuple[int, int]]] = None,
         min_stretch: float = 0.3,
         threshold: float = 50.0,
         delta: float = 0.005,
+        hessian: Optional[Callable[[Any], np.ndarray]] = None,
     ):
-        super().__init__(calculator, 1, threshold, delta)
+        super().__init__(calculator, 1, threshold, delta, hessian)
         self.bonds = None if bonds is None else [tuple(map(int, b)) for b in bonds]
         self.min_stretch = min_stretch
 

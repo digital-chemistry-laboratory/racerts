@@ -297,6 +297,40 @@ def test_the_reaction_mode_moves_an_active_bond():
         ReactionMode(forming).validate(ground, ensemble)
 
 
+@pytest.mark.ase
+def test_a_hessian_from_outside_replaces_the_finite_differences():
+    # Any function of ASE Atoms that returns the Hessian in eV/A^2: an analytical one,
+    # one by automatic differentiation, the routine of another package. No calculator.
+    pytest.importorskip("ase")
+    from racerts.validate import ReactionMode
+
+    ctx, ensemble = _two_pairs()
+    springs = {(0, 1): -36.0, (2, 3): 36.0}
+    seen = []
+
+    def analytical(atoms):  # the springs lie along z, at their rest length
+        seen.append(len(atoms))
+        hessian = np.zeros((12, 12))
+        for (a, b), k in springs.items():
+            for i, j, sign in ((a, a, 1), (b, b, 1), (a, b, -1), (b, a, -1)):
+                hessian[3 * i + 2, 3 * j + 2] += sign * k
+        return hessian
+
+    assert ReactionMode(hessian=analytical).validate(ctx, ensemble) == {}
+    assert seen == [4]
+    plugged = dict(ensemble.provenance(ensemble.conf_ids[0]))
+    assert ReactionMode(Springs(springs).calculator).validate(ctx, ensemble) == {}
+    differences = ensemble.provenance(ensemble.conf_ids[0])
+    assert plugged["imaginary_frequency"] == pytest.approx(
+        differences["imaginary_frequency"], rel=1e-6
+    )
+    assert plugged["mode_stretch"] == differences["mode_stretch"]
+    reasons = ImaginaryModes(hessian=analytical, expected=0).validate(ctx, ensemble)
+    assert reasons[ensemble.conf_ids[0]].startswith("1 imaginary modes (expected 0")
+    with pytest.raises(ValueError, match="either a calculator or a hessian"):
+        ImaginaryModes(Springs(springs).calculator, hessian=analytical)
+
+
 def test_converged_reads_the_record_of_the_optimizer():
     from racerts.validate import Converged
 

@@ -258,6 +258,31 @@ def test_the_saddle_recipe():
         saddles(Refine(LJ))  # a search with the frozen atoms held is no free search
 
 
+def test_the_saddle_recipe_takes_a_hessian_and_further_checks():
+    # The two openings for code from outside: the Hessian of the mode check, and
+    # checks after the built-in ones (e.g. one that follows the mode downhill).
+    from racerts.recipes import saddles
+    from racerts.validate import validator
+
+    def hessian(atoms):
+        return np.zeros((3 * len(atoms), 3 * len(atoms)))
+
+    downhill = validator(lambda mol, conf_id: None, name="downhill")
+    pipeline = saddles(LJ, hessian=hessian, checks=[downhill])
+    checks = pipeline.stages[1].validators
+    assert [check.name for check in checks] == [
+        "converged", "reaction_mode", "reaction_core", "connectivity", "downhill",
+    ]  # fmt: skip
+    assert checks[1].hessian is hessian and checks[1].calculator is None
+    with pytest.raises(ValueError, match="either a calculator or a hessian"):
+        saddles(LJ, calculator=LennardJones(), hessian=hessian)
+    # A search without a calculator of its own needs one of the two.
+    free = Refine(MMFFOptimizer(), anchors=False)
+    with pytest.raises(ValueError, match="calculator= or hessian="):
+        saddles(free)
+    assert saddles(free, hessian=hessian).stages[1].validators[1].hessian is hessian
+
+
 @pytest.mark.parametrize("windows", [(25, 8), (25, 8, -1)])
 def test_windows_are_checked(windows):
     with pytest.raises(ValueError, match="windows"):

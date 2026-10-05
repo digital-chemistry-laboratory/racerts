@@ -81,8 +81,8 @@ where the `filename.xyz` is the path to an .xyz file (or .sdf/.mol with bonds) c
 
 | Command | Options | Explanation |
 | --- | --- | --- |
-| `-m`<br>`--mol` | &lt;smiles\|bonds\|connect&gt; | Method to infer molecular graph from .xyz:<br>`smiles` use [`MolGetterSMILES`](./modules/conformer_generator.md#get_mol);<br>`bonds` use [`MolGetterBonds`](./modules/conformer_generator.md#get_mol);<br>`connect` use [`MolGetterConnectivity`](./modules/conformer_generator.md#get_mol) |
-| `-e`<br>`--embed` | &lt;dm\|cmap&gt; [cmap] | Embedding method:<br>`dm` = bounds-matrix; uses [`BoundsMatrixEmbedder`](./modules/conformer_generator.md#embed_TS);<br>`cmap` = coordinate map; uses [`CmapEmbedder`](./modules/conformer_generator.md#embed_TS) |
+| `-m`<br>`--mol` | &lt;smiles\|bonds\|connect&gt; | Method to infer molecular graph from .xyz:<br>`smiles` use [`MolGetterSMILES`](./modules/mol_getter.md#molgettersmiles);<br>`bonds` use [`MolGetterBonds`](./modules/mol_getter.md#molgetterbonds);<br>`connect` use [`MolGetterConnectivity`](./modules/mol_getter.md#molgetterconnectivity) |
+| `-e`<br>`--embed` | &lt;dm\|cmap&gt; [cmap] | Embedding method:<br>`dm` = bounds-matrix; uses [`BoundsMatrixEmbedder`](./modules/embedder.md#boundsmatrixembedder);<br>`cmap` = coordinate map; uses [`CmapEmbedder`](./modules/embedder.md#cmapembedder) |
 | `-ff`<br>`--ff` | &lt;mmff\|uff&gt; [mmff] | Force-field refinement: ;<br>`mmff` uses [`MMFFOptimizer`](./modules/ff_optimizer.md#mmff_optimizer);<br>`uff` uses [`UFFOptimizer`](./modules/ff_optimizer.md#uff_optimizer) |
 
 
@@ -106,9 +106,9 @@ where the `filename.xyz` is the path to an .xyz file (or .sdf/.mol with bonds) c
     In the default setup, an automatic fallback substitutes modules upon failure:
     
     **MolGetter:**<br>
-    1. [`MolGetterSMILES`](./modules/conformer_generator.md#get_mol)<br>
-    2. [`MolGetterBonds`](./modules/conformer_generator.md#get_mol)<br>
-    3. [`MolGetterConnectivity`](./modules/conformer_generator.md#get_mol)<br>
+    1. [`MolGetterSMILES`](./modules/mol_getter.md#molgettersmiles)<br>
+    2. [`MolGetterBonds`](./modules/mol_getter.md#molgetterbonds)<br>
+    3. [`MolGetterConnectivity`](./modules/mol_getter.md#molgetterconnectivity)<br>
     
     **Optimizer**<br>
     1. [`MMFFOptimizer`](./modules/ff_optimizer.md#mmff_optimizer)<br>

@@ -78,9 +78,9 @@ Additional options to configure the workflow:
 <a id="get_mol"></a>
 ###### get_mol(file_name, charge, reacting_atoms, input_smiles=None, auto_fallback=True)
 Builds the starting molecule using the configured getter. If that fails (and `auto_fallback=True`), the alternatives are tried in this order:
->1. [`MolGetterSMILES`](./conformer_generator.md#get_mol)<br>
->2. [`MolGetterBonds`](./conformer_generator.md#get_mol)<br>
->3. [`MolGetterConnectivity`](./conformer_generator.md#get_mol)<br>
+>1. [`MolGetterSMILES`](./mol_getter.md#molgettersmiles)<br>
+>2. [`MolGetterBonds`](./mol_getter.md#molgetterbonds)<br>
+>3. [`MolGetterConnectivity`](./mol_getter.md#molgetterconnectivity)<br>
     
 <a id="embed_TS"></a>
 ###### embed_TS(mol_ts, new_mol, reacting_atoms, frozen_atoms, number_of_conformers=-1, conf_factor=80)

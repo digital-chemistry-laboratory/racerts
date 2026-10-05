@@ -379,7 +379,8 @@ class PipelineConfig:
     prune.filter_rotations, prune.hydrogens and prune.max_matches.
 
     Attributes:
-        seed: Random seed (the RDKit embedding seed).
+        seed: The seed of a run; the seeds of its batches and conformers are derived
+            from it (racerts.utils.seeds).
         num_threads: Threads for embedding and force-field refinement (the latter
             gains little: RDKit's minimizer does not release Python's lock).
     """

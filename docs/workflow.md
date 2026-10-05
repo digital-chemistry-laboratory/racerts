@@ -238,4 +238,5 @@ what went wrong.
   factory makes a new calculator for every structure when it runs without worker
   processes.
 - **Budget:** `Exploit` stops when it rarely finds new minima, and at the latest after
-  `max_optimizations`. `exploit.stats` reports its numbers.
+  `max_optimizations`. The stage reports its numbers in `stats`
+  (`next(s for s in pipeline.stages if s.name == "exploit").stats`).

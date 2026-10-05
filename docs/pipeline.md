@@ -245,9 +245,11 @@ The conformers it gets must carry the energies of Exploit's refiner (`energy_met
 e.g. the `method` label of the `ASEOptimizer`). `Exploit(uma, rank=Rescore(...))` ranks
 by another energy than the refiner's ([the ranking energy](workflow.md#the-ranking-energy)).
 New conformers record `route="mc"`, `parent`,
-`moves` and `mc_iteration`; every conformer records `mc_usage` and `mc_hits`, and
-`exploit.stats` the numbers of the run. For a windowed TS, children keep their parent's
-active-bond targets, and energies are compared per window bin.
+`moves` and `mc_iteration`; every conformer records `mc_usage` and `mc_hits`, and the
+stage keeps the numbers of its last run in `stats` (of a pipeline:
+`next(s for s in pipeline.stages if s.name == "exploit").stats`). For a windowed TS,
+children keep their parent's active-bond targets, and energies are compared per window
+bin.
 
 ## Plug-in points
 

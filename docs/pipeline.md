@@ -99,7 +99,8 @@ ensemble = racerts.generate_ts("ts.xyz", [3, 4, 5], config=config)
 | | `check_stereo` | true | after refinement, drop conformers whose specified stereo differs from the graph (see below) |
 | | `method` | `rmsd` | `rmsd` (duplicates, as legacy racerts) or `cluster` (one conformer per cluster) |
 | | `cluster_method`, `cluster_threshold` | `butina`, 1.5 | `butina`, `hierarchical` or `leader`; Å, heavy-atom RMSD after superposition |
-| | `include_hs`, `filter_energies`, `filter_rotations`, `rmsd_energy_threshold`, `rot_fraction_threshold`, `max_matches` | false, true, true, 0.1, 0.03, 10000 | of `method = rmsd`, see [pruner](modules/pruner.md) (there: `energy_threshold`, `maxMatches`) |
+| | `hydrogens` | none | the hydrogens in the duplicate RMSD: `none` (heavy atoms), `polar` (also those on N, O, P, S, so that the rotamers of a hydrogen bond stay apart; needs both prefilters off) or `all` |
+| | `filter_energies`, `filter_rotations`, `rmsd_energy_threshold`, `rot_fraction_threshold`, `max_matches` | true, true, 0.1, 0.03, 10000 | of `method = rmsd`, see [pruner](modules/pruner.md) (there: `energy_threshold`, `maxMatches`) |
 | `restraints` | | | see [restraints](restraints.md) |
 
 **Chirality fallback.** `legacy` drops all chiral tags, or stops enforcing chirality, so

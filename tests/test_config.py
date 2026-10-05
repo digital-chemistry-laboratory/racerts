@@ -60,7 +60,7 @@ def test_settings_reach_the_components():
             "num_threads": 2,
             "embed": {"mode": "bounds"},
             "refine": {"backend": "uff", "fallback": False},
-            "prune": {"rmsd_threshold": 0.3, "include_hs": True},
+            "prune": {"rmsd_threshold": 0.3, "hydrogens": "all"},
         }
     )
     stages = config.build(TransitionState([0])).stages
@@ -113,7 +113,9 @@ def test_yaml_numbers_without_a_decimal_point(tmp_path):
 @pytest.mark.parametrize(
     "data, message",
     [
-        ({"prune": {"include_hs": 0}}, "prune.include_hs must be true or false"),
+        ({"prune": {"hydrogens": 1}}, "prune.hydrogens must be a string"),
+        ({"prune": {"hydrogens": "some"}}, "prune.hydrogens must be one of"),
+        ({"prune": {"hydrogens": "polar"}}, "needs prune.filter_energies"),
         ({"refine": {"fallback": 1}}, "refine.fallback must be true or false"),
         ({"embed": {"n_conformers": "50"}}, "embed.n_conformers must be an integer"),
         ({"embed": {"n_conformers": 0}}, "-1 .default count. or > 0"),

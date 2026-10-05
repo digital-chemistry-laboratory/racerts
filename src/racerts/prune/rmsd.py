@@ -1,4 +1,4 @@
-"""Pruning of duplicates by RMSD (after energy and rotational-constant filters)."""
+"""Pruning of duplicates by RMSD."""
 
 import inspect
 import logging
@@ -13,6 +13,7 @@ from racerts.geometry import (
     symmetrize_terminal_atoms,
     symmetry_maps,
 )
+from racerts.symmetry import SymmetricRMSD, bound_descriptors, symmetry_classes
 
 from .base import BasePruner, check_threshold, drop_conformers_without_energy
 
@@ -22,16 +23,29 @@ logger = logging.getLogger(__name__)
 # molecule, a single atom). Computed moments of such axes are rounding noise (1e-16 to
 # 1e-10); the smallest real moment, of H2, is 0.28.
 ZERO_MOMENT = 1e-6
+HYDROGENS = ("none", "polar", "all")
 
 
 class RMSDPruner(BasePruner):
     """
-    Drops duplicates: conformers within threshold (A) of a lower one by the RMSD of
-    racerts.geometry: over the heavy atoms (all atoms with include_hs), the smallest
-    over the symmetry maps of the graph, after superposition (align=False: in the frame
-    that the conformers share, e.g. of a frozen core). The RMSD is computed only for
+    Drops duplicates: conformers within threshold (A) of a lower one by the RMSD over
+    the symmetry of the graph, after superposition (align=False: in the frame that the
+    conformers share, e.g. of a frozen core).
+
+    hydrogens: which hydrogens count, "none" (the heavy atoms), "polar" (also the
+    hydrogens on N, O, P and S, so that the rotamers of a hydrogen bond stay apart) or
+    "all"; include_hs=True is "all".
+
+    Without the two prefilters (filter_energies=False, filter_rotations=False) every
+    pair is decided by its RMSD: a pair is skipped only if a lower bound of the RMSD
+    (racerts.symmetry.bound_descriptors) is above the threshold, and the RMSD does not
+    list more than maxMatches equivalent atom mappings (racerts.symmetry.SymmetricRMSD).
+
+    With a prefilter (the defaults of legacy racerts) the RMSD is computed only for
     pairs whose energies differ by at most energy_threshold (kcal/mol) and whose
-    principal moments of inertia differ by at most rot_fraction_threshold.
+    principal moments of inertia differ by at most rot_fraction_threshold, over a list
+    of at most maxMatches atom mappings. Conformers that are duplicates by their RMSD
+    can pass these two filters apart and both stay.
     """
 
     def __init__(self, threshold=0.125, verbose=False, **kwargs):
@@ -39,7 +53,15 @@ class RMSDPruner(BasePruner):
         for name in ("energy_threshold", "rot_fraction_threshold"):
             if name in kwargs:
                 check_threshold(kwargs[name], name)
-        self.include_hs = kwargs.get("include_hs", False)
+        hydrogens = kwargs.get("hydrogens")
+        if hydrogens is None:
+            hydrogens = "all" if kwargs.get("include_hs", False) else "none"
+        if hydrogens not in HYDROGENS:
+            raise ValueError(
+                f"hydrogens must be one of {HYDROGENS}, not {hydrogens!r}."
+            )
+        self.hydrogens = hydrogens
+        self.include_hs = hydrogens == "all"
         self.align = kwargs.get("align", True)
         self.threshold = threshold
         self.verbose = verbose
@@ -71,6 +93,19 @@ class RMSDPruner(BasePruner):
             drop_conformers_without_energy(mol)
 
         conf_idx = [conf.GetId() for conf in self.get_sorted_conf_energy(mol)]
+        prefiltered = self.filter_energies or self.filter_rotations
+        overridden = type(self).check_similarity is not RMSDPruner.check_similarity
+        if not (prefiltered or overridden):
+            keep = self._by_rmsd_alone(mol, conf_idx)
+            for conf_id in [i for i in conf_idx if i not in keep]:
+                mol.RemoveConformer(conf_id)
+            return mol
+        if self.hydrogens == "polar":
+            raise ValueError(
+                "hydrogens='polar' needs filter_energies=False and "
+                "filter_rotations=False: the prefilters of legacy racerts work with "
+                "no or all hydrogens."
+            )
         # The atoms and symmetry maps depend on the graph only: computed once, not for
         # every pair (not for legacy subclasses whose check_similarity takes none).
         options = {}
@@ -112,6 +147,49 @@ class RMSDPruner(BasePruner):
             mol.RemoveConformer(id)
 
         return mol
+
+    def _by_rmsd_alone(self, mol, conf_ids) -> set:
+        """
+        The conformers to keep, of conf_ids in their order: each is compared with the
+        kept ones that a lower bound of the RMSD does not already tell apart, the
+        closest by that bound first, until one is within the threshold.
+        """
+        if len(conf_ids) < 2:
+            return set(conf_ids)
+        kernel = SymmetricRMSD(
+            mol,
+            self.hydrogens,
+            max_maps=self.maxMatches,
+            hard_max_maps=max(self.maxMatches, 10000),
+        )
+        classes = symmetry_classes(kernel.graph, kernel.weight)
+        kept, prepared, described = [], [], ([], [])
+        for conf_id in conf_ids:
+            positions = mol.GetConformer(int(conf_id)).GetPositions()
+            own = bound_descriptors(positions, kernel.index, kernel.weight, classes)
+            candidate = kernel.prepare(positions, align=self.align)
+            duplicate = False
+            if kept:
+                bounds = np.maximum(
+                    *(
+                        np.linalg.norm(np.array(others) - vector, axis=1)
+                        for others, vector in zip(described, own)
+                    )
+                )
+                for k in np.argsort(bounds):
+                    if bounds[k] > self.threshold + 1e-9:
+                        break
+                    if kernel.within(
+                        prepared[k], candidate, self.threshold, align=self.align
+                    ):
+                        duplicate = True
+                        break
+            if not duplicate:
+                kept.append(conf_id)
+                prepared.append(candidate)
+                for others, vector in zip(described, own):
+                    others.append(vector)
+        return set(kept)
 
     def calc_rotations(self, m, id):
         return (

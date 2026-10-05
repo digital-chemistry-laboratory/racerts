@@ -31,6 +31,7 @@ from racerts.prune import (
     RMSDPruner,
 )
 from racerts.prune.cluster import METHODS as CLUSTER_METHODS
+from racerts.prune.rmsd import HYDROGENS
 from racerts.refine import REFINE_BACKENDS, Refine
 from racerts.refine.forcefield import DIELECTRIC_MODELS
 from racerts.restraints import build_restraints
@@ -156,14 +157,19 @@ class PruneConfig:
     """
     Attributes:
         energy_threshold: Energy window (kcal/mol) above the lowest conformer.
-        rmsd_threshold: Heavy-atom RMSD (A) below which conformers are duplicates.
-        include_hs: Include hydrogens in the RMSD.
+        rmsd_threshold: RMSD (A) below which conformers are duplicates.
+        hydrogens: The hydrogens in that RMSD: "none" (the heavy atoms), "polar"
+            (also the hydrogens on N, O, P and S: the rotamers of a hydrogen bond
+            stay apart; needs both prefilters off) or "all".
         filter_energies: Conformers further apart in energy than
             rmsd_energy_threshold (kcal/mol) are not compared by RMSD.
         filter_rotations: Neither are conformers whose principal moments of inertia
             differ by more than rot_fraction_threshold.
         max_matches: Maximum number of symmetry-equivalent atom maps for the RMSD.
-            (These six RMSD settings act with method "rmsd" only.)
+            (These six RMSD settings act with method "rmsd" only.) With both
+            prefilters off every pair is decided by its RMSD, and max_matches is the
+            most atom maps that are listed before local symmetry is assigned instead
+            (racerts.symmetry).
         check_stereo: After refinement, drop conformers whose specified stereo
             (outside the core atoms of the task, e.g. the reacting atoms) differs from
             the graph, e.g. after a chirality fallback of the embedding. After the
@@ -177,7 +183,7 @@ class PruneConfig:
 
     energy_threshold: float = 20.0
     rmsd_threshold: float = 0.125
-    include_hs: bool = False
+    hydrogens: str = "none"
     filter_energies: bool = True
     filter_rotations: bool = True
     rmsd_energy_threshold: float = 0.1
@@ -194,6 +200,15 @@ class PruneConfig:
             raise ValueError("prune.method must be 'rmsd' or 'cluster'.")
         if self.cluster_method not in CLUSTER_METHODS:
             raise ValueError(f"prune.cluster_method must be one of {CLUSTER_METHODS}.")
+        if self.hydrogens not in HYDROGENS:
+            raise ValueError(f"prune.hydrogens must be one of {HYDROGENS}.")
+        if self.hydrogens == "polar" and (
+            self.filter_energies or self.filter_rotations
+        ):
+            raise ValueError(
+                "prune.hydrogens 'polar' needs prune.filter_energies and "
+                "prune.filter_rotations off."
+            )
         for name in (
             "energy_threshold",
             "rmsd_threshold",
@@ -528,7 +543,7 @@ class PipelineConfig:
         return PruneRMSD(
             RMSDPruner(
                 threshold=prune.rmsd_threshold,
-                include_hs=prune.include_hs,
+                hydrogens=prune.hydrogens,
                 num_threads=self.num_threads,
                 filter_energies=prune.filter_energies,
                 filter_rotations=prune.filter_rotations,

@@ -39,7 +39,7 @@ $ racerts gs "OC(=O)[C@@H]1CCCN1C(C)=C" [options]
 | `--dielectric MODEL CONSTANT` | MMFF dielectric, e.g. `distance 4` |
 | `--no-fallback` | no fallback for the graph (bonds, connectivity) or MMFF (UFF) |
 | `--seed`, `--num-threads` | |
-| `--energy-threshold`, `--rmsd-threshold`, `--rmsd-hydrogens` | pruning (`prune.energy_threshold`, `prune.rmsd_threshold`, `prune.include_hs`) |
+| `--energy-threshold`, `--rmsd-threshold`, `--rmsd-hydrogens [none, polar, all]` | pruning (`prune.energy_threshold`, `prune.rmsd_threshold`, `prune.hydrogens`; the option without a value means `all`) |
 | `--check-stereo`, `--no-check-stereo` | drop conformers whose stereo differs from the graph after refinement |
 | `-o`, `--output` | output file (default `conformer_ensemble.xyz`) |
 | `--crest-energies` | only the energy (Hartree) on each comment line, as CREST does |

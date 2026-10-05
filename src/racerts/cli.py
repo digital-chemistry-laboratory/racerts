@@ -19,6 +19,7 @@ from racerts.config import PipelineConfig
 from racerts.embed import CHIRALITY_FALLBACK_MODES, COUNT_POLICIES, EMBED_MODES
 from racerts.embed.bounds import REFERENCE_BOUNDS
 from racerts.pipeline import Pipeline
+from racerts.prune.rmsd import HYDROGENS
 from racerts.refine import REFINE_BACKENDS
 from racerts.refine.forcefield import DIELECTRIC_MODELS
 from racerts.restraints.export import DEFAULT_PATHS as EXPORT_PATHS
@@ -432,10 +433,13 @@ def _add_pipeline_options(command, defaults) -> None:
     )
     command.add_argument(
         "--rmsd-hydrogens",
-        action=argparse.BooleanOptionalAction,
+        nargs="?",
+        const="all",
+        choices=HYDROGENS,
         default=None,
-        help="Include hydrogens in the duplicate RMSD (default "
-        f"{defaults.prune.include_hs}).",
+        help="The hydrogens in the duplicate RMSD: none, polar (those on N, O, P, "
+        "S; needs the prefilters off in the config) or all, also without a value "
+        f"(default {defaults.prune.hydrogens}).",
     )
     command.add_argument(
         "-o",
@@ -521,7 +525,7 @@ def _config_from_args(args) -> PipelineConfig:
             config.prune,
             energy_threshold=args.energy_threshold,
             rmsd_threshold=args.rmsd_threshold,
-            include_hs=args.rmsd_hydrogens,
+            hydrogens=args.rmsd_hydrogens,
             check_stereo=args.check_stereo,
         ),
     )

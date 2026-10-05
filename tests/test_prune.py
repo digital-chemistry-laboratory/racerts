@@ -186,3 +186,95 @@ def test_legacy_rmsd_pruners_without_maps_still_work():
     mol = _conformers("CCCCCO", 6)
     expected = RMSDPruner().prune(Chem.Mol(mol)).GetNumConformers()
     assert LegacySubclass().prune(Chem.Mol(mol)).GetNumConformers() == expected
+
+
+# ---- without the prefilters: every pair decided by its RMSD
+
+
+def _twins(smiles, n, shift=1.0, seed=4):
+    """Conformers of a molecule, each followed by a twin: the same geometry turned in
+    space, shift kcal/mol higher in energy (as two optimizations of one minimum that
+    stopped at different points)."""
+    mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
+    ids = list(AllChem.EmbedMultipleConfs(mol, n, randomSeed=seed))
+    energies = [e for _, e in AllChem.MMFFOptimizeMoleculeConfs(mol, maxIters=500)]
+    turn = np.array([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
+    for conf_id, energy in zip(ids, energies):
+        conf = mol.GetConformer(conf_id)
+        conf.SetDoubleProp("energy", energy)
+        twin = Chem.Conformer(conf)
+        positions = conf.GetPositions() @ turn + 1.0
+        for i, position in enumerate(positions):
+            twin.SetAtomPosition(i, position.tolist())
+        twin.SetDoubleProp("energy", energy + shift)
+        mol.AddConformer(twin, assignId=True)
+    return mol, len(ids)
+
+
+def test_without_the_prefilters_the_rmsd_alone_decides():
+    # A twin 1 kcal/mol above its conformer is a duplicate by its RMSD (0 A). The
+    # energy prefilter of legacy racerts never compares the two (0.1 kcal/mol).
+    mol, n = _twins("OCCCCCO", 12)
+    legacy = RMSDPruner().prune(Chem.Mol(mol))
+    alone = RMSDPruner(filter_energies=False, filter_rotations=False).prune(
+        Chem.Mol(mol)
+    )
+    originals = set(range(n))
+    assert {c.GetId() for c in alone.GetConformers()} <= originals
+    assert not {c.GetId() for c in legacy.GetConformers()} <= originals
+    # The same conformers as the comparison of every pair over all maps.
+    assert {c.GetId() for c in alone.GetConformers()} == _every_pair(mol, 0.125)
+
+
+def _every_pair(mol, threshold):
+    """The conformers that stay when each, in the order of the energy, is compared with
+    every kept one by the RMSD over all maps."""
+    from racerts.geometry import rmsd_within, symmetry_maps
+
+    found = symmetry_maps(mol)
+    order = sorted(mol.GetConformers(), key=lambda c: c.GetDoubleProp("energy"))
+    kept = []
+    for conf in order:
+        x = conf.GetPositions()
+        if not any(
+            rmsd_within(k.GetPositions(), x, threshold, found.atoms, found.maps)
+            for k in kept
+        ):
+            kept.append(conf)
+    return {c.GetId() for c in kept}
+
+
+def test_which_hydrogens_count():
+    # Two conformers of glycerol that differ in the rotor of one O-H.
+    mol = Chem.AddHs(Chem.MolFromSmiles("OCC(O)CO"))
+    AllChem.EmbedMolecule(mol, randomSeed=5)
+    AllChem.MMFFOptimizeMolecule(mol)
+    turned = Chem.Conformer(mol.GetConformer())
+    hydroxyl = mol.GetSubstructMatch(Chem.MolFromSmarts("[#6][#6][OX2][H]"))
+    angle = Chem.rdMolTransforms.GetDihedralDeg(turned, *hydroxyl)
+    Chem.rdMolTransforms.SetDihedralDeg(turned, *hydroxyl, angle + 120)
+    mol.AddConformer(turned, assignId=True)
+
+    def kept(**settings):
+        pruner = RMSDPruner(filter_energies=False, filter_rotations=False, **settings)
+        return pruner.prune(Chem.Mol(mol)).GetNumConformers()
+
+    assert kept() == kept(hydrogens="none") == 1
+    assert (
+        kept(hydrogens="polar") == kept(hydrogens="all") == kept(include_hs=True) == 2
+    )
+    with pytest.raises(ValueError, match="hydrogens must be one of"):
+        RMSDPruner(hydrogens="some")
+    with pytest.raises(ValueError, match="filter_energies=False"):
+        RMSDPruner(hydrogens="polar").prune(Chem.Mol(mol))  # the legacy prefilters
+
+
+def test_all_hydrogens_of_a_molecule_with_many_equal_branches():
+    # Tri-tert-butylphenol with its hydrogens has more equivalent atom mappings than
+    # any list holds. Its twins are found all the same, with few maps listed.
+    mol, n = _twins("CC(C)(C)c1cc(C(C)(C)C)c(O)c(C(C)(C)C)c1", 3)
+    pruner = RMSDPruner(
+        hydrogens="all", maxMatches=100, filter_energies=False, filter_rotations=False
+    )
+    pruned = pruner.prune(Chem.Mol(mol))
+    assert {c.GetId() for c in pruned.GetConformers()} <= set(range(n))

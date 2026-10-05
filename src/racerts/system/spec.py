@@ -50,8 +50,12 @@ def set_charge_and_multiplicity(
 
     A multiplicity that does not fit the number of electrons, and an odd number of
     electrons without a given multiplicity (often a forgotten charge), are logged as
-    warnings.
+    warnings; a multiplicity below 1 raises a ValueError.
     """
+    if multiplicity is not None and multiplicity < 1:
+        raise ValueError(
+            f"The multiplicity must be at least 1 (2S + 1), not {multiplicity}."
+        )
     state = infer_charge_and_multiplicity(mol, charge, multiplicity)
     electrons = count_electrons(mol, state["charge"])
     if (electrons + state["multiplicity"]) % 2 == 0:

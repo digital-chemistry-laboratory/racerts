@@ -172,7 +172,7 @@ def generate_ts(
     restraints: Optional[RestraintSet] = None,
     active_window=None,
     active_bonds: Optional[Sequence[Sequence[int]]] = None,
-    stratify: int = 0,
+    stratify: Optional[int] = None,
     neighbor_window: float = 0.10,
 ) -> ConformerEnsemble:
     """

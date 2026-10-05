@@ -114,10 +114,10 @@ def _add_ts(sub, defaults) -> None:
     command.add_argument(
         "--stratify",
         type=int,
-        default=0,
+        default=None,
         metavar="K",
         help="K target lengths, the midpoints of K equal parts of the window "
-        "(default: placed by the embedding).",
+        "(default: 5; 0: placed by the embedding, unevenly).",
     )
     command.add_argument(
         "--neighbor-window",
@@ -571,7 +571,9 @@ def _run_subcommand(parser, args):
         window_options = {}
         if args.neighbor_window is not None:
             window_options["neighbor_window"] = args.neighbor_window
-        if window is None and (args.active_bond or args.stratify or window_options):
+        if window is None and (
+            args.active_bond or args.stratify is not None or window_options
+        ):
             parser.error(
                 "--active-bond, --stratify and --neighbor-window need --active-window."
             )

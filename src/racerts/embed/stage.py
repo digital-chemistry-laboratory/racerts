@@ -334,7 +334,10 @@ class Embed:
         if getattr(ctx.task, "stratify", 0):
             targets = ctx.task.targets(ctx.mol)
             if n < len(targets):
-                logger.warning(
+                # A warning only if the number of targets was asked for.
+                asked = getattr(ctx.task, "stratify_given", True)
+                logger.log(
+                    logging.WARNING if asked else logging.INFO,
                     "%d conformers for %d targets: the window is sampled at %d "
                     "targets.",
                     n,

@@ -177,7 +177,7 @@ def test_ts_without_options_runs_the_defaults(call):
         auto_fallback=True,
         active_window=None,
         active_bonds=None,
-        stratify=0,
+        stratify=None,
         pipeline=None,
     )
 

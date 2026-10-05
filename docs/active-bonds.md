@@ -9,12 +9,12 @@ the saddle search).
 ```python
 ensemble = racerts.generate_ts(
     "aldol_ts.xyz", [0, 10, 11, 12, 19], smiles=["OC(=O)[C@@H]1CCCN1C(C)=C", "O=Cc1ccccc1"],
-    active_window=(2.0, 2.9), active_bonds=[(10, 12)], stratify=5,
+    active_window=(2.0, 2.9), active_bonds=[(10, 12)],
 )
 print(ensemble.summary())  # ends with the range of each active bond (min, median, max)
 ```
 
-`racerts ts ... --active-window 2.0 2.9 --active-bond 10 12 --stratify 5 -o ts.xyz` does
+`racerts ts ... --active-window 2.0 2.9 --active-bond 10 12 -o ts.xyz` does
 the same and writes `ts.active_bonds.csv` next to the output (conformer, energy, target and
 length of each active bond; `ensemble.write_active_bonds(path)` in Python);
 `--neighbor-window` sets `neighbor_window`.
@@ -39,13 +39,15 @@ What changes with a window (`TransitionState(..., active_window=...)`):
     - an embedding-only window for their other distances in the core, which RDKit's
       default (van der Waals) bounds would otherwise forbid, e.g. O···O = 2.5 Å in a
       proton transfer.
-- **Sampling:** with `stratify=0`, distance geometry places the lengths in the window,
-  most of them at its lower edge; with `stratify=k` (k ≥ 2), the embedding batches cycle
-  through k target lengths, which covers the window evenly. The targets are the
-  midpoints of k equal parts of the window: for the reference ± 0.25 Å and k = 5 the
-  reference, ± 0.1 and ± 0.2 Å. None lies on an edge of the window, where a saddle
-  search most often leaves for the reactant or the product. With fewer conformers than
-  targets the window is divided into as many parts as conformers.
+- **Sampling:** the embedding batches cycle through target lengths, which covers the
+  window evenly: five by default, `stratify=k` (k ≥ 2) for another number. The targets
+  are the midpoints of k equal parts of the window: for the reference ± 0.25 Å and
+  k = 5 the reference, ± 0.1 and ± 0.2 Å. None lies on an edge of the window, where a
+  saddle search most often leaves for the reactant or the product. With fewer
+  conformers than targets the window is divided into as many parts as conformers.
+  With `stratify=0`, distance geometry places the lengths in the window, most of them
+  at its lower edge (72 % in the lowest fifth on the aldol TS of the tests, 53 % on a
+  146-atom ring closure).
   Conformers embedded outside the window are reported; if all are, the frozen atoms
   cannot take the window, and embedding raises.
 - **Refinement:** MMFF/UFF and ASE calculators (xTB, MLIPs) hold each conformer at its

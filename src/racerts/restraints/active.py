@@ -67,28 +67,32 @@ def record_active_lengths(ctx, ensemble) -> None:
 
 def keep_embedded_lengths(ctx, ensemble) -> None:
     """
-    Unstratified window mode: each conformer's embedded active-bond lengths become
-    its targets, which refinement holds (a flat-bottom window would let the force
-    field push every conformer to the same edge of the window). A length outside its
-    window is moved to the edge; conformers embedded more than OUTSIDE_TOLERANCE
-    outside are reported, and if all are, the frozen atoms cannot take the window.
+    Window mode, after the embedding. Unstratified: each conformer's embedded
+    active-bond lengths become its targets, which refinement holds (a flat-bottom
+    window would let the force field push every conformer to the same edge of the
+    window); a length outside its window is moved to the edge. With targets
+    (stratified) they stay. In both cases conformers embedded more than
+    OUTSIDE_TOLERANCE outside the window are reported, and if all are, the frozen
+    atoms cannot take the window.
 
     Raises:
         ValueError: If no conformer was embedded with its active bonds in the window.
     """
-    if not getattr(ctx.task, "windowed", False) or getattr(ctx.task, "stratify", 0):
+    if not getattr(ctx.task, "windowed", False):
         return
+    stratified = getattr(ctx.task, "stratify", 0)
     windows = {f"{a}-{b}": w for (a, b), w in ctx.task.active_windows(ctx.mol).items()}
     outside = {}
     for conf_id in ensemble.conf_ids:
         lengths = ensemble.provenance(conf_id)["active_bond_lengths"]
-        targets = {
+        inside = {
             pair: round(min(max(d, windows[pair][0]), windows[pair][1]), 4)
             for pair, d in lengths.items()
         }
-        ensemble.add_provenance(conf_id, active_bond_targets=targets)
+        if not stratified:
+            ensemble.add_provenance(conf_id, active_bond_targets=inside)
         off = {
-            p: d for p, d in lengths.items() if abs(d - targets[p]) > OUTSIDE_TOLERANCE
+            p: d for p, d in lengths.items() if abs(d - inside[p]) > OUTSIDE_TOLERANCE
         }
         if off:
             outside[conf_id] = off
@@ -106,9 +110,12 @@ def keep_embedded_lengths(ctx, ensemble) -> None:
         )
     logger.warning(
         "%d of %d conformers were embedded with an active bond more than %.2f A "
-        "outside its window (e.g. %s); refinement holds them at the edge of the window.",
+        "outside its window (e.g. %s); refinement %s.",
         len(outside),
         len(ensemble),
         OUTSIDE_TOLERANCE,
         example,
+        "pulls them to their targets"
+        if stratified
+        else "holds them at the edge of the window",
     )

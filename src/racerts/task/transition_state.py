@@ -20,6 +20,7 @@ FORMING_BOND_FACTOR = 1.6
 # 1,3-pairs at this angle (degrees) or wider are not forming bonds by default.
 MIN_OPEN_ANGLE = 80.0
 MIN_WINDOW_FACTOR = 0.9  # of the covalent bond length: lower window starts are warned
+DEFAULT_TARGETS = 5  # target lengths of a window, unless stratify says otherwise
 
 
 class TransitionState:
@@ -51,11 +52,12 @@ class TransitionState:
             length +/- d); or (lo, hi) in A, for every active bond.
         neighbor_window: +/- A for the distances of the reacting atoms to their bonded
             neighbours, in window mode.
-        stratify: 0: the embedding places the lengths in the window (not evenly:
-            distance geometry puts most at its lower edge); k >= 2: k target lengths,
-            one per embedding batch: the midpoints of k equal parts of the window (for
-            the reference +/- 0.25 A and k = 5: the reference, +/- 0.1 and +/- 0.2 A).
-            Either way,
+        stratify: How a window is sampled. k >= 2: k target lengths, one per
+            embedding batch: the midpoints of k equal parts of the window (for the
+            reference +/- 0.25 A and k = 5: the reference, +/- 0.1 and +/- 0.2 A).
+            None (default): 5 targets, or one per conformer if there are fewer.
+            0: the embedding places the lengths in the window (not evenly: distance
+            geometry puts most at its lower edge). Either way,
             refinement holds each conformer at its target (+/- 0.02 A, with
             target_force_constant; a flat-bottom window would let the force field push
             all conformers to one edge). The provenance records the targets
@@ -77,7 +79,7 @@ class TransitionState:
         active_bonds: Optional[Sequence[Sequence[int]]] = None,
         active_window: Window = None,
         neighbor_window: float = 0.10,
-        stratify: int = 0,
+        stratify: Optional[int] = None,
         stereo_filter: bool = True,
         window_force_constant: float = 10000.0,
         target_force_constant: float = 10000.0,
@@ -101,6 +103,10 @@ class TransitionState:
                 raise ValueError(
                     "active_window must be a number or (lo, hi) with 0 < lo < hi."
                 )
+        # Whether the number of targets was asked for (else it follows the conformers).
+        self.stratify_given = stratify is not None
+        if stratify is None:
+            stratify = DEFAULT_TARGETS if active_window is not None else 0
         if stratify < 0 or (stratify and active_window is None):
             raise ValueError(
                 "stratify needs an active_window and must not be negative."
@@ -327,7 +333,7 @@ class TransitionState:
             active_bonds=pairs(self.active_bonds, "active bond atoms"),
             active_window=self.active_window,
             neighbor_window=self.neighbor_window,
-            stratify=self.stratify,
+            stratify=self.stratify if self.stratify_given else None,
             stereo_filter=self.stereo_filter,
             window_force_constant=self.window_force_constant,
             target_force_constant=self.target_force_constant,

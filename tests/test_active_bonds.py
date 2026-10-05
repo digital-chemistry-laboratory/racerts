@@ -58,8 +58,40 @@ def test_active_bonds_are_the_forming_bonds(aldol):
     assert sources["active"] == 2 and sources["neighbor"] == 8 and sources["core"] > 0
 
 
+def test_a_window_is_sampled_at_five_targets_by_default(aldol, caplog):
+    assert TransitionState(REACTING).stratify == 0  # no window, no targets
+    task = TransitionState(REACTING, active_bonds=[CC], active_window=0.25)
+    assert task.stratify == 5
+    assert TransitionState(REACTING, active_window=0.25, stratify=0).stratify == 0
+    ensemble = racerts.Embed(n_conformers=10).run(racerts.Context.create(aldol, task))
+    targets = collections.Counter(
+        ensemble.provenance(i)["active_bond_targets"]["10-12"]
+        for i in ensemble.conf_ids
+    )
+    assert sorted(targets) == pytest.approx([2.0, 2.1, 2.2, 2.3, 2.4], abs=1e-3)
+    assert set(targets.values()) == {2}
+    # Fewer conformers than the default targets: one target each, and no warning (the
+    # number of targets was not asked for).
+    with caplog.at_level("WARNING"):
+        few = racerts.Embed(n_conformers=3).run(racerts.Context.create(aldol, task))
+    assert [
+        few.provenance(i)["active_bond_targets"]["10-12"] for i in few.conf_ids
+    ] == pytest.approx([2.0333, 2.2, 2.3667], abs=1e-3)
+    assert "targets" not in caplog.text
+    # The same task for renumbered atoms keeps the choice.
+    same = dict(zip(range(aldol.GetNumAtoms()), range(aldol.GetNumAtoms())))
+    assert task.remap(same).stratify == 5 and not task.remap(same).stratify_given
+    assert (
+        TransitionState(REACTING, active_window=0.2, stratify=3)
+        .remap(same)
+        .stratify_given
+    )
+
+
 def test_unstratified_window(aldol):
-    ensemble, ctx = _run(aldol, TransitionState(REACTING, active_window=0.25))
+    ensemble, ctx = _run(
+        aldol, TransitionState(REACTING, active_window=0.25, stratify=0)
+    )
     lengths = [_length(ensemble, i) for i in ensemble.conf_ids]
     assert min(lengths) > 2.2 - 0.25 - 0.05 and max(lengths) < 2.2 + 0.25 + 0.05
     assert np.std(lengths) > 0.05  # it varies
@@ -311,7 +343,7 @@ def test_unstratified_windows_are_pruned_per_length(aldol):
     config = PipelineConfig.from_dict({"embed": {"n_conformers": 40}})
     ensemble = racerts.generate_ts(
         ALDOL, REACTING, smiles=SMILES, config=config, active_window=(2.0, 2.9),
-        active_bonds=[CC],
+        active_bonds=[CC], stratify=0,
     )  # fmt: skip
     lengths = [_length(ensemble, i) for i in ensemble.conf_ids]
     assert min(lengths) < 2.3 and max(lengths) > 2.6
@@ -470,19 +502,26 @@ def test_attack_face_needs_a_clear_height(aldol):
     assert AttackFace(min_height=0.6).validate(ctx, ensemble) == {}
 
 
-def test_a_window_out_of_reach_is_reported(aldol, caplog):
+@pytest.mark.parametrize("stratify", [0, 5])
+def test_a_window_out_of_reach_is_reported(aldol, caplog, stratify):
     # The frozen atoms let the C-C distance reach about 3.9 A.
-    far = TransitionState(REACTING, active_bonds=[CC], active_window=(4.5, 5.5))
-    with pytest.raises(ValueError, match="No conformer .* narrower active_window"):
+    far = TransitionState(
+        REACTING, active_bonds=[CC], active_window=(4.5, 5.5), stratify=stratify
+    )
+    with pytest.raises(ValueError, match="narrower active_window"):
         racerts.Embed(n_conformers=6).run(racerts.Context.create(aldol, far))
-    # Partly in reach: the conformers embedded outside are named.
-    partly = TransitionState(REACTING, active_bonds=[CC], active_window=(3.5, 4.5))
+    # Partly in reach: the conformers embedded outside are named, with targets too.
+    partly = TransitionState(
+        REACTING, active_bonds=[CC], active_window=(3.5, 4.5), stratify=stratify
+    )
     with caplog.at_level("WARNING"):
         ensemble = racerts.Embed(n_conformers=12).run(
             racerts.Context.create(aldol, partly)
         )
     assert len(ensemble) == 12
     assert re.search(r"\d+ of 12 conformers .* outside its window", caplog.text)
+    held = "to their targets" if stratify else "at the edge of the window"
+    assert held in caplog.text
 
 
 def test_windows_take_one_reference(aldol):

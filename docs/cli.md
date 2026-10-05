@@ -35,7 +35,7 @@ $ racerts gs "OC(=O)[C@@H]1CCCN1C(C)=C" [options]
 | `--restraint`, `--hints`, `--restraint-half-width`, `--restraint-force-constant`; `--keep-hbonds`, `--contact`, `--keep-fragments` (ts); `--link-fragments` (gs) | [restraints](restraints.md) |
 | `--refine` | `mmff` or `uff` (`refine.backend`) |
 | `--converge`, `--no-converge` | minimize until the energy stops dropping |
-| `--anchor-free-energies`, `--no-anchor-free-energies` | energies without the terms that hold the frozen atoms |
+| `--energies-without-anchors`, `--no-energies-without-anchors` | energies without the terms that hold the frozen atoms |
 | `--dielectric MODEL CONSTANT` | MMFF dielectric, e.g. `distance 4` |
 | `--no-fallback` | no fallback for the graph (bonds, connectivity) or MMFF (UFF) |
 | `--seed`, `--num-threads` | |

@@ -91,7 +91,7 @@ ensemble = racerts.generate_ts("ts.xyz", [3, 4, 5], config=config)
 | | `fallback` | true | UFF if MMFF has no parameters |
 | | `force_constant` | 1e6 | kcal/mol/Å² on the frozen atoms |
 | | `converge` | false | minimize until the energy stops dropping; legacy racerts stops early next to the frozen atoms |
-| | `anchor_free_energies` | true | energies without the terms that hold the frozen atoms (always left out with restraints, soft atoms or active-bond windows) |
+| | `energies_without_anchors` | true | energies without the terms that hold the frozen atoms (always left out with restraints, soft atoms or active-bond windows) |
 | | `dielectric_model`, `dielectric_constant` | `constant`, 1.0 | MMFF electrostatics; e.g. `distance`, 4.0 damps salt bridges in vacuum |
 | | `num_workers` | 1 | worker processes of the force-field refinement, with the results of one process; threads (`num_threads`) gain nothing there, since RDKit's minimizer holds Python's lock |
 | `prune` | `energy_threshold` | 20.0 | kcal/mol above the lowest conformer |

@@ -47,7 +47,7 @@ def test_the_stages():
     cheap, expensive = [s for s in pipeline.stages if s.name == "refine"]
     # The cheap level is the refinement of the default settings: MMFF, not converged.
     assert isinstance(cheap.optimizer, MMFFOptimizer) and not cheap.optimizer.converge
-    assert cheap.optimizer.anchor_free_energies and cheap.stereo_anchors
+    assert cheap.optimizer.energies_without_anchors and cheap.stereo_anchors
     assert expensive.optimizer is LJ
     exploit = pipeline.stages[STEPS.index("exploit")]
     assert exploit.refine is expensive  # the same refinement as step 4
@@ -76,7 +76,7 @@ def test_embedding_and_cheap_refinement_follow_the_config(hept_1_ene_ts):
     pipeline, ensemble, copies = embedded(racerts.PipelineConfig.legacy)
     assert len(ensemble) == 6 and copies == 3
     cheap = pipeline.stages[2]
-    assert not cheap.optimizer.anchor_free_energies and not cheap.stereo_anchors
+    assert not cheap.optimizer.energies_without_anchors and not cheap.stereo_anchors
     with pytest.raises(ValueError, match="config"):  # nothing left for it to set
         staged(
             LJ,

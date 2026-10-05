@@ -190,13 +190,14 @@ def test_ground_states_have_no_chirality_fallback():
 
 def test_the_defaults_of_the_new_api():
     # Decided 2026-10-01: sequential seeds, frozen_first with the stereo check after
-    # refinement, anchor-free energies and the fragments count; converged refinement
-    # stays opt-in. The legacy API and PipelineConfig.legacy() keep the legacy values.
+    # refinement, energies without the anchor terms and the fragments count; converged
+    # refinement stays opt-in. The legacy API and PipelineConfig.legacy() keep the
+    # legacy values.
     config = PipelineConfig()
     assert config.embed.sequential_seeds is True
     assert config.embed.chirality_fallback == "frozen_first"
     assert config.embed.count_policy == "fragments"
-    assert config.refine.anchor_free_energies is True
+    assert config.refine.energies_without_anchors is True
     assert config.refine.converge is False
     assert config.prune.check_stereo is True
     stages = config.build(TransitionState([0])).stages
@@ -205,7 +206,7 @@ def test_the_defaults_of_the_new_api():
     assert embed.embedder.sequential_seeds is True
     assert embed.embedder.chirality_fallback == "frozen_first"
     assert refine.stereo_anchors is True
-    assert refine.optimizer.anchor_free_energies is True
+    assert refine.optimizer.energies_without_anchors is True
     assert refine.optimizer.converge is False
     assert "validate" in [stage.name for stage in stages]  # the stereo check
 
@@ -216,7 +217,7 @@ def test_the_legacy_preset(tmp_path):
     assert legacy.embed.sequential_seeds is False
     assert legacy.embed.chirality_fallback == "legacy"
     assert legacy.refine.converge is False
-    assert legacy.refine.anchor_free_energies is False
+    assert legacy.refine.energies_without_anchors is False
     assert legacy.prune.check_stereo is False
 
     # Settings given update the legacy ones, as dicts or as sections.
@@ -246,7 +247,7 @@ def test_new_settings_reach_the_components():
             },
             "refine": {
                 "converge": True,
-                "anchor_free_energies": True,
+                "energies_without_anchors": True,
                 "dielectric_model": "distance",
                 "dielectric_constant": 4,
             },
@@ -258,7 +259,7 @@ def test_new_settings_reach_the_components():
     assert embed.embedder.sequential_seeds is True
     assert embed.embedder.chirality_fallback == "frozen_first"
     optimizer = refine.optimizer
-    assert optimizer.converge is True and optimizer.anchor_free_energies is True
+    assert optimizer.converge is True and optimizer.energies_without_anchors is True
     assert (optimizer.dielectric_model, optimizer.dielectric_constant) == (
         "distance",
         4.0,

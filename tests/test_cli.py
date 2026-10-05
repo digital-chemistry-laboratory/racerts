@@ -199,7 +199,7 @@ def test_ts_without_options_runs_the_defaults(call):
         (["--reference-bounds", "always"], {"embed.reference_bounds": "always"}),
         (["--refine", "uff"], {"refine.backend": "uff"}),
         (["--converge"], {"refine.converge": True}),
-        (["--anchor-free-energies"], {"refine.anchor_free_energies": True}),
+        (["--energies-without-anchors"], {"refine.energies_without_anchors": True}),
         (
             ["--dielectric", "distance", "4"],
             {"refine.dielectric_model": "distance", "refine.dielectric_constant": 4.0},

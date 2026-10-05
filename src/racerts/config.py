@@ -109,7 +109,7 @@ class RefineConfig:
         force_constant: Force constant (kcal/mol/A^2) that holds the frozen atoms.
         converge: Restart minimizations that stop early next to the frozen atoms;
             legacy racerts stops at the first converged call.
-        anchor_free_energies: Report energies without the terms that hold the frozen
+        energies_without_anchors: Report energies without the terms that hold the frozen
             atoms (the default); legacy racerts includes them. With restraints, soft
             atoms or active-bond windows they are always left out.
         dielectric_model: MMFF electrostatics, "constant" or "distance"-dependent.
@@ -123,7 +123,7 @@ class RefineConfig:
     fallback: bool = True
     force_constant: float = 1e6
     converge: bool = False
-    anchor_free_energies: bool = True
+    energies_without_anchors: bool = True
     dielectric_model: str = "constant"
     dielectric_constant: float = 1.0
     num_workers: int = 1
@@ -357,7 +357,7 @@ class PipelineConfig:
     Settings of the default pipeline (Embed, Refine, a stereo check, PruneEnergy,
     PruneRMSD). PipelineConfig.legacy() gives those of legacy racerts; the defaults
     differ in embed.sequential_seeds, embed.chirality_fallback, embed.count_policy,
-    refine.anchor_free_energies and prune.check_stereo.
+    refine.energies_without_anchors and prune.check_stereo.
 
     Attributes:
         seed: Random seed (the RDKit embedding seed).
@@ -398,7 +398,7 @@ class PipelineConfig:
                 sequential_seeds=False,
                 chirality_fallback="legacy",
             ),
-            "refine": dict(converge=False, anchor_free_energies=False),
+            "refine": dict(converge=False, energies_without_anchors=False),
             "prune": dict(check_stereo=False),
         }
         for key, legacy in sections.items():
@@ -475,7 +475,7 @@ class PipelineConfig:
             force_constant=refine.force_constant,
             num_threads=self.num_threads,
             converge=refine.converge,
-            anchor_free_energies=refine.anchor_free_energies,
+            energies_without_anchors=refine.energies_without_anchors,
             num_workers=refine.num_workers,
         )
         if refine.backend == "mmff":

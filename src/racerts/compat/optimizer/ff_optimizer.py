@@ -21,7 +21,7 @@ class BaseOptimizer(racerts.refine.BaseOptimizer):
     force_constant = 1e6
     num_threads = 1
     converge = False
-    anchor_free_energies = False
+    energies_without_anchors = False
 
     def _refine(self, mol, reference, anchors):
         return self.tune_ts_conformers(
@@ -43,7 +43,7 @@ class _LegacyDefaults(racerts.refine.ForceFieldOptimizer):
         force_constant=1000000,
         num_threads=1,
         converge=False,
-        anchor_free_energies=False,
+        energies_without_anchors=False,
         **kwargs,
     ):
         super().__init__(
@@ -52,7 +52,7 @@ class _LegacyDefaults(racerts.refine.ForceFieldOptimizer):
             force_constant=force_constant,
             num_threads=num_threads,
             converge=converge,
-            anchor_free_energies=anchor_free_energies,
+            energies_without_anchors=energies_without_anchors,
             **kwargs,
         )
 

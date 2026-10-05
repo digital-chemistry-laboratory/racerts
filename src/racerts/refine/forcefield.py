@@ -64,7 +64,7 @@ class ForceFieldOptimizer(BaseOptimizer):
             conformers of a large molecule.
         converge: Restart minimizations that stop early next to the anchors (see
             minimize); legacy racerts stops at the first converged call.
-        anchor_free_energies: Report the energy of the force field without the anchor
+        energies_without_anchors: Report the energy of the force field without the anchor
             terms; legacy racerts includes them (0.02-0.18 kcal/mol on test systems).
             With restraints or soft atoms the reported energies always leave out
             their terms and those of the anchors.
@@ -77,7 +77,7 @@ class ForceFieldOptimizer(BaseOptimizer):
         force_constant=1000000,
         num_threads=1,
         converge: bool = False,
-        anchor_free_energies: bool = False,
+        energies_without_anchors: bool = False,
         num_workers: Optional[int] = 1,
     ):
         if num_workers is not None and num_workers < 1:
@@ -87,7 +87,7 @@ class ForceFieldOptimizer(BaseOptimizer):
         self.force_constant = force_constant
         self.num_threads = num_threads
         self.converge = converge
-        self.anchor_free_energies = anchor_free_energies
+        self.energies_without_anchors = energies_without_anchors
         self.num_workers = num_workers
         self.maxIter = 100
 
@@ -166,7 +166,7 @@ class ForceFieldOptimizer(BaseOptimizer):
             ff.Initialize()
             local_fail = minimize(ff, self.maxIter, converge=self.converge)
 
-            if restraints or positions or (self.anchor_free_energies and anchors):
+            if restraints or positions or (self.energies_without_anchors and anchors):
                 energy = self._force_field(mol, conf_id, setup).CalcEnergy()
             else:
                 energy = ff.CalcEnergy()
@@ -292,7 +292,7 @@ class MMFFOptimizer(ForceFieldOptimizer):
         force_constant=1000000,
         num_threads=1,
         converge: bool = False,
-        anchor_free_energies: bool = False,
+        energies_without_anchors: bool = False,
         dielectric_model: str = "constant",
         dielectric_constant: float = 1.0,
         num_workers: Optional[int] = 1,
@@ -303,7 +303,7 @@ class MMFFOptimizer(ForceFieldOptimizer):
             force_constant=force_constant,
             num_threads=num_threads,
             converge=converge,
-            anchor_free_energies=anchor_free_energies,
+            energies_without_anchors=energies_without_anchors,
             num_workers=num_workers,
         )
         if dielectric_model not in DIELECTRIC_MODELS:

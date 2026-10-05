@@ -7,7 +7,7 @@ Constructor parameters:
 - `conf_id_ref: int = -1` : reference conformer ID on the TS molecule
 - `force_constant: float = 1e6` : force constant of distance constraints to TS reference points
 
-Further settings (`converge`, `anchor_free_energies`, the MMFF dielectric) are described
+Further settings (`converge`, `energies_without_anchors`, the MMFF dielectric) are described
 with the [settings](../pipeline.md#settings).
 
 <a id="mmff_optimizer"></a>

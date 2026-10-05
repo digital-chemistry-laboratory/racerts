@@ -387,11 +387,11 @@ def _add_pipeline_options(command, defaults) -> None:
         f"early next to the frozen atoms; default {defaults.refine.converge}).",
     )
     command.add_argument(
-        "--anchor-free-energies",
+        "--energies-without-anchors",
         action=argparse.BooleanOptionalAction,
         default=None,
         help="Energies without the terms that hold the frozen atoms (default "
-        f"{defaults.refine.anchor_free_energies}).",
+        f"{defaults.refine.energies_without_anchors}).",
     )
     command.add_argument(
         "--dielectric",
@@ -514,7 +514,7 @@ def _config_from_args(args) -> PipelineConfig:
             backend=args.refine,
             fallback=False if args.no_fallback else None,
             converge=args.converge,
-            anchor_free_energies=args.anchor_free_energies,
+            energies_without_anchors=args.energies_without_anchors,
             **dielectric,
         ),
         prune=_replace(

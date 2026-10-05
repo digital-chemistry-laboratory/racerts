@@ -66,7 +66,7 @@ def refine_with_fallback(
             num_threads=failed.num_threads if num_threads is None else num_threads,
         )
         # Set afterwards: legacy UFF subclasses take only the arguments above.
-        for setting in ("converge", "anchor_free_energies", "num_workers"):
+        for setting in ("converge", "energies_without_anchors", "num_workers"):
             if hasattr(failed, setting):
                 setattr(optimizer, setting, getattr(failed, setting))
         run(optimizer)

@@ -433,7 +433,7 @@ def test_legacy_classes_keep_the_legacy_settings():
         assert embedder.chirality_fallback is True
     for optimizer in (LegacyMMFF(), LegacyUFF()):
         assert optimizer.converge is False
-        assert optimizer.anchor_free_energies is False
+        assert optimizer.energies_without_anchors is False
     # The new settings can still be chosen.
     assert CmapEmbedder(sequential_seeds=True).sequential_seeds is True
     assert LegacyMMFF(dielectric_model="distance").dielectric_model == "distance"

@@ -171,6 +171,63 @@ def test_targets_are_the_midpoints_of_equal_parts(aldol):
     assert lengths(around, 9) == lengths(around)
 
 
+def test_several_bonds_take_their_targets_as_a_latin_hypercube(aldol):
+    from racerts.task.transition_state import target_design
+
+    # Two bonds, five targets each: with target i of every bond in batch i the two
+    # lengths would only vary together (short-short to long-long). Every bond still
+    # takes each of its targets once; which ones go together spreads the batches over
+    # the box of the two windows.
+    task = TransitionState(REACTING, active_window=0.25, stratify=5)
+    pairs = task.active_pairs(aldol)
+    assert pairs == [CC, (11, 19)]
+    positions = aldol.GetConformer().GetPositions()
+    reference = {(a, b): np.linalg.norm(positions[a] - positions[b]) for a, b in pairs}
+    offsets = [
+        tuple(round(float(batch[pair] - reference[pair]), 3) for pair in pairs)
+        for batch in task.targets(aldol)
+    ]
+    assert offsets == [(-0.2, -0.1), (-0.1, 0.2), (0.0, 0.0), (0.1, -0.2), (0.2, 0.1)]
+
+    # The table behind it is fixed for the numbers of targets and bonds.
+    assert target_design(5, 2) == ((0, 1), (1, 4), (2, 2), (3, 0), (4, 3))
+    assert target_design(5, 1) == ((0,), (1,), (2,), (3,), (4,))  # one bond: as before
+    assert target_design(1, 3) == ((0, 0, 0),)
+
+    def nearest(design):
+        return min(
+            float(np.linalg.norm(a - b))
+            for i, a in enumerate(design)
+            for b in design[i + 1 :]
+        )
+
+    for k, m in ((2, 2), (3, 2), (4, 2), (5, 3), (6, 2), (7, 3), (9, 2), (12, 3)):
+        design = np.array(target_design(k, m), dtype=float)
+        assert design.shape == (k, m)
+        assert all(sorted(column) == list(range(k)) for column in design.T)
+        # No two batches closer than neighbours on the diagonal are.
+        assert nearest(design) >= np.sqrt(m) - 1e-9
+    spread = np.array(target_design(5, 2), dtype=float)
+    assert nearest(spread) == pytest.approx(np.sqrt(5.0))  # the diagonal: sqrt(2)
+    assert abs(np.corrcoef(spread.T)[0, 1]) < 1e-9
+
+    # Fewer conformers than targets: as many batches as conformers.
+    few = task.targets(aldol, 3)
+    assert len(few) == 3 and len({round(batch[CC], 4) for batch in few}) == 3
+
+    # Every conformer is embedded at the targets of its batch.
+    ensemble, _ = _run(aldol, task, n=10)
+    batches = collections.Counter(
+        tuple(sorted(ensemble.provenance(i)["active_bond_targets"].items()))
+        for i in ensemble.conf_ids
+    )
+    assert len(batches) == 5 and set(batches.values()) == {2}
+    for conf_id in ensemble.conf_ids:
+        for bond, target in ensemble.provenance(conf_id)["active_bond_targets"].items():
+            pair = tuple(int(i) for i in bond.split("-"))
+            assert abs(_length(ensemble, conf_id, pair) - target) < 0.05
+
+
 def test_attack_face_filter(aldol):
     ensemble, ctx = _run(aldol, TransitionState(REACTING, active_window=0.25), n=4)
     assert AttackFace().validate(ctx, ensemble) == {}

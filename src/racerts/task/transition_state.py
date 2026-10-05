@@ -1,11 +1,15 @@
 """Transition states: the reacting atoms and their neighbours are kept fixed."""
 
+import functools
+import itertools
 import logging
 from numbers import Real
 from typing import Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
 import numpy as np
 from rdkit import Chem
+
+from racerts.utils import seeds
 
 from .base import FrozenSet, check_atom_indices, remapped
 
@@ -21,6 +25,53 @@ FORMING_BOND_FACTOR = 1.6
 MIN_OPEN_ANGLE = 80.0
 MIN_WINDOW_FACTOR = 0.9  # of the covalent bond length: lower window starts are warned
 DEFAULT_TARGETS = 5  # target lengths of a window, unless stratify says otherwise
+# Which targets of several bonds go together (target_design): every order of a bond's
+# targets is tried up to this many targets, above it this many drawn orders.
+DESIGN_EXHAUSTIVE = 7
+DESIGN_TRIALS = 2000
+
+
+@functools.lru_cache(maxsize=None)
+def target_design(k: int, m: int) -> Tuple[Tuple[int, ...], ...]:
+    """
+    Which targets go together when m bonds have k targets each: k batches of m target
+    numbers, a Latin hypercube. Every bond takes each of its targets once. The first
+    bond counts up; every further one takes the order that keeps the batches furthest
+    apart (the smallest distance between two batches as large as possible), then the
+    one least correlated with the bonds before it. With one target per batch number
+    for every bond (the diagonal) the lengths of two bonds would only vary together,
+    e.g. a forming and a breaking bond from tight to loose and never from early to
+    late. The result is a fixed table for k and m; nothing is drawn per run.
+    """
+    design = np.arange(k, dtype=float)[:, None]
+    first, second = np.triu_indices(k, 1)
+    for bond in range(1, m):
+        if k <= DESIGN_EXHAUSTIVE:
+            orders = np.array(list(itertools.permutations(range(k))), dtype=float)
+        else:
+            stream = seeds.Stream(0, "target design", k, bond)
+            orders = np.argsort(
+                [[stream.random() for _ in range(k)] for _ in range(DESIGN_TRIALS)]
+            ).astype(float)
+        apart = ((design[first] - design[second]) ** 2).sum(axis=1)
+        nearest = (apart + (orders[:, first] - orders[:, second]) ** 2).min(
+            axis=1, initial=np.inf
+        )
+        correlation = np.zeros(len(orders))
+        if k > 2:
+            centred = orders - orders.mean(axis=1, keepdims=True)
+            before = design - design.mean(axis=0)
+            correlation = np.abs(
+                centred
+                @ before
+                / np.outer(
+                    np.linalg.norm(centred, axis=1), np.linalg.norm(before, axis=0)
+                )
+            ).max(axis=1)
+        # The first of the best: furthest apart, then least correlated.
+        best = np.lexsort((correlation.round(9), -nearest.round(9)))[0]
+        design = np.column_stack([design, orders[best]])
+    return tuple(tuple(int(i) for i in batch) for batch in design)
 
 
 class TransitionState:
@@ -55,6 +106,7 @@ class TransitionState:
         stratify: How a window is sampled. k >= 2: k target lengths, one per
             embedding batch: the midpoints of k equal parts of the window (for the
             reference +/- 0.25 A and k = 5: the reference, +/- 0.1 and +/- 0.2 A).
+            Several bonds combine their targets as a Latin hypercube (target_design).
             None (default): 5 targets, or one per conformer if there are fewer.
             0: the embedding places the lengths in the window (not evenly: distance
             geometry puts most at its lower edge). Either way,
@@ -210,14 +262,20 @@ class TransitionState:
     ) -> List[Dict[Tuple[int, int], float]]:
         """
         The target lengths of each batch (stratify > 0): the window of every bond in
-        k equal parts, each with its midpoint as the target. count: the number of
-        conformers, if there are fewer than targets: then as many parts as conformers.
+        k equal parts, each with its midpoint as the target. Every bond takes each of
+        its targets in one batch; with several bonds, which targets go together spreads
+        the batches over all combinations of short and long (target_design). count: the
+        number of conformers, if there are fewer than targets: then as many parts as
+        conformers.
         """
         k = self.stratify if count is None else max(1, min(self.stratify, count))
         windows = self.active_windows(mol)
         return [
-            {pair: lo + (hi - lo) * (i + 0.5) / k for pair, (lo, hi) in windows.items()}
-            for i in range(k)
+            {
+                pair: lo + (hi - lo) * (part + 0.5) / k
+                for part, (pair, (lo, hi)) in zip(parts, windows.items())
+            }
+            for parts in target_design(k, len(windows))
         ]
 
     def restraints(self, mol: Chem.Mol):

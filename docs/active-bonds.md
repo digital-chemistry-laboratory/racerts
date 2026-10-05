@@ -45,6 +45,11 @@ What changes with a window (`TransitionState(..., active_window=...)`):
   k = 5 the reference, ± 0.1 and ± 0.2 Å. None lies on an edge of the window, where a
   saddle search most often leaves for the reactant or the product. With fewer
   conformers than targets the window is divided into as many parts as conformers.
+  With several active bonds every bond takes each of its targets in one batch, and
+  which targets go together spreads the batches over the combinations (a Latin
+  hypercube, fixed for the numbers of targets and bonds): for two bonds and k = 5 the
+  offsets (−0.2, −0.1), (−0.1, +0.2), (0, 0), (+0.1, −0.2), (+0.2, +0.1) Å, so that
+  a forming and a breaking bond are sampled early and late as well as tight and loose.
   With `stratify=0`, distance geometry places the lengths in the window, most of them
   at its lower edge (72 % in the lowest fifth on the aldol TS of the tests, 53 % on a
   146-atom ring closure).

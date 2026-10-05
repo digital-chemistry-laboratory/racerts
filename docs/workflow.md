@@ -109,6 +109,15 @@ pipeline = staged(uma, rank=Rescore(batch=alpb, method="ALPB(dioxane)", add=True
   refiner, the surface it was optimized on.
 - Which energy to rank by is a question for a benchmark against the level of the final
   energies; the correction can reorder conformers by several kcal/mol.
+- Free energies: `Rescore` asks a calculator for energies only, so one that returns a
+  free energy (the energy plus a thermal correction from a Hessian of its own) ranks
+  by free energy without further code, e.g.
+  `Rescore(thermal_correction, method="G(GFN2-xTB)", add=True)` at the end of a
+  pipeline. It belongs after a free refinement to tight forces (about 0.01 eV/Å; at the
+  default 0.05 the corrections are off by as much as they differ between conformers)
+  and costs a Hessian per conformer. The energy windows before it should be the wanted
+  free-energy window plus about 2 kcal/mol: inside an ensemble the thermal correction
+  varies by 1 to 2 kcal/mol.
 
 ## The gate
 

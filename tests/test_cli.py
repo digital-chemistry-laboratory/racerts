@@ -60,6 +60,16 @@ def test_ts_rejects_invalid_settings(tmp_path, capsys):
         main(["ts", EX, "-r", "3", "4", "5", "--config", str(config), "-vv"])
 
 
+def test_a_config_file_that_cannot_be_read_is_an_error_message(tmp_path, capsys):
+    pytest.importorskip("yaml")
+    broken = tmp_path / "config.yaml"
+    broken.write_text("embed: {n_conformers: 5\nprune: [")
+    with pytest.raises(SystemExit) as exit:
+        main(["ts", EX, "-r", "3", "4", "5", "--config", str(broken)])
+    assert exit.value.code == 2
+    assert f"racerts: error: {broken}: " in capsys.readouterr().err
+
+
 @pytest.mark.parametrize(
     "argv, message",
     [

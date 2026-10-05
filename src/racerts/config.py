@@ -436,7 +436,10 @@ class PipelineConfig:
         file have their defaults, or with legacy those of PipelineConfig.legacy().
         """
         with open(path) as handle:
-            data = _load_yaml(handle) if _is_yaml(path) else json.load(handle)
+            try:
+                data = _load_yaml(handle) if _is_yaml(path) else json.load(handle)
+            except ValueError as error:  # not JSON, or not YAML (see _load_yaml)
+                raise ValueError(f"{path}: {error}") from None
         if data is None:  # an empty YAML file
             data = {}
         if legacy:
@@ -593,4 +596,7 @@ def _load_yaml(handle):
         re.compile(r"^[-+]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)[eE][-+]?[0-9]+$"),
         list("-+0123456789."),
     )
-    return yaml.load(handle, Loader=Loader)
+    try:
+        return yaml.load(handle, Loader=Loader)
+    except yaml.YAMLError as error:  # on one line, as a ValueError like json's
+        raise ValueError(" ".join(str(error).split())) from None

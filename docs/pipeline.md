@@ -319,6 +319,54 @@ ensemble = racerts.generate_ts("sn2.xyz", [0, 1, 2], charge=-1, smiles="CCl.[Cl-
                                pipeline=pipeline)
 ```
 
+## Independent runs
+
+Is the search converged? For a flexible system one run does not tell: its own statistics
+see only the region it reached. `generate_runs` repeats the search with several seeds,
+merges the runs and compares them:
+
+```python
+result = racerts.generate_runs(mol, task, seeds=[1, 2, 3], config=config)
+print(result.report)
+ensemble = result.merged      # every conformer once; provenance "run" and "found_by"
+result.ensembles              # the ensemble of each seed
+if not result.report.converged(tolerance=0.3):
+    ...                       # more seeds, more conformers, or a local search (Exploit)
+```
+
+```
+3 runs, energies MMFFOptimizer (kcal/mol, 298.15 K)
+run         conformers   lowest   free energy   (above the union of all)
+1                  177     0.43          0.51
+2                  173     0.00          0.65
+3                  190     0.44          0.46
+spread of the free energy between runs: 0.19
+found again: the population of a run within 2 of its minimum that another run has too
+  1 -> 2:  18% (12 of 77 conformers)
+  ...
+  mean 21%, lowest 14%
+merged runs: the free energy above that of all runs (mean, worst)
+  1 run: 0.54, 0.65
+  2 runs: 0.19, 0.22
+  3 runs: 0.00, 0.00
+leaving one run out changes the free energy by up to 0.22
+```
+
+- **free energy**: the ensemble free energy −RT ln Σ exp(−E/RT) of a run, above that of
+  the union. It is what enters a barrier or a reaction energy.
+- **found again**: the share of a run's low-energy population that another run has too.
+  The free energy converges before the list of conformers does: many conformers of
+  similar energy give the same free energy whichever of them a run finds.
+- **leaving one run out**: what the last run still changed. `report.converged(tolerance)`
+  asks whether that is at most `tolerance` kcal/mol.
+
+Two conformers are the same if their energies agree (0.1 kcal/mol for MMFF and UFF, 1.0
+for other methods; `energy_tolerance`) and their symmetry-aware heavy-atom RMSD is at
+most `rmsd` (0.25 Å). `racerts.compare_runs(ensembles)` and `racerts.merge_runs(ensembles)`
+do the same for ensembles from elsewhere (one method, an energy for every conformer).
+Active bonds that are still held at their targets do not compare: search the saddle
+points freely first.
+
 ## Conformer ensembles
 
 A `ConformerEnsemble` wraps the RDKit molecule with its conformers (`ensemble.mol`).

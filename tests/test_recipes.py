@@ -194,6 +194,48 @@ def test_a_ranking_energy_follows_every_expensive_refinement():
     assert staged(LJ, rank=rank, exploit=own).stages[names.index("exploit")] is own
 
 
+class _FailsWhenMarked(LennardJones):
+    def calculate(self, atoms=None, *args, **kwargs):
+        if atoms is not None and atoms.info.get("fail"):
+            raise RuntimeError("SCF not converged")
+        super().calculate(atoms, *args, **kwargs)
+
+
+class _FirstFails(ASEOptimizer):
+    """An expensive level whose calculation fails for the first conformer it gets."""
+
+    def optimize(self, mol, *args, **kwargs):
+        self.failed = mol.GetConformers()[0].GetId()
+        return super().optimize(mol, *args, **kwargs)
+
+    def _to_atoms(self, mol, conf_id, state):
+        atoms = super()._to_atoms(mol, conf_id, state)
+        atoms.info["fail"] = conf_id == self.failed
+        return atoms
+
+
+@pytest.mark.parametrize(
+    "rank",
+    [
+        None,
+        Rescore(LennardJones(), method="rank"),
+        Rescore(batch=lambda structures: [0.0] * len(structures), add=True),
+    ],
+    ids=["no ranking energy", "another energy", "a correction"],
+)
+def test_a_failed_optimization_costs_one_conformer(rank):
+    # A conformer whose calculation fails has no energy of the level and the geometry
+    # it came with: it must not be ranked, and must not stop the others.
+    expensive = _FirstFails(_FailsWhenMarked(), method="expensive", max_steps=3)
+    config = racerts.PipelineConfig(embed={"n_conformers": 8})
+    pipeline = staged(
+        expensive, config=config, exploit=None, rank=rank, windows=(1e6, 1e6, 1e6)
+    )
+    ensemble = racerts.generate_gs("CCCCO", pipeline=pipeline)
+    assert len(ensemble) >= 2 and expensive.failed not in ensemble.conf_ids
+    assert all(ensemble.energy(i) is not None for i in ensemble.conf_ids)
+
+
 def test_the_saddle_recipe():
     from racerts.recipes import saddles
     from racerts.validate import Connectivity, Converged, ReactionCore, ReactionMode

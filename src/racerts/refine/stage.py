@@ -76,7 +76,10 @@ def refine_with_fallback(
 class Refine:
     """
     Refines the conformers in place, with the hard frozen atoms of the task as anchors,
-    and records the optimizer as the molecule property "energy_method".
+    and records the optimizer as the molecule property "energy_method". A conformer
+    whose optimization failed (it has no energy afterwards, and the geometry it came
+    with) is removed with a warning: every conformer that goes on has the energy of
+    this refinement.
 
     Args:
         optimizer: Any BaseOptimizer; default MMFFOptimizer.
@@ -157,6 +160,15 @@ class Refine:
             fallback=UFFOptimizer if self.fallback else None,
         )
         ensemble.mol.SetProp("energy_method", energy_method)
+        failed = [i for i in ensemble.conf_ids if ensemble.energy(i) is None]
+        if failed:  # e.g. an SCF that did not converge: nothing of this level to keep
+            logger.warning(
+                "%d conformers have no energy after the refinement and are removed: %s",
+                len(failed),
+                failed,
+            )
+            for conf_id in failed:
+                ensemble.mol.RemoveConformer(conf_id)
         record_active_lengths(ctx, ensemble)
         if released:
             release_targets(ensemble)

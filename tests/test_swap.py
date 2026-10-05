@@ -920,6 +920,31 @@ def test_new_stereo_at_the_attachment_comes_from_the_reference():
     assert graphs == {canonical("C/C=C/c1ccccc1"), canonical("C/C=C\\c1ccccc1")}
 
 
+def test_new_double_bond_stereo_does_not_depend_on_how_the_bond_is_stored():
+    # RDKit takes the stereo atoms of a bond from its begin atom's side first, and a
+    # bond is as often stored from the higher to the lower atom index (half of the
+    # atom orders of a graph perceived from coordinates).
+    styrene = embedded("C=Cc1ccccc1")
+    stored = Chem.RWMol(styrene)
+    stored.RemoveBond(0, 1)
+    stored.AddBond(1, 0, Chem.BondType.DOUBLE)
+    stored = stored.GetMol()
+    Chem.SanitizeMol(stored)
+    assert stored.GetBondBetweenAtoms(0, 1).GetBeginAtomIdx() == 1
+    hydrogens = [
+        n.GetIdx()
+        for n in styrene.GetAtomWithIdx(0).GetNeighbors()
+        if n.GetAtomicNum() == 1
+    ]
+    graphs = set()
+    for h in hydrogens:
+        change = Swap("[*]C", remove_atoms=[h])
+        expected = identity(apply_swap(styrene, change).mol)
+        assert identity(apply_swap(stored, change).mol) == expected
+        graphs.add(expected)
+    assert graphs == {canonical("C/C=C/c1ccccc1"), canonical("C/C=C\\c1ccccc1")}
+
+
 def test_charge_and_multiplicity_carry_over(sn2_ts):
     from racerts.system import GRAPH_METHODS, build_mol
 

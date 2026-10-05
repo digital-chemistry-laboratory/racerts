@@ -900,6 +900,8 @@ def _settle_new_stereo(mol, result, ref_to_new, anchored, carried_atoms, carried
         result.GetAtomWithIdx(i).SetChiralTag(tag)
     for pair, (stereo_atoms, stereo) in agreed_bonds.items():
         bond = result.GetBondBetweenAtoms(*pair)
+        if bond.GetBeginAtomIdx() != min(pair):  # RDKit: the begin atom's side first
+            stereo_atoms = stereo_atoms[::-1]
         bond.SetStereoAtoms(*stereo_atoms)
         bond.SetStereo(stereo)
     for bond in result.GetBonds():  # re-perceive, E/Z by CIP of the new graph

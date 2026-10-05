@@ -64,6 +64,9 @@ def staged(
     rank=None,
     pool: Optional[int] = None,
     pool_by: str = "family",
+    middle=None,
+    middle_window: float = 15.0,
+    middle_exploit=None,
 ) -> Pipeline:
     """
     The staged workflow as a pipeline:
@@ -75,7 +78,8 @@ def staged(
        (racerts.validate.gate), the forming-bond stereo filter for windowed TSs, and a
        loose energy window (windows[0]) with the RMSD pruning: this removes embedding
        artifacts and duplicates, while the cheap energies do not decide much; with
-       pool, at most that many conformers go on;
+       middle, a level in between (below); with pool, at most that many conformers
+       go on;
     3. refine at the expensive level (an ASE calculator: xTB, an MLIP), the gate again,
        the ranking energy if it is another one (rank), the ranking window (windows[1])
        and the RMSD pruning;
@@ -111,6 +115,14 @@ def staged(
             "energy" (the lowest by the cheap energy; PruneCount). The cheap level
             often misranks a flexible system, and Exploit searches only around what
             it gets: families keep more regions in the pool.
+        middle: A refinement between the cheap and the expensive level (a Refine
+            stage or an optimizer, e.g. an ASEOptimizer with GFN-FF or GFN2-xTB and
+            worker processes), followed by the gate, its energy window (middle_window,
+            kcal/mol) and the RMSD pruning. It removes what the force field misranks
+            before the expensive level sees it.
+        middle_exploit: Settings of an Exploit at the middle level (a dict; None:
+            none). Ring flips and torsion moves are cheap there, and the pool for the
+            expensive level then draws on the minima they find.
         rank: A Rescore stage for the energy that steps 3 to 5 rank by, if not the
             energy of the expensive refinement: e.g. that energy plus a solvation
             correction (Rescore(batch=..., add=True)). It follows every expensive
@@ -135,6 +147,21 @@ def staged(
     select = []
     if pool is not None:
         select = [FamilySelector(pool) if pool_by == "family" else PruneCount(pool)]
+    between = []
+    if middle is not None:
+        if not middle_window > 0:
+            raise ValueError("middle_window must be a positive energy (kcal/mol).")
+        middle = _refine(middle)
+        between = [
+            middle,
+            gate(),
+            PruneEnergy(EnergyPruner(threshold=middle_window)),
+            PruneRMSD(),
+        ]
+        if middle_exploit is not None:
+            between += [Exploit(middle, **dict(middle_exploit)), PruneRMSD()]
+    elif middle_exploit is not None:
+        raise ValueError("middle_exploit needs the middle level (middle=...).")
     cheap = _refine(cheap) if cheap is not None else config.refine_stage()
     expensive = _refine(expensive)
     stages = [embed if embed is not None else _DefaultEmbed(config)]
@@ -146,6 +173,7 @@ def staged(
         _WindowedTS(Validate(AttackFace())),
         PruneEnergy(EnergyPruner(threshold=windows[0])),
         PruneRMSD(),
+        *between,
         *select,
         expensive,
         gate(),

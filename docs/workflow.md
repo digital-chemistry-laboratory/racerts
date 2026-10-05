@@ -38,6 +38,8 @@ Arguments:
   of each cluster, then the second best, ...) or by the cheap energy (`"energy"`). The
   cheap level often misranks a flexible system, and Exploit searches only around what
   it gets.
+- **`middle`, `middle_window`, `middle_exploit`:** a level between the cheap and the
+  expensive one (below).
 - **`rescore`:** a `Rescore` stage at the end.
 - **`rank`:** a `Rescore` stage for the energy that steps 3 to 5 rank by, when that is
   not the energy of the expensive refinement (see below).
@@ -47,6 +49,28 @@ Arguments:
   refinement relaxes such contacts, so only overlaps are dropped here; the gate after each
   refinement checks clashes at 0.7. A filter at 0.7 here can drop the conformer that is
   the lowest after refinement.
+
+## A level in between
+
+A force field misranks the conformers of a flexible system, and it does not sample ring
+conformations that distance geometry missed. A semiempirical level between the two
+levels helps with both:
+
+```python
+from tblite.ase import TBLite
+
+gfn2 = ASEOptimizer(lambda: TBLite(method="GFN2-xTB", verbosity=0), method="GFN2-xTB",
+                    fmax=0.05, max_steps=300, num_workers=None)   # all CPUs
+pipeline = staged(uma, middle=gfn2, middle_exploit={"max_optimizations": 400}, pool=30)
+```
+
+- `middle` refines what passed the cheap level, with the gate, an energy window
+  (`middle_window`, 15 kcal/mol) and the RMSD pruning.
+- `middle_exploit` runs `Exploit` there: ring flips and torsion moves cost little at this
+  level, and the pool for the expensive level then draws on the minima they find.
+- An `ASEOptimizer` with a calculator factory and `num_workers` runs in worker processes,
+  one single-threaded calculator each. The force-field level has `refine.num_workers` for
+  the same.
 
 ## The ranking energy
 

@@ -145,6 +145,38 @@ def test_the_pool_limits_the_expensive_refinements():
     assert counting.calls == 4 and 1 <= len(ensemble) <= 4
 
 
+def test_a_middle_level_with_its_own_search():
+    # e.g. GFN-FF or GFN2-xTB between the force field and the MLIP: it removes what the
+    # force field misranks before the expensive level, and Exploit there is cheap
+    # (ring flips, torsions), so the pool for the expensive level draws on more.
+    middle = ASEOptimizer(LennardJones(), method="middle")
+    pipeline = staged(
+        LJ, middle=middle, middle_window=12.0, middle_exploit={"batch": 4}, pool=20
+    )
+    names = [s.name for s in pipeline.stages]
+    first = names.index("prune_rmsd")  # the end of the cheap level
+    assert names[first + 1 : first + 9] == [
+        "refine", "validate", "prune_energy", "prune_rmsd",  # the middle level
+        "exploit", "prune_rmsd",  # its search
+        "select_families",  # the pool
+        "refine",  # the expensive level
+    ]  # fmt: skip
+    middle_stage = pipeline.stages[first + 1]
+    assert middle_stage.optimizer is middle
+    assert _thresholds(pipeline) == [25.0, 12.0, 8.0, 6.0]
+    search = pipeline.stages[first + 5]
+    assert search.refine is middle_stage and search.batch == 4
+    assert names.count("exploit") == 2  # and the one at the expensive level
+
+    # Without a search at the middle level; a search needs the level.
+    plain = [s.name for s in staged(LJ, middle=middle).stages]
+    assert plain.count("exploit") == 1 and plain.count("refine") == 3
+    with pytest.raises(ValueError, match="middle"):
+        staged(LJ, middle_exploit={})
+    with pytest.raises(ValueError, match="middle_window"):
+        staged(LJ, middle=middle, middle_window=0)
+
+
 def test_a_ranking_energy_follows_every_expensive_refinement():
     rank = Rescore(LennardJones(), method="lj-rank")
     pipeline = staged(LJ, rank=rank)

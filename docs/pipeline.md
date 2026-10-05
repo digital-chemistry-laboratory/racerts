@@ -172,7 +172,7 @@ More stages:
 | `PruneCluster(ClusterPruner(...))` | keeps one conformer per cluster (`ClusterPruner` from `racerts.prune`): Butina, hierarchical (scipy) or leader clustering, on the RMSD after superposition with fixed atoms (`kernel="aligned"`, e.g. for TS graphs without bonds), the symmetry-aware RMSD (`"symmetric"`), or any `metric(mol, a, b)`; the lowest or the central member |
 | `racerts.prune.FamilySelector(n_max, clusterer)` | up to `n_max` conformers spread over the clusters: the best of each, then the second best, ... (families ordered by their best member) |
 | `Validate(*validators, on_fail="drop" or "flag")` | checks the conformers (see below) |
-| `Exploit(Refine(ASEOptimizer(...)))` | usage-directed Monte Carlo around the pruned conformers: new minima nearby, from torsions and rigid-body moves of fragments, refined by an ASE calculator (xTB, MLIPs); stops when new minima become rare (see below) |
+| `Exploit(Refine(ASEOptimizer(...)))` | usage-directed Monte Carlo around the pruned conformers: new minima nearby, from torsions, rigid-body moves of fragments and ring flips, refined by an ASE calculator (xTB, MLIPs); stops when new minima become rare (see below) |
 
 `Pipeline.run(ctx, ensemble)` continues an ensemble (e.g. to refine it with another
 method) and leaves the ensemble passed in unchanged; stages may change the ensemble they
@@ -193,9 +193,14 @@ PruneRMSD → Exploit → PruneRMSD`). It is usage-directed multiple-minimum Mon
 (Chang, Guida, Still 1989):
 
 - each iteration takes the `batch` least-used conformers within `energy_window` of the
-  minimum and applies one to three random moves: torsions (never the side with frozen
-  atoms; not amide or ester bonds, not methyl groups) and rotations of fragments without
-  frozen atoms (about their restrained atom, or shifted as well);
+  minimum and applies one to three random moves:
+  - torsions: never the side with frozen atoms; not amide or ester bonds, not methyl
+    groups;
+  - rotations of fragments without frozen atoms, about their restrained atom (or
+    shifted as well);
+  - ring flips of non-fused five- and six-membered rings: chair flips, twist-boats,
+    envelopes and twists. The substituents turn with their ring atom, so a chair flip
+    swaps axial and equatorial;
 - candidates whose heavy atoms clash are drawn again; the others are refined in one
   call by the stage's refiner, which must be an `ASEOptimizer` (xTB, MLIPs: force-field
   minima would be the wrong ones; with MMFF/UFF, Exploit warns and changes nothing);

@@ -287,6 +287,11 @@ def _height(
 
 
 CLASH_FACTOR = 0.7  # heavy atoms closer than this times their vdW sum clash
+# Heavy atoms closer than this times their vdW sum overlap: below every lower bound that
+# RDKit's distance geometry sets for the pairs Clash checks (0.7 for most pairs four
+# bonds apart, 0.555 for some). An embedded conformer can sit at such a bound, which
+# refinement relaxes, but not below it.
+OVERLAP_FACTOR = 0.5
 REFERENCE_MARGIN = 0.2  # A: pairs that close in the reference clash only this closer
 
 

@@ -44,7 +44,9 @@ The new fragment is a SMILES with one dummy per attachment (`[*]`, or `[*:1]`,
   takes the configuration of the reference where the reference geometry defines it
   (the atoms around it are kept or replace a removed atom): which hydrogen is replaced
   chooses it. Otherwise (e.g. around the rest of a grafted fragment) it stays
-  unspecified.
+  unspecified. A stereocentre that gains a neighbour in the swap (a phosphine made a
+  phosphine oxide) is left unspecified as well, with a warning: both configurations
+  are then generated.
 - Charge: that of the reference, changed by the formal charges of the fragment and of
   the atoms that leave; the multiplicity of the reference, if it has one.
 - A kept atom may not lose bond order (e.g. C=O replaced by C–F would leave the carbon
@@ -69,6 +71,17 @@ stretched.
 | `"hard"` | as in the reference | the graft only (one conformer per reference, checked for clashes) |
 | `"soft"` (default) | start at the reference; held within 0.3 Å by position restraints (k = 5 kcal/(mol Å²)) in MMFF/UFF; the junction is free | sampled |
 | `"free"` | only the frozen atoms of `task` held | sampled with everything else |
+
+Two limits of the sampling:
+
+- A double bond in a strained ring or bridge can embed with the stereo of the graph,
+  only twisted, and relax into the other isomer in the force field. The stereo check of
+  the pipeline (`prune.check_stereo`, on by default, off with the legacy settings)
+  removes such conformers.
+- With `conserve="soft"`, embedding can end without a conformer two bonds from a
+  cis-substituted double bond whose E/Z is in the graph (distance geometry bounds the
+  cis 1,4-distance below the one of real geometries, where the kept atoms are held);
+  `conserve="free"` or `"hard"` work.
 
 Routes (`routes`, default `["dg"]`): `"dg"`, distance geometry with the kept atoms
 placed by the coordinate map; `"rigid"` (opt-in), conformers of the fragment turned

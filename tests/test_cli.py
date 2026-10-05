@@ -176,6 +176,7 @@ def test_ts_without_options_runs_the_defaults(call):
         active_window=None,
         active_bonds=None,
         stratify=0,
+        pipeline=None,
     )
 
 
@@ -264,10 +265,21 @@ def test_ts_legacy_option_and_wrong_values(call, capsys):
         (["--restraint", "a", "6", "4.6"], "--restraint takes two atom indices"),
         (["--active-window", "1", "2", "3"], "--active-window takes DELTA or LO HI"),
         (["--stratify", "3"], "need --active-window"),
+        (["--export-to", "x.inp"], "--export-to needs --export-restraints"),
     ]:
         with pytest.raises(SystemExit):
             run_subcommand([*TS, *options])
         assert message in capsys.readouterr().err
+
+
+def test_export_options_replace_the_pipeline(call, tmp_path):
+    out = str(tmp_path / "ensemble.xyz")
+    (stage,) = call(*TS, "--export-restraints", "orca", "-o", out)["pipeline"].stages
+    assert (stage.fmt, stage.path) == ("orca", str(tmp_path / "restraints.inp"))
+    (stage,) = call("gs", "CCO", "--export-restraints", "json", "--export-to", out)[
+        "pipeline"
+    ].stages
+    assert (stage.fmt, stage.path) == ("json", out)
 
 
 def test_gs_options_reach_generate_gs(call):
@@ -275,7 +287,7 @@ def test_gs_options_reach_generate_gs(call):
 
     assert seen.pop("args") == ("CC(=O)[O-].[NH4+]",)
     assert seen.pop("config").to_dict() == _with({"restraints.link_fragments": True})
-    assert seen == dict(charge=None, multiplicity=1)
+    assert seen == dict(charge=None, multiplicity=1, pipeline=None)
     assert call("gs", "CCO", "-c", "0")["charge"] == 0
 
 
@@ -355,6 +367,12 @@ def test_swap_command_rejects_what_it_does_not_use(tmp_path, sn2_ts, capsys):
              "--remove", "3", "--keep-hbonds", "--embed", "bounds"]
         )  # fmt: skip
     assert "unrecognized arguments: --keep-hbonds --embed" in capsys.readouterr().err
+    with pytest.raises(SystemExit):
+        run_subcommand(
+            ["swap", sn2_ts, "--new", "[*]C", "--remove", "3", "--export-restraints"]
+            + ["xtb"]
+        )
+    assert "unrecognized arguments: --export-restraints" in capsys.readouterr().err
     with pytest.raises(SystemExit):
         run_subcommand(["swap", sn2_ts, "--new", "[*]C"])  # no selector
     with pytest.raises(SystemExit):

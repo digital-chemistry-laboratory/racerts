@@ -103,3 +103,33 @@ config = racerts.PipelineConfig.from_dict({
     "restraints": {"hbonds": True, "contain": 6.0, "roles": {"9": "free"}},
 })
 ```
+
+## Restraints for other programs
+
+`--export-restraints` writes the frozen atoms and the restraints of a system for another
+program and stops before embedding. It is the exit for sampling with another program,
+e.g. CREST with racerts' restraints:
+
+```bash
+racerts ts ts.xyz -r 3 4 5 --keep-hbonds --export-restraints crest   # restraints.xcontrol
+crest ts.xyz --cinp restraints.xcontrol ...
+```
+
+| Format | Written | For |
+| --- | --- | --- |
+| `xtb` | `$fix` for the frozen atoms, `$constrain` for the windows | `xtb --input` |
+| `crest` | `$constrain` for the frozen atoms (with `reference=`, written next to the file) and the windows, `$metadyn` on the other atoms | `crest --cinp` |
+| `orca` | a `%geom` block with the frozen atoms and the windows as constraints | ORCA optimizations |
+| `json` | the frozen atoms and the restraints | anything else |
+
+- **Windows:** none of these programs has flat-bottom distances, so every window becomes a
+  harmonic constraint at its centre (ORCA: an exact one), and a warning says so. Windows
+  without a lower bound (containment) are left out.
+- **Force constants:** xtb and CREST take one force constant for all constraints. racerts
+  converts it (xtb: E = fc·(d − d0)² in Eh/bohr², checked with xtb 6.6.1). With frozen
+  atoms, CREST gets xtb's default 0.5 Eh/bohr², so that the frozen atoms hold; the
+  windows are then held as stiffly.
+- **Atom numbering:** 1-based for xtb and CREST, 0-based for ORCA and JSON.
+
+In Python, `racerts.restraints.export.export_restraints(ctx, "crest")` returns the text,
+and the stage `ExportRestraints(format, path)` writes it.

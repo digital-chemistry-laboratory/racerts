@@ -42,6 +42,8 @@ $ racerts gs "OC(=O)[C@@H]1CCCN1C(C)=C" [options]
 | `--check-stereo`, `--no-check-stereo` | drop conformers whose stereo differs from the graph after refinement |
 | `-o`, `--output` | output file (default `conformer_ensemble.xyz`) |
 | `--crest-energies` | only the energy (Hartree) on each comment line, as CREST does |
+| `--export-restraints {xtb,crest,orca,json}` | write the frozen atoms and restraints for another program and stop before embedding ([restraints](restraints.md#restraints-for-other-programs)) |
+| `--export-to PATH` | the file of `--export-restraints` (default `restraints.xcontrol`, `.inp` or `.json` next to the output) |
 | `-v`, `-vv` | progress (INFO) or details (DEBUG) on stderr |
 
 Wrong input (an invalid setting, a missing file, an invalid SMILES) ends with a message

@@ -17,8 +17,12 @@ from dataclasses import replace
 from racerts.api import CONSERVE, SWAP_ROUTES, generate_gs, generate_ts, swap
 from racerts.config import PipelineConfig
 from racerts.embed import CHIRALITY_FALLBACK_MODES, COUNT_POLICIES, EMBED_MODES
+from racerts.pipeline import Pipeline
 from racerts.refine import REFINE_BACKENDS
 from racerts.refine.forcefield import DIELECTRIC_MODELS
+from racerts.restraints.export import DEFAULT_PATHS as EXPORT_PATHS
+from racerts.restraints.export import FORMATS as EXPORT_FORMATS
+from racerts.restraints.export import ExportRestraints
 from racerts.system import GRAPH_METHODS, build_mol
 from racerts.system.swap import MODES as SWAP_MODES
 from racerts.system.swap import Swap
@@ -288,6 +292,17 @@ def _add_embedding_and_restraint_options(command, defaults) -> None:
         help="Flat-bottom force constant, kcal/(mol A^2) (default "
         f"{defaults.restraints.force_constant:g}).",
     )
+    command.add_argument(
+        "--export-restraints",
+        choices=list(EXPORT_FORMATS),
+        help="Write the frozen atoms and restraints for xtb, CREST (--cinp), ORCA "
+        "or as JSON, and stop before embedding.",
+    )
+    command.add_argument(
+        "--export-to",
+        help="File of --export-restraints (default: restraints.xcontrol, "
+        ".inp or .json next to the output).",
+    )
 
 
 def _add_pipeline_options(command, defaults) -> None:
@@ -518,6 +533,14 @@ def _run_subcommand(parser, args):
     if args.command == "swap":
         return _run_swap(parser, args)
     config = _config_from_args(args)
+    pipeline = None
+    if args.export_restraints:
+        path = args.export_to or os.path.join(
+            os.path.dirname(args.output), EXPORT_PATHS[args.export_restraints]
+        )
+        pipeline = Pipeline([ExportRestraints(args.export_restraints, path)])
+    elif args.export_to:
+        parser.error("--export-to needs --export-restraints.")
 
     if args.command == "ts":
         _check_file(parser, args.filename)
@@ -547,7 +570,10 @@ def _run_subcommand(parser, args):
             active_bonds=args.active_bond,
             stratify=args.stratify,
             **window_options,
+            pipeline=pipeline,
         )
+        if pipeline is not None:
+            return ensemble
         if window is not None:
             write_active_bonds(
                 ensemble, os.path.join(os.path.dirname(args.output), "active_bonds.csv")
@@ -558,7 +584,10 @@ def _run_subcommand(parser, args):
             charge=args.charge,
             multiplicity=args.multiplicity,
             config=config,
+            pipeline=pipeline,
         )
+        if pipeline is not None:
+            return ensemble
     ensemble.write_xyz(args.output, use_energy=args.crest_energies)
     return ensemble
 

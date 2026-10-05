@@ -60,6 +60,7 @@ def staged(
     rescore=None,
     clash_filter: Optional[float] = OVERLAP_FACTOR,
     config: Optional[PipelineConfig] = None,
+    rank=None,
 ) -> Pipeline:
     """
     The staged workflow as a pipeline:
@@ -72,8 +73,9 @@ def staged(
        loose energy window (windows[0]) with the RMSD pruning: this removes embedding
        artifacts and duplicates, while the cheap energies do not decide much;
     3. refine at the expensive level (an ASE calculator: xTB, an MLIP), the gate again,
-       the ranking window (windows[1]) and the RMSD pruning;
-    4. Exploit with the same refinement (unless exploit is None);
+       the ranking energy if it is another one (rank), the ranking window (windows[1])
+       and the RMSD pruning;
+    4. Exploit with the same refinement and ranking energy (unless exploit is None);
     5. the RMSD pruning of the whole, the final window (windows[2]), and optionally a
        Rescore stage (single points at a higher level or in the target solvent).
 
@@ -99,6 +101,10 @@ def staged(
             conformer that is the lowest afterwards.
         config: The settings of the default embedding and cheap refinement (default:
             PipelineConfig()); of no use with both embed and cheap given.
+        rank: A Rescore stage for the energy that steps 3 to 5 rank by, if not the
+            energy of the expensive refinement: e.g. that energy plus a solvation
+            correction (Rescore(batch=..., add=True)). It follows every expensive
+            refinement, also in Exploit (not in an Exploit stage given ready-made).
     """
     if config is not None and embed is not None and cheap is not None:
         raise ValueError("Give embed and cheap, or config for the default ones.")
@@ -127,12 +133,13 @@ def staged(
         PruneRMSD(),
         expensive,
         gate(),
+        *([rank] if rank is not None else []),
         PruneEnergy(EnergyPruner(threshold=windows[1])),
         PruneRMSD(),
     ]
     if exploit is not None:
         if not isinstance(exploit, Exploit):
-            exploit = Exploit(expensive, **dict(exploit))
+            exploit = Exploit(expensive, **{"rank": rank, **dict(exploit)})
         stages.append(exploit)
     stages += [PruneRMSD(), PruneEnergy(EnergyPruner(threshold=windows[2]))]
     if rescore is not None:

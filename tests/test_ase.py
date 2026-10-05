@@ -120,6 +120,32 @@ def test_rescore_raises_if_every_conformer_fails(refined):
     assert "previous_energy" not in ensemble.provenance(ensemble.conf_ids[0])
 
 
+def test_rescore_can_add_a_correction(refined):
+    # e.g. a solvation term from a cheaper method, on top of the energies of the search
+    ensemble, ctx = refined
+    before = ensemble.energies()
+    shifts = [0.01 * k for k in range(len(ensemble))]  # eV
+    Rescore(batch=lambda structures: shifts, method="shift", add=True).run(
+        ctx, ensemble
+    )
+    assert ensemble.energy_method == "MMFFOptimizer+shift"
+    expected = before + np.array(shifts) * EV_TO_KCAL_MOL
+    assert ensemble.energies() == pytest.approx(expected)
+    provenance = ensemble.provenance(ensemble.conf_ids[1])
+    assert provenance["previous_energy"] == pytest.approx(before[1])
+    assert provenance["previous_energy_method"] == "MMFFOptimizer"
+    assert provenance["energy_correction"] == pytest.approx(0.01 * EV_TO_KCAL_MOL)
+
+    # A correction needs an energy to add to.
+    bare = ensemble.copy()
+    for conf in bare.mol.GetConformers():
+        conf.ClearProp("energy")
+    with pytest.raises(ValueError, match="no energy to add"):
+        Rescore(batch=lambda structures: shifts, method="shift", add=True).run(
+            ctx, bare
+        )
+
+
 def test_rescore_with_a_batch_function(refined):
     ensemble, ctx = refined
     seen = []

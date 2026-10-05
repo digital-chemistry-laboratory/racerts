@@ -36,6 +36,11 @@ class Rescore:
             for a lambda).
         on_fail: For conformers whose calculation fails: "clear" leaves them without
             an energy (the pruners then drop them), "drop" removes them.
+        add: Add the single points to the energies instead of replacing them: a
+            correction, e.g. the solvation term of a cheaper method (its energy in
+            the solvent minus that in the gas phase, as a batch function). The method
+            is then recorded as "<previous method>+<method>", and the provenance holds
+            the correction ("energy_correction", kcal/mol).
         num_workers, charge, multiplicity, prepare: As in ASEOptimizer (not used with
             batch, except charge and multiplicity).
 
@@ -56,6 +61,7 @@ class Rescore:
         charge: Optional[int] = None,
         multiplicity: Optional[int] = None,
         prepare: Optional[Callable[[Any, Any], None]] = None,
+        add: bool = False,
     ):
         if (calculator is None) == (batch is None):
             raise ValueError("Give either a calculator or a batch function.")
@@ -77,12 +83,22 @@ class Rescore:
         self.on_fail = on_fail
         self.charge = charge
         self.multiplicity = multiplicity
+        self.add = add
+
+    def label(self, previous: Optional[str]) -> str:
+        """The energy_method after this stage, for energies of the method previous."""
+        return f"{previous}+{self.method}" if self.add else self.method
 
     def run(self, ctx, ensemble: ConformerEnsemble) -> ConformerEnsemble:
         mol = ensemble.mol
         conf_ids = ensemble.conf_ids
         if not conf_ids:
             raise ValueError("Rescore got an ensemble without conformers.")
+        if self.add and any(ensemble.energy(i) is None for i in conf_ids):
+            raise ValueError(
+                "Rescore(add=True) got conformers with no energy to add the "
+                "correction to: refine them first."
+            )
         energies, errors = self._energies(ctx, mol, conf_ids)
         failed = [
             conf_id
@@ -106,6 +122,10 @@ class Rescore:
             conf = mol.GetConformer(conf_id)
             if conf_id in failed:
                 conf.ClearProp("energy")
+            elif self.add:
+                correction = energy * EV_TO_KCAL_MOL
+                ensemble.add_provenance(conf_id, energy_correction=correction)
+                conf.SetDoubleProp("energy", previous + correction)
             else:
                 conf.SetDoubleProp("energy", energy * EV_TO_KCAL_MOL)
         if failed:
@@ -120,7 +140,7 @@ class Rescore:
             if self.on_fail == "drop":
                 for conf_id in failed:
                     mol.RemoveConformer(conf_id)
-        mol.SetProp("energy_method", self.method)
+        mol.SetProp("energy_method", self.label(previous_method))
         return ensemble
 
     def _energies(self, ctx, mol, conf_ids):

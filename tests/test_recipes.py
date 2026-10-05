@@ -105,6 +105,23 @@ def test_options():
     assert exploit.batch == 3 and exploit.max_optimizations == 9
 
 
+def test_a_ranking_energy_follows_every_expensive_refinement():
+    rank = Rescore(LennardJones(), method="lj-rank")
+    pipeline = staged(LJ, rank=rank)
+    names = [s.name for s in pipeline.stages]
+    expensive = names.index("refine", 3)  # after the cheap one
+    # refine, gate, the ranking energy, then the window and the duplicates
+    assert names[expensive : expensive + 5] == [
+        "refine", "validate", "rescore", "prune_energy", "prune_rmsd",
+    ]  # fmt: skip
+    assert pipeline.stages[expensive + 2] is rank
+    exploit = pipeline.stages[names.index("exploit")]
+    assert exploit.rank is rank
+    # A ready Exploit stage keeps its own setting.
+    own = racerts.Exploit(LJ)
+    assert staged(LJ, rank=rank, exploit=own).stages[names.index("exploit")] is own
+
+
 @pytest.mark.parametrize("windows", [(25, 8), (25, 8, -1)])
 def test_windows_are_checked(windows):
     with pytest.raises(ValueError, match="windows"):

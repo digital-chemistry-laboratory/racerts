@@ -181,7 +181,7 @@ More stages:
 | --- | --- |
 | `Embed(references="all" or ids)` | embeds from each of several reference geometries (conformers of the context's molecule, e.g. TSs found by a TS search); the provenance records `reference`, and `Refine` refines each conformer against its own reference |
 | `Refine(optimizer, anchors=False)` | refines all atoms freely, e.g. a saddle-point search from TS-like conformers; also releases [active-bond windows](active-bonds.md) |
-| `Rescore(calculator)` or `Rescore(batch=fn)` | replaces the energies by single points of an ASE calculator (xTB, MLIPs), or of a function that evaluates a list of Atoms at once; the replaced energy goes into the provenance |
+| `Rescore(calculator)` or `Rescore(batch=fn)` | replaces the energies by single points of an ASE calculator (xTB, MLIPs), or of a function that evaluates a list of Atoms at once; the replaced energy goes into the provenance. `add=True` adds them instead (a correction, e.g. a solvation term) |
 | `PruneCount(n_max, renumber=False)` | keeps the `n_max` lowest conformers (with [active-bond windows](active-bonds.md): the lowest of each target in turn) |
 | `PruneCluster(ClusterPruner(...))` | keeps one conformer per cluster (`ClusterPruner` from `racerts.prune`): Butina, hierarchical (scipy) or leader clustering, on the RMSD after superposition with fixed atoms (`kernel="aligned"`, e.g. for TS graphs without bonds), the symmetry-aware RMSD (`"symmetric"`), or any `metric(mol, a, b)`; the lowest or the central member |
 | `racerts.prune.FamilySelector(n_max, clusterer)` | up to `n_max` conformers spread over the clusters: the best of each, then the second best, ... (families ordered by their best member) |
@@ -239,7 +239,9 @@ pipeline = racerts.Pipeline([
 ```
 
 The conformers it gets must carry the energies of Exploit's refiner (`energy_method`,
-e.g. the `method` label of the `ASEOptimizer`). New conformers record `route="mc"`, `parent`,
+e.g. the `method` label of the `ASEOptimizer`). `Exploit(uma, rank=Rescore(...))` ranks
+by another energy than the refiner's ([the ranking energy](workflow.md#the-ranking-energy)).
+New conformers record `route="mc"`, `parent`,
 `moves` and `mc_iteration`; every conformer records `mc_usage` and `mc_hits`, and
 `exploit.stats` the numbers of the run. For a windowed TS, children keep their parent's
 active-bond targets, and energies are compared per window bin.

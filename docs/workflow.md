@@ -33,13 +33,53 @@ Arguments:
 - **`config`:** the [settings](pipeline.md#settings) of the default embedding and cheap
   refinement, e.g. `PipelineConfig(embed={"n_conformers": 100})`.
 - **`exploit`:** the settings of `Exploit` as a dict, or `None` to leave it out.
-- **`rescore`:** a `Rescore` stage.
+- **`rescore`:** a `Rescore` stage at the end.
+- **`rank`:** a `Rescore` stage for the energy that steps 3 to 5 rank by, when that is
+  not the energy of the expensive refinement (see below).
 - **`clash_filter`:** step 1 drops conformers with heavy atoms closer than this times
   their vdW sum (default 0.5; `None`: no filter). Distance geometry may place atoms four
   bonds apart at their lower bound, 0.7 times the vdW sum (0.555 for some), and
   refinement relaxes such contacts, so only overlaps are dropped here; the gate after each
   refinement checks clashes at 0.7. A filter at 0.7 here can drop the conformer that is
   the lowest after refinement.
+
+## The ranking energy
+
+The energy that optimizes the geometries need not be the one that ranks them. A common
+case: an MLIP in the gas phase for the geometries, and a solvation term from a cheaper
+method on top. `rank` is a `Rescore` stage that follows every expensive refinement, in
+step 3 and inside `Exploit`; the windows, the duplicates, Exploit's parents and its stop
+then use its energies:
+
+```python
+from tblite.ase import TBLite
+from racerts import Rescore
+
+def alpb(structures):
+    """E(GFN2, ALPB) - E(GFN2, gas phase) of each structure, in eV."""
+    corrections = []
+    for atoms in structures:
+        energies = []
+        for solvation in (None, ("alpb", "dioxane")):
+            atoms.calc = TBLite(method="GFN2-xTB", solvation=solvation, verbosity=0,
+                                charge=atoms.info["charge"],
+                                multiplicity=atoms.info["multiplicity"])
+            energies.append(atoms.get_potential_energy())
+        corrections.append(energies[1] - energies[0])
+    return corrections
+
+pipeline = staged(uma, rank=Rescore(batch=alpb, method="ALPB(dioxane)", add=True))
+```
+
+- `Rescore(..., add=True)` adds its single points to the energies (a correction);
+  without `add` it replaces them (single points at another level).
+- The method of the result is recorded (`UMA-s-1p2+ALPB(dioxane)`), and each conformer
+  keeps the energy of the refinement (`previous_energy`) and the correction
+  (`energy_correction`) in its provenance.
+- Whether a candidate of Exploit is a minimum is still judged with the energies of the
+  refiner, the surface it was optimized on.
+- Which energy to rank by is a question for a benchmark against the level of the final
+  energies; the correction can reorder conformers by several kcal/mol.
 
 ## The gate
 

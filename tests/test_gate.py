@@ -170,3 +170,17 @@ def test_the_gate(water_ts):
     assert checked.conf_ids == [0]
     validation = checked.provenance(0)["validation"]
     assert set(validation) == {"frozen_core", "connectivity", "clash", "restraints"}
+
+
+def test_a_graph_that_does_not_fit_the_reference_is_named(water_ts, caplog):
+    # A bond in the graph that the reference geometry lacks: the graph is wrong
+    # (e.g. a wrong atom mapping of the SMILES), not the conformers.
+    wrong = Chem.RWMol(water_ts)
+    wrong.AddBond(2, WATER_O, Chem.BondType.SINGLE)
+    ctx = racerts.Context.create(wrong.GetMol(), TransitionState([0, 1]))
+    with caplog.at_level(logging.WARNING, logger="racerts"):
+        reasons = racerts.validate.Connectivity().validate(
+            ctx, _ensemble(ctx, [_seed(ctx)] * 2)
+        )
+    assert len(reasons) == 2
+    assert "reference geometry" in caplog.text and "(2, 6)" in caplog.text

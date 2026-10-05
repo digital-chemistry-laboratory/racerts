@@ -3,6 +3,7 @@ Geometric validators: connectivity and stereo of the graph, the frozen core, cla
 restraints; gate() combines them after a refinement.
 """
 
+import logging
 from typing import Dict, Optional, Sequence
 
 import numpy as np
@@ -15,6 +16,8 @@ from racerts.restraints.model import position_restraints
 from racerts.system.stereo import StereoCheck
 
 from .base import Validate
+
+logger = logging.getLogger(__name__)
 
 
 class Connectivity:
@@ -65,6 +68,17 @@ class Connectivity:
             for bond in list(bondless.GetBonds()):
                 bondless.RemoveBond(bond.GetBeginAtomIdx(), bond.GetEndAtomIdx())
             bondless = bondless.GetMol()
+            reference = ctx.reference if ctx is not None else None
+            if reference is not None:
+                wrong = self._bond_mismatch(
+                    bondless, reference.GetConformer(), expected, exempt
+                )
+                if wrong is not None:
+                    logger.warning(
+                        "The graph does not fit the reference geometry (%s), so no "
+                        "conformer can pass: check the SMILES and its atom mapping.",
+                        wrong,
+                    )
         reasons = {}
         for conf in graph.GetConformers():
             reason = None

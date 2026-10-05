@@ -1,7 +1,10 @@
 """MMFF and UFF refinement with the anchor atoms held at the reference positions."""
 
+import copy
 import logging
-from concurrent.futures import ThreadPoolExecutor
+import multiprocessing
+import os
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from typing import Optional, Sequence
 
 from rdkit import Chem
@@ -55,6 +58,10 @@ class ForceFieldOptimizer(BaseOptimizer):
     Args:
         num_threads: Threads over the conformers. They gain little: RDKit's minimizer
             does not release Python's lock.
+        num_workers: Worker processes over the conformers (1: none; None: all CPUs of
+            the job), each with a share of them; the results are those of one process.
+            Starting a worker costs about a second, so they pay off for hundreds of
+            conformers of a large molecule.
         converge: Restart minimizations that stop early next to the anchors (see
             minimize); legacy racerts stops at the first converged call.
         anchor_free_energies: Report the energy of the force field without the anchor
@@ -71,13 +78,17 @@ class ForceFieldOptimizer(BaseOptimizer):
         num_threads=1,
         converge: bool = False,
         anchor_free_energies: bool = False,
+        num_workers: Optional[int] = 1,
     ):
+        if num_workers is not None and num_workers < 1:
+            raise ValueError("num_workers must be positive, or None for all CPUs.")
         self.verbose = verbose
         self.conf_id_ref = conf_id_ref
         self.force_constant = force_constant
         self.num_threads = num_threads
         self.converge = converge
         self.anchor_free_energies = anchor_free_energies
+        self.num_workers = num_workers
         self.maxIter = 100
 
     def _setup(self, mol: Chem.Mol):
@@ -104,6 +115,15 @@ class ForceFieldOptimizer(BaseOptimizer):
         Position restraints (soft atoms) hold atoms near points of the reference
         frame: without anchors, the conformers are aligned on their atoms.
         """
+        conformer_ids = [c.GetId() for c in mol.GetConformers()]
+        workers = getattr(self, "num_workers", 1)  # legacy subclasses set no attribute
+        if workers is None:
+            workers = len(os.sched_getaffinity(0))
+        workers = min(workers, len(conformer_ids))
+        if workers > 1:
+            return self._refine_in_processes(
+                mol, reference, anchors, restraints, workers
+            )
         positions = [r for r in restraints if isinstance(r, PositionRestraint)]
         restraints = [r for r in restraints if not isinstance(r, PositionRestraint)]
         anchors = list(anchors)
@@ -161,7 +181,6 @@ class ForceFieldOptimizer(BaseOptimizer):
 
             return local_fail
 
-        conformer_ids = [c.GetId() for c in mol.GetConformers()]
         if self.num_threads > 1:
             with ThreadPoolExecutor(max_workers=self.num_threads) as pool:
                 failures = sum(pool.map(_optimize, conformer_ids))
@@ -170,6 +189,75 @@ class ForceFieldOptimizer(BaseOptimizer):
 
         logger.info("%s: %d unconverged Minimize calls", type(self).__name__, failures)
         return failures
+
+    def _refine_in_processes(self, mol, reference, anchors, restraints, workers) -> int:
+        """_refine with the conformers shared among spawned worker processes."""
+        serial = copy.copy(self)
+        serial.num_workers, serial.num_threads = 1, 1
+        conformer_ids = [c.GetId() for c in mol.GetConformers()]
+        shared = (
+            None if reference is None else _pack(reference),
+            list(anchors),
+            list(restraints),
+        )
+        jobs = [
+            (serial, _pack(mol, conformer_ids[k::workers]), *shared)
+            for k in range(workers)
+        ]
+        context = multiprocessing.get_context("spawn")
+        with ProcessPoolExecutor(max_workers=workers, mp_context=context) as pool:
+            results = list(pool.map(_refine_share, jobs))
+        failures = 0
+        for share_failures, conformers in results:
+            failures += share_failures
+            for conf_id, positions, energy in conformers:
+                conf = mol.GetConformer(conf_id)
+                for atom, position in enumerate(positions):
+                    conf.SetAtomPosition(atom, position.tolist())
+                if energy is not None:
+                    conf.SetDoubleProp("energy", energy)
+        return failures
+
+
+def _pack(mol: Chem.Mol, conf_ids=None):
+    """The graph and the positions of the conformers (all, or conf_ids) for a worker.
+    The positions travel as arrays: RDKit's pickle keeps them in single precision."""
+    graph = Chem.Mol(mol)
+    graph.RemoveAllConformers()
+    conformers = [
+        (conf.GetId(), conf.GetPositions())
+        for conf in mol.GetConformers()
+        if conf_ids is None or conf.GetId() in conf_ids
+    ]
+    return graph.ToBinary(Chem.PropertyPickleOptions.AllProps), conformers
+
+
+def _unpack(packed) -> Chem.Mol:
+    graph, conformers = packed
+    mol = Chem.Mol(graph)
+    for conf_id, positions in conformers:
+        conf = Chem.Conformer(mol.GetNumAtoms())
+        for atom, position in enumerate(positions):
+            conf.SetAtomPosition(atom, position.tolist())
+        conf.SetId(conf_id)
+        mol.AddConformer(conf, assignId=False)
+    return mol
+
+
+def _refine_share(job):
+    """A worker's share: (failures, [(conformer id, positions, energy)])."""
+    optimizer, mol, reference, anchors, restraints = job
+    mol = _unpack(mol)
+    reference = None if reference is None else _unpack(reference)
+    failures = optimizer._refine(mol, reference, anchors, restraints)
+    return failures, [
+        (
+            conf.GetId(),
+            conf.GetPositions(),
+            conf.GetDoubleProp("energy") if conf.HasProp("energy") else None,
+        )
+        for conf in mol.GetConformers()
+    ]
 
 
 class UFFOptimizer(ForceFieldOptimizer):
@@ -207,6 +295,7 @@ class MMFFOptimizer(ForceFieldOptimizer):
         anchor_free_energies: bool = False,
         dielectric_model: str = "constant",
         dielectric_constant: float = 1.0,
+        num_workers: Optional[int] = 1,
     ):
         super().__init__(
             verbose=verbose,
@@ -215,6 +304,7 @@ class MMFFOptimizer(ForceFieldOptimizer):
             num_threads=num_threads,
             converge=converge,
             anchor_free_energies=anchor_free_energies,
+            num_workers=num_workers,
         )
         if dielectric_model not in DIELECTRIC_MODELS:
             raise ValueError(

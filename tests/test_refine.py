@@ -193,3 +193,51 @@ def test_refine_without_anchors_moves_the_frozen_atoms(hept_1_ene_ts):
         for conf in ensemble.mol.GetConformers()
     ]
     assert min(moved) > 0.05
+
+
+def test_worker_processes_give_the_results_of_one_process(hept_1_ene_ts):
+    # RDKit's minimizer holds Python's lock, so threads gain nothing; processes do.
+    task = TransitionState([3, 4, 5])
+    ctx = racerts.Context.create(hept_1_ene_ts, task, seed=4)
+    embedded = racerts.Embed(n_conformers=7).run(ctx)
+    serial = racerts.Refine(MMFFOptimizer()).run(ctx, embedded.copy())
+    pooled = racerts.Refine(MMFFOptimizer(num_workers=3)).run(ctx, embedded.copy())
+
+    assert pooled.conf_ids == serial.conf_ids
+    assert pooled.energies().tolist() == serial.energies().tolist()
+    for conf_id in serial.conf_ids:
+        np.testing.assert_array_equal(
+            pooled.mol.GetConformer(conf_id).GetPositions(),
+            serial.mol.GetConformer(conf_id).GetPositions(),
+        )
+    assert pooled.energy_method == "MMFFOptimizer"
+    # The provenance of the embedding is still there.
+    assert pooled.provenance(pooled.conf_ids[0]) == serial.provenance(
+        serial.conf_ids[0]
+    )
+
+
+def test_worker_processes_with_restraints_and_the_uff_fallback(hept_1_ene_ts):
+    # Restraints travel to the workers.
+    task = TransitionState([3, 4, 5])
+    ctx = racerts.Context.create(hept_1_ene_ts, task, seed=4)
+    restraint = racerts.restraints.DistanceRestraint.around(0, 6, 4.5, 0.1)
+    ctx = ctx.with_restraints([restraint])
+    embedded = racerts.Embed(n_conformers=4).run(ctx)
+    serial = racerts.Refine(MMFFOptimizer()).run(ctx, embedded.copy())
+    pooled = racerts.Refine(MMFFOptimizer(num_workers=2)).run(ctx, embedded.copy())
+    assert pooled.energies().tolist() == serial.energies().tolist()
+    free = racerts.Refine(MMFFOptimizer(num_workers=2)).run(
+        ctx.with_restraints([]), embedded.copy()
+    )
+    assert free.energies().tolist() != pooled.energies().tolist()  # they acted
+
+    # An MMFF failure in the workers falls back to UFF, with the same workers.
+    pipeline = racerts.Pipeline(
+        [racerts.Embed(n_conformers=4), racerts.Refine(MMFFOptimizer(num_workers=2))]
+    )
+    ensemble = racerts.generate_ts(BORONIC_ACID, [0, 1, 2], pipeline=pipeline)
+    assert ensemble.energy_method == "UFFOptimizer" and len(ensemble) == 4
+
+    with pytest.raises(ValueError, match="num_workers"):
+        MMFFOptimizer(num_workers=0)

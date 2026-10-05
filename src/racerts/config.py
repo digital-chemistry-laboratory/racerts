@@ -114,6 +114,9 @@ class RefineConfig:
             atoms or active-bond windows they are always left out.
         dielectric_model: MMFF electrostatics, "constant" or "distance"-dependent.
         dielectric_constant: MMFF dielectric constant.
+        num_workers: Worker processes of the force-field refinement (1: none). They
+            give the results of one process; worth it for hundreds of conformers of a
+            large molecule.
     """
 
     backend: str = "mmff"
@@ -123,6 +126,7 @@ class RefineConfig:
     anchor_free_energies: bool = True
     dielectric_model: str = "constant"
     dielectric_constant: float = 1.0
+    num_workers: int = 1
 
     def __post_init__(self):
         _check_types(self, "refine")
@@ -138,6 +142,8 @@ class RefineConfig:
             )
         if self.dielectric_constant <= 0:
             raise ValueError("refine.dielectric_constant must be positive.")
+        if self.num_workers < 1:
+            raise ValueError("refine.num_workers must be positive.")
         if self.backend != "mmff" and (
             self.dielectric_model,
             self.dielectric_constant,
@@ -475,6 +481,7 @@ class PipelineConfig:
             num_threads=self.num_threads,
             converge=refine.converge,
             anchor_free_energies=refine.anchor_free_energies,
+            num_workers=refine.num_workers,
         )
         if refine.backend == "mmff":
             options.update(

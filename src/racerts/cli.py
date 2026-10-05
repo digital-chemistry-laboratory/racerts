@@ -100,7 +100,7 @@ def _add_ts(sub, defaults) -> None:
         nargs="+",
         metavar="A",
         help="Sample the forming bonds in a window: DELTA (reference length +/- DELTA) "
-        "or LO HI (A); writes active_bonds.csv next to the output.",
+        "or LO HI (A); writes <output>.active_bonds.csv next to the output.",
     )
     command.add_argument(
         "--active-bond",
@@ -598,9 +598,8 @@ def _run_subcommand(parser, args):
         if pipeline is not None:
             return ensemble
         if window is not None:
-            write_active_bonds(
-                ensemble, os.path.join(os.path.dirname(args.output), "active_bonds.csv")
-            )
+            stem = os.path.splitext(args.output)[0]
+            ensemble.write_active_bonds(f"{stem}.active_bonds.csv")
     else:
         ensemble = generate_gs(
             args.smiles,
@@ -663,27 +662,6 @@ def _run_swap(parser, args):
         )
     ensemble.write_xyz(args.output, use_energy=args.crest_energies)
     return ensemble
-
-
-def write_active_bonds(ensemble, path: str) -> None:
-    """A CSV: conformer id, energy (kcal/mol), target and length of each active bond."""
-    bonds, rows = [], []
-    for conf_id in ensemble.conf_ids:
-        provenance = ensemble.provenance(conf_id)
-        lengths = provenance.get("active_bond_lengths", {})
-        targets = provenance.get("active_bond_targets") or {}
-        bonds = bonds or sorted(lengths)
-        energy = ensemble.energy(conf_id)
-        cells = [str(conf_id), "" if energy is None else f"{energy:.4f}"]
-        for bond in bonds:
-            target = targets.get(bond)
-            cells += ["" if target is None else f"{target:.4f}", f"{lengths[bond]:.4f}"]
-        rows.append(",".join(cells))
-    header = ["conf_id", "energy_kcal_mol"]
-    for bond in bonds:
-        header += [f"target_{bond}", f"length_{bond}"]
-    with open(path, "w") as handle:
-        handle.write("\n".join([",".join(header), *rows]) + "\n")
 
 
 def _add_verbose(parser) -> None:

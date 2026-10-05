@@ -14,9 +14,10 @@ ensemble = racerts.generate_ts(
 print(ensemble.summary())  # ends with the range of each active bond (min, median, max)
 ```
 
-`racerts ts ... --active-window 2.0 2.9 --active-bond 10 12 --stratify 5` does the same
-and writes `active_bonds.csv` next to the output (conformer, energy, target and length of
-each active bond); `--neighbor-window` sets `neighbor_window`.
+`racerts ts ... --active-window 2.0 2.9 --active-bond 10 12 --stratify 5 -o ts.xyz` does
+the same and writes `ts.active_bonds.csv` next to the output (conformer, energy, target and
+length of each active bond; `ensemble.write_active_bonds(path)` in Python);
+`--neighbor-window` sets `neighbor_window`.
 
 What changes with a window (`TransitionState(..., active_window=...)`):
 

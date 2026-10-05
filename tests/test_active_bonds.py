@@ -171,9 +171,28 @@ def test_cli_writes_active_bonds(tmp_path):
          "--active-window", "2.0", "2.9", "--active-bond", "10", "12", "--stratify", "2",
          "-o", str(out)]
     )  # fmt: skip
-    lines = (tmp_path / "active_bonds.csv").read_text().splitlines()
+    # Named after the output, so that runs in one folder do not overwrite each other.
+    lines = (tmp_path / "ts.active_bonds.csv").read_text().splitlines()
     assert lines[0] == "conf_id,energy_kcal_mol,target_10-12,length_10-12"
     assert {line.split(",")[2] for line in lines[1:]} == {"2.0000", "2.9000"}
+    assert not (tmp_path / "active_bonds.csv").exists()
+
+
+def test_the_ensemble_writes_its_active_bonds(aldol, tmp_path):
+    ctx, ensemble = _two_targets(aldol, ENERGIES)
+    path = tmp_path / "bonds.csv"
+    ensemble.write_active_bonds(str(path))
+    lines = path.read_text().splitlines()
+    assert lines[0] == "conf_id,energy_kcal_mol,target_10-12,length_10-12"
+    first = lines[1].split(",")
+    assert first[:3] == [str(ensemble.conf_ids[0]), "137.7000", "2.0000"]
+    assert abs(float(first[3]) - 2.0) < 0.05
+    # After a free refinement the targets are released: empty cells, the lengths stay.
+    released = racerts.Refine(_Recording(), fallback=False, anchors=False).run(
+        ctx, ensemble
+    )
+    released.write_active_bonds(str(path))
+    assert path.read_text().splitlines()[1].split(",")[2] == ""
 
 
 class _Recording(racerts.refine.BaseOptimizer):

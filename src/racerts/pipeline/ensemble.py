@@ -246,6 +246,33 @@ class ConformerEnsemble:
         finally:
             writer.close()
 
+    def write_active_bonds(self, file_name: str) -> None:
+        """
+        Write a CSV with a line per conformer: its id, its energy (kcal/mol), and the
+        target and the length (A) of each active bond of a windowed TS. The target is
+        empty once a free refinement has released it.
+        """
+        bonds, rows = [], []
+        for conf_id in self.conf_ids:
+            provenance = self.provenance(conf_id)
+            lengths = provenance.get("active_bond_lengths") or {}
+            targets = provenance.get("active_bond_targets") or {}
+            bonds = bonds or sorted(lengths)
+            energy = self.energy(conf_id)
+            cells = [str(conf_id), "" if energy is None else f"{energy:.4f}"]
+            for bond in bonds:
+                target = targets.get(bond)
+                cells += [
+                    "" if target is None else f"{target:.4f}",
+                    f"{lengths[bond]:.4f}",
+                ]
+            rows.append(",".join(cells))
+        header = ["conf_id", "energy_kcal_mol"]
+        for bond in bonds:
+            header += [f"target_{bond}", f"length_{bond}"]
+        with open(file_name, "w") as handle:
+            handle.write("\n".join([",".join(header), *rows]) + "\n")
+
     def to_ase(self, conf_id: int):
         """One conformer as ASE Atoms, with charge and multiplicity (needs ASE)."""
         from racerts.io.ase import rdkit_conformer_to_ase_atoms

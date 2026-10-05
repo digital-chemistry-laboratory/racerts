@@ -44,6 +44,15 @@ def apply_swap(
         mol, swap, fragment, attachments, new_order, frag_to_new, ref_to_new
     )
 
+    # A new atom stands where a removed one stood only if it alone replaces it:
+    # two new atoms for one removed atom start at one place, which is no geometry.
+    roots_of = {}
+    for a in attachments:
+        if a.partner is not None:
+            roots_of.setdefault(a.partner, set()).add(frag_to_new[a.root])
+    replaced = {p: min(roots) for p, roots in roots_of.items() if len(roots) == 1}
+    together = [roots for roots in roots_of.values() if len(roots) > 1]
+
     placed = False
     anchored = set()
     if mol.GetNumConformers():
@@ -56,7 +65,7 @@ def apply_swap(
         anchored = set(ref_to_new.values()) | {
             frag_to_new[a.root] for a in attachments if a.partner is not None
         }
-    settled = _settle_stereo(result, anchored, carried_atoms, carried_bonds)
+    settled = _settle_stereo(result, anchored, carried_atoms, carried_bonds, together)
     given = _given_stereo(swap, result, ref_to_new, attachments, frag_to_new)
     _perceive_stereo(result, carried_bonds | settled | given)
     for i in sorted(dropped):  # a tag that was neither carried nor settled
@@ -100,17 +109,9 @@ def apply_swap(
         warnings=warnings,
         positioned=new_atoms
         if placed
-        else sorted(
-            {
-                frag_to_new[a.root]
-                for a in attachments
-                if a.partner is not None and mol.GetNumConformers()
-            }
-        ),
+        else sorted(set(replaced.values()) if mol.GetNumConformers() else ()),
         fragment=fragment,
         fragment_map=frag_to_new,
-        replaced={
-            a.partner: frag_to_new[a.root] for a in attachments if a.partner is not None
-        },
+        replaced=replaced,
         **_carry_restraints(restraints, ref_to_new),
     )

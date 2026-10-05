@@ -52,6 +52,9 @@ The new fragment is a SMILES with one dummy per attachment (`[*]`, or `[*:1]`,
        Otherwise, e.g. around the rest of a grafted fragment, it stays unspecified
        and both configurations are generated. A warning names a centre whose tag is
        lost this way, and reference conformers that disagree.
+       Two new atoms that replace one atom (a CH₂ made N=N by `[*:1]N=N[*:2]`) start
+       at one place, which defines nothing between them: write that configuration in
+       the fragment (`[*:1]/N=N/[*:2]`).
     3. What `stereo` names wins over the geometry, for stereo at kept atoms (by their
        reference indices): `stereo={c: "R"}` or `"S"` for a centre and
        `stereo={(a, b): "E"}` or `"Z"` for a double bond, by the CIP rules of the

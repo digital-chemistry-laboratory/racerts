@@ -122,16 +122,17 @@ class SwapResult:
         placed: Whether the new atoms have coordinates (a single attachment that
             replaces a bond, grafted rigidly).
         positioned: The new atoms with coordinates: all if placed; else the fragment
-            atoms that replace a removed atom, at its position if of the same element
-            (a donor atom of a ligand) or along its bond (the others are at the origin
-            until sampled).
+            atoms that alone replace a removed atom, at its position if of the same
+            element (a donor atom of a ligand) or along its bond (the others are at
+            the origin until sampled; two atoms that replace the same one start at
+            one place and are not among these).
         warnings: Diagnostics, also logged.
         fragment: The fragment with its hydrogens and dummies (for further poses,
             see racerts.embed.rigid_attach).
         fragment_map: Fragment index -> new index of its atoms (not the dummies).
-        replaced: Removed atom (reference index) -> the new atom that took its bond
-            to a kept atom; it takes the removed atom's role in a task (see
-            index_map).
+        replaced: Removed atom (reference index) -> the new atom that took its bonds
+            to kept atoms, if it is one atom; it takes the removed atom's role in a
+            task (see index_map).
         restraints, lost_contacts: The restraints given to apply_swap between kept
             atoms, in new indices, and the labels of the others.
     """

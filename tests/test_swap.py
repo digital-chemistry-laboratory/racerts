@@ -1774,3 +1774,35 @@ def test_two_silent_cases_have_a_message(caplog):
         )
     assert identity(result.mol) == canonical("CCCCCC")
     assert "cuts the bond 5-0 without binding anything to atom 5" in caplog.text
+
+
+def test_two_new_atoms_in_the_place_of_one_are_no_geometry():
+    # The middle carbon of propane becomes N=N. Both nitrogens start where the carbon
+    # was, 0.1 A apart: that is neither cis nor trans, and no place to hold them at.
+    propane = embedded("CCC")
+    middle = "[C:1][CH2][C:2]"
+
+    def azo(fragment):
+        result = apply_swap(propane, Swap(fragment, old_fragment=middle))
+        bond = next(b for b in result.mol.GetBonds() if b.GetBondTypeAsDouble() == 2)
+        return result, str(bond.GetStereo())
+
+    result, stereo = azo("[*:1]N=N[*:2]")
+    assert stereo == "STEREONONE"
+    assert result.positioned == [] and result.replaced == {}
+    assert azo("[*:1]/N=N/[*:2]")[1] == "STEREOE"  # the fragment says it
+    # One new atom in the place of one: it is where the reference has the old one.
+    single = apply_swap(propane, Swap("[*:1]O[*:2]", old_fragment=middle))
+    assert single.positioned == [1] and single.replaced == {1: 1}
+    ensemble = racerts.swap(
+        propane, Swap("[*:1]/N=N/[*:2]", old_fragment=middle), n_conformers=4
+    )
+    n1, n2 = (a.GetIdx() for a in ensemble.mol.GetAtoms() if a.GetSymbol() == "N")
+    for conf_id in ensemble.conf_ids:
+        positions = ensemble.mol.GetConformer(conf_id).GetPositions()
+        assert 1.15 < np.linalg.norm(positions[n1] - positions[n2]) < 1.35
+        carbons = [
+            next(n.GetIdx() for n in ensemble.mol.GetAtomWithIdx(i).GetNeighbors() if n.GetSymbol() == "C")
+            for i in (n1, n2)
+        ]  # fmt: skip
+        assert _dihedral(positions, carbons[0], n1, n2, carbons[1]) > 150

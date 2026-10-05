@@ -162,7 +162,7 @@ def _dihedral(positions, i, j, k, m) -> float:
     return float(np.degrees(np.arctan2(np.dot(np.cross(b1, v), w), np.dot(v, w))))
 
 
-def _settle_stereo(result, anchored, carried_atoms, carried_bonds) -> set:
+def _settle_stereo(result, anchored, carried_atoms, carried_bonds, together=()) -> set:
     """
     Every stereo element of the result that the graphs leave unspecified (not carried
     over from the reference or the fragment) takes the configuration of the reference
@@ -172,6 +172,9 @@ def _settle_stereo(result, anchored, carried_atoms, carried_bonds) -> set:
     phosphine oxide), and every reference conformer agrees (else a warning). Which
     hydrogen is replaced thus chooses the configuration of a prochiral site. Returns
     the double bonds (atom pairs) that were set.
+
+    together: sets of new atoms that replace the same removed atom. They start at one
+    place, so an element with two of them among its atoms is not defined.
     """
     if not anchored:
         return set()
@@ -208,10 +211,14 @@ def _settle_stereo(result, anchored, carried_atoms, carried_bonds) -> set:
             bond_values.setdefault(pair, []).append(bonds.get(pair))
     n = result.GetNumConformers()
 
+    def apart(atoms):
+        return all(len(group & set(atoms)) < 2 for group in together)
+
     def defined(atoms):
         return all(
             i in anchored
             and all(k in anchored or virtual.get(i) == k for k in neighbours(i))
+            and apart([i, *neighbours(i)])
             for i in atoms
         )
 
@@ -226,6 +233,7 @@ def _settle_stereo(result, anchored, carried_atoms, carried_bonds) -> set:
         if pair not in carried_bonds
         and set(pair) <= anchored
         and all(k in anchored for i in pair for k in neighbours(i))
+        and apart([k for i in pair for k in (i, *neighbours(i))])
     }
     agreed_atoms = {
         i: values[0]

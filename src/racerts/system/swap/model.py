@@ -1,7 +1,7 @@
 """What a swap is and what it returns."""
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from rdkit import Chem
 
@@ -85,6 +85,23 @@ class Swap:
             )
         if (self.center is None) != (self.substructure is None):
             raise SwapError("center and substructure go together.")
+        if self.site is not None and not (is_integer(self.site) and self.site > 0):
+            raise SwapError(
+                f"site must be a positive integer (a map number), not {self.site!r}."
+            )
+        if self.remove_atoms is not None and (
+            isinstance(self.remove_atoms, (str, bytes))
+            or not isinstance(self.remove_atoms, Iterable)
+        ):
+            raise SwapError(
+                f"remove_atoms must be a list of atom indices, not {self.remove_atoms!r}."
+            )
+        for name in ("attach_map", "bond_types"):
+            value = getattr(self, name)
+            if value is not None and not isinstance(value, Mapping):
+                raise SwapError(
+                    f"{name} must be a mapping from dummy numbers, not {value!r}."
+                )
         if self.mode not in MODES:
             raise SwapError(f"mode must be one of {MODES}, not {self.mode!r}.")
         for key, word in (self.stereo or {}).items():

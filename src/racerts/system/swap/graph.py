@@ -76,7 +76,7 @@ def _build(mol, swap, fragment, attachments, slots, frag_to_new, ref_to_new):
     carried over from the reference or the fragment.
     """
     result = Chem.RWMol()
-    site_label = swap.site
+    site_label = None if swap.site is None else int(swap.site)
     roots = {a.root for a in attachments}
     for kind, i in slots:
         source = mol if kind == "ref" else fragment

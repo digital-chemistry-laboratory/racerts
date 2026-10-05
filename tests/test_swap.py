@@ -194,11 +194,32 @@ def test_ambiguous_and_invalid_selectors(methylbiphenyl):
         (dict(center=99, substructure=0), "Invalid center atom 99"),
         (dict(center=1, substructure="0"), "substructure must be an integer"),
         (dict(center=1, substructure=True), "substructure must be an integer"),
+        (dict(site=True), "site must be a positive integer"),  # not label 1
+        (dict(site=1.0), "site must be a positive integer"),
+        (dict(remove_atoms=7), "remove_atoms must be a list of atom indices"),
+        (dict(site=1, attach_map=[0]), "attach_map must be a mapping"),
+        (dict(site=1, bond_types=["single"]), "bond_types must be a mapping"),
     ],
 )
 def test_atom_indices_of_a_selector_are_integers(methylbiphenyl, selector, message):
     with pytest.raises(SwapError, match=message):
         apply_swap(methylbiphenyl, Swap("[*]C", **selector))
+    # NumPy integers are integers: the methyl group by its number among the groups
+    # of the ring carbon, and by the label of a site.
+    carbon = next(
+        a.GetIdx()
+        for a in methylbiphenyl.GetAtoms()
+        if a.GetSymbol() == "C" and not a.GetIsAromatic()
+    )
+    ring = methylbiphenyl.GetAtomWithIdx(carbon).GetNeighbors()[0].GetIdx()
+    groups = [
+        apply_swap(methylbiphenyl, Swap("[*]CC", center=center, substructure=k))
+        for center in (ring, np.int64(ring))
+        for k in (0, np.int64(0))
+    ]
+    assert len({Chem.MolToSmiles(result.mol) for result in groups}) == 1
+    labelled = label_hydrogen(embedded("Br"), 0, 7)
+    assert apply_swap(labelled, Swap("[*]C", site=np.int64(7))).mol.GetNumAtoms() == 5
 
 
 # substitute_groups and label_hydrogen.

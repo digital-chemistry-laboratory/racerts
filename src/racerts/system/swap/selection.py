@@ -145,6 +145,7 @@ def _is_atom(mol: Chem.Mol, index) -> bool:
 
 def _site(mol: Chem.Mol, label: int) -> int:
     """The terminal hydrogen or dummy atom with the map number label."""
+    label = int(label)
     sites = [a for a in mol.GetAtoms() if a.GetAtomMapNum() == label]
     if len(sites) != 1:
         raise SwapError(
@@ -159,6 +160,7 @@ def _groups(mol: Chem.Mol, center: int) -> List[List[int]]:
     """The groups bound to center: connected pieces without it, by lowest index."""
     if not _is_atom(mol, center):
         raise SwapError(f"Invalid center atom {center!r}.")
+    center = int(center)  # a NumPy integer is no index for RDKit
     seen = {center}
     groups = []
     for start in sorted(n.GetIdx() for n in mol.GetAtomWithIdx(center).GetNeighbors()):

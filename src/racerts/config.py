@@ -9,6 +9,8 @@ from dataclasses import asdict, dataclass, field, fields
 from numbers import Real
 from typing import Any, Dict, Optional
 
+import numpy as np
+
 from racerts.embed import (
     CHIRALITY_FALLBACK_MODES,
     COUNT_POLICIES,
@@ -558,11 +560,19 @@ def _convert(value, kind, name: str):
         if value is None:
             return None
         kind = next(arg for arg in typing.get_args(kind) if arg is not type(None))
-    if isinstance(value, bool) == (kind is bool):  # True/False are ints in Python
-        if kind is float and isinstance(value, int):
+    # NumPy numbers count as numbers of their kind (e.g. a seed from numpy.random) and
+    # become Python numbers, which the config files can hold.
+    if kind is bool:
+        if isinstance(value, (bool, np.bool_)):
+            return bool(value)
+    elif kind is int:
+        if is_integer(value):
+            return int(value)
+    elif kind is float:
+        if is_integer(value) or isinstance(value, (float, np.floating)):
             return float(value)
-        if isinstance(value, kind):
-            return value
+    elif isinstance(value, kind):
+        return value
     raise ValueError(f"{name} must be {_KINDS[kind]}, not {value!r}.")
 
 

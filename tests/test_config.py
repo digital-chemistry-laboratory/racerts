@@ -2,6 +2,7 @@
 
 import json
 
+import numpy as np
 import pytest
 
 from racerts import (
@@ -124,6 +125,37 @@ def test_yaml_numbers_without_a_decimal_point(tmp_path):
 def test_values_of_the_wrong_type_raise(data, message):
     with pytest.raises(ValueError, match=message):
         PipelineConfig.from_dict(data)
+
+
+def test_numpy_numbers_are_taken_as_python_numbers():
+    # e.g. a seed from numpy.random, a threshold from an array
+    config = PipelineConfig.from_dict(
+        {
+            "seed": np.int64(3),
+            "embed": {"n_conformers": np.int32(40), "sequential_seeds": np.True_},
+            "prune": {
+                "rmsd_threshold": np.float32(0.25),
+                "energy_threshold": np.int64(5),
+            },
+            "refine": {"force_constant": np.float64(1e5)},
+        }
+    )
+    assert (config.seed, type(config.seed)) == (3, int)
+    assert type(config.embed.n_conformers) is int and config.embed.n_conformers == 40
+    assert config.embed.sequential_seeds is True
+    assert type(config.prune.rmsd_threshold) is float
+    assert config.prune.rmsd_threshold == pytest.approx(0.25)
+    assert (config.prune.energy_threshold, config.refine.force_constant) == (5.0, 1e5)
+    assert type(config.prune.energy_threshold) is float
+    assert PipelineConfig(seed=np.int64(7)).seed == 7
+    # The kinds stay apart: no number for a switch, no fraction for a count.
+    for data, message in (
+        ({"embed": {"sequential_seeds": np.int64(1)}}, "true or false"),
+        ({"seed": np.float64(3.0)}, "seed must be an integer"),
+        ({"seed": np.True_}, "seed must be an integer"),
+    ):
+        with pytest.raises(ValueError, match=message):
+            PipelineConfig.from_dict(data)
 
 
 def test_sections_can_be_given_as_mappings():

@@ -45,10 +45,45 @@ def test_the_stages():
     assert [s.name for s in pipeline.stages] == STEPS
     assert _thresholds(pipeline) == [25.0, 8.0, 6.0]
     cheap, expensive = [s for s in pipeline.stages if s.name == "refine"]
-    assert isinstance(cheap.optimizer, MMFFOptimizer) and cheap.optimizer.converge
+    # The cheap level is the refinement of the default settings: MMFF, not converged.
+    assert isinstance(cheap.optimizer, MMFFOptimizer) and not cheap.optimizer.converge
+    assert cheap.optimizer.anchor_free_energies and cheap.stereo_anchors
     assert expensive.optimizer is LJ
     exploit = pipeline.stages[STEPS.index("exploit")]
     assert exploit.refine is expensive  # the same refinement as step 4
+
+
+def test_embedding_and_cheap_refinement_follow_the_config(hept_1_ene_ts):
+    ctx = racerts.Context.create(hept_1_ene_ts, TransitionState([3, 4, 5]), seed=5)
+
+    def embedded(config):
+        settings = {"embed": {"n_conformers": 6}}
+        pipeline = staged(LJ, config=config(**settings))
+        ensemble = pipeline.stages[0].run(ctx, None)
+        positions = [
+            ensemble.mol.GetConformer(i).GetPositions() for i in ensemble.conf_ids
+        ]
+        copies = sum(
+            np.allclose(a, b) for k, a in enumerate(positions) for b in positions[:k]
+        )
+        return pipeline, ensemble, copies
+
+    # The defaults: a seed per conformer, from the seed of the context.
+    pipeline, ensemble, copies = embedded(racerts.PipelineConfig)
+    assert len(ensemble) == 6 and copies == 0
+    assert ensemble.provenance(ensemble.conf_ids[0])["seed"] != 12
+    # Legacy settings: the first three conformers are embedded twice.
+    pipeline, ensemble, copies = embedded(racerts.PipelineConfig.legacy)
+    assert len(ensemble) == 6 and copies == 3
+    cheap = pipeline.stages[2]
+    assert not cheap.optimizer.anchor_free_energies and not cheap.stereo_anchors
+    with pytest.raises(ValueError, match="config"):  # nothing left for it to set
+        staged(
+            LJ,
+            embed=racerts.Embed(),
+            cheap=MMFFOptimizer(),
+            config=racerts.PipelineConfig(),
+        )
 
 
 def test_options():

@@ -442,12 +442,9 @@ class PipelineConfig:
             return cls.legacy(**data)
         return cls.from_dict(data)
 
-    def build(self, task: Task) -> Pipeline:
-        """
-        The default pipeline with these settings for the task. The restraints section
-        is not part of it: generate builds the restraints into the Context.
-        """
-        embed, refine = self.embed, self.refine
+    def embed_stage(self, task: Task) -> Embed:
+        """The Embed stage of the default pipeline for the task."""
+        embed = self.embed
         embedder = default_embedder(
             task,
             self.seed,
@@ -459,6 +456,18 @@ class PipelineConfig:
             sequential_seeds=embed.sequential_seeds,
             num_threads=self.num_threads,
         )
+        return Embed(
+            embedder,
+            embed.n_conformers,
+            embed.conf_factor,
+            count_policy=embed.count_policy,
+            hint_share=self.restraints.hint_share,
+            restraint_fraction=self.restraints.fraction,
+        )
+
+    def refine_stage(self) -> Refine:
+        """The Refine stage of the default pipeline: the force field of the settings."""
+        refine = self.refine
         options = dict(
             force_constant=refine.force_constant,
             num_threads=self.num_threads,
@@ -470,7 +479,17 @@ class PipelineConfig:
                 dielectric_model=refine.dielectric_model,
                 dielectric_constant=refine.dielectric_constant,
             )
-        optimizer = REFINE_BACKENDS[refine.backend](**options)
+        return Refine(
+            REFINE_BACKENDS[refine.backend](**options),
+            fallback=refine.fallback,
+            stereo_anchors=self.embed.chirality_fallback == "frozen_first",
+        )
+
+    def build(self, task: Task) -> Pipeline:
+        """
+        The default pipeline with these settings for the task. The restraints section
+        is not part of it: generate builds the restraints into the Context.
+        """
         prune = self.prune
         windowed = getattr(task, "windowed", False)
         if prune.eht_energies and windowed:  # windows are pruned per target, on copies
@@ -490,19 +509,8 @@ class PipelineConfig:
             checks.append(Validate(Connectivity(bonds=False)))
         return Pipeline(
             [
-                Embed(
-                    embedder,
-                    embed.n_conformers,
-                    embed.conf_factor,
-                    count_policy=embed.count_policy,
-                    hint_share=self.restraints.hint_share,
-                    restraint_fraction=self.restraints.fraction,
-                ),
-                Refine(
-                    optimizer,
-                    fallback=self.refine.fallback,
-                    stereo_anchors=embed.chirality_fallback == "frozen_first",
-                ),
+                self.embed_stage(task),
+                self.refine_stage(),
                 *faces,
                 *checks,
                 PruneEnergy(energy_pruner),

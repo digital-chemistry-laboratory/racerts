@@ -1,14 +1,16 @@
 """The staged workflow: cheap filters, ranking at a higher level, Exploit, rescoring."""
 
+from dataclasses import replace
 from types import MappingProxyType
 from typing import Optional, Sequence
 
+from racerts.config import PipelineConfig
 from racerts.embed import Embed
 from racerts.exploit import Exploit
 from racerts.pipeline import Pipeline
 from racerts.prune import PruneEnergy, PruneRMSD
 from racerts.prune.energy import EnergyPruner
-from racerts.refine import MMFFOptimizer, Refine
+from racerts.refine import Refine
 from racerts.validate import OVERLAP_FACTOR, AttackFace, Clash, Validate, gate
 
 WINDOWS = (25.0, 8.0, 6.0)  # kcal/mol: cheap level, expensive level, final
@@ -30,6 +32,19 @@ class _WindowedTS:
         return ensemble
 
 
+class _DefaultEmbed:
+    """The Embed stage of the settings, for the task and the seed of the context."""
+
+    name = "embed"
+
+    def __init__(self, config: PipelineConfig):
+        self.config = config
+
+    def run(self, ctx, ensemble=None):
+        config = replace(self.config, seed=ctx.seed)
+        return config.embed_stage(ctx.task).run(ctx, ensemble)
+
+
 def _refine(stage_or_optimizer) -> Refine:
     if isinstance(stage_or_optimizer, Refine):
         return stage_or_optimizer
@@ -44,13 +59,15 @@ def staged(
     exploit=MappingProxyType({}),
     rescore=None,
     clash_filter: Optional[float] = OVERLAP_FACTOR,
+    config: Optional[PipelineConfig] = None,
 ) -> Pipeline:
     """
     The staged workflow as a pipeline:
 
     1. embed (one Embed stage: its batches mix biased and unbiased settings), then drop
        conformers whose heavy atoms overlap;
-    2. refine at the cheap level (default MMFF, converged), the validity gate
+    2. refine at the cheap level (default: the force field of the settings), the
+       validity gate
        (racerts.validate.gate), the forming-bond stereo filter for windowed TSs, and a
        loose energy window (windows[0]) with the RMSD pruning: this removes embedding
        artifacts and duplicates, while the cheap energies do not decide much;
@@ -67,10 +84,11 @@ def staged(
     Args:
         expensive: The refinement of steps 3 and 4: a Refine stage, or an optimizer
             for one (an ASEOptimizer, e.g. with method="UMA-s-1p2").
-        cheap: The refinement of step 2 (a Refine stage or an optimizer); default
-            MMFFOptimizer(converge=True).
+        cheap: The refinement of step 2 (a Refine stage or an optimizer); default:
+            that of the default pipeline (config; MMFF, not converged: it only has
+            to remove the artifacts of the embedding).
         windows: The energy windows (kcal/mol) of steps 2, 3 and 5.
-        embed: The Embed stage; default Embed() with the defaults for the task.
+        embed: The Embed stage; default: that of the default pipeline (config).
         exploit: Settings of Exploit (a dict), an Exploit stage, or None for none.
         rescore: A Rescore stage at the end, or None.
         clash_filter: Drop embedded conformers with heavy atoms closer than this times
@@ -79,7 +97,12 @@ def staged(
             overlaps only: contacts at the edge of the bounds are relaxed by refinement
             (the gate after it checks clashes at 0.7), and dropping them can lose the
             conformer that is the lowest afterwards.
+        config: The settings of the default embedding and cheap refinement (default:
+            PipelineConfig()); of no use with both embed and cheap given.
     """
+    if config is not None and embed is not None and cheap is not None:
+        raise ValueError("Give embed and cheap, or config for the default ones.")
+    config = config if config is not None else PipelineConfig()
     if clash_filter is not None and (
         isinstance(clash_filter, bool) or not isinstance(clash_filter, (int, float))
     ):
@@ -91,9 +114,9 @@ def staged(
     windows = tuple(windows)
     if len(windows) != 3 or not all(w > 0 for w in windows):
         raise ValueError("windows needs three positive energies (kcal/mol).")
-    cheap = _refine(cheap if cheap is not None else MMFFOptimizer(converge=True))
+    cheap = _refine(cheap) if cheap is not None else config.refine_stage()
     expensive = _refine(expensive)
-    stages = [embed if embed is not None else Embed()]
+    stages = [embed if embed is not None else _DefaultEmbed(config)]
     if clash_filter is not None:
         stages.append(Validate(Clash(clash_filter), warn_above=0.3))
     stages += [

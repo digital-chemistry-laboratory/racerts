@@ -10,7 +10,7 @@ from racerts.recipes import staged
 from racerts.refine import ASEOptimizer
 
 uma = ASEOptimizer(uma_calculator, method="UMA-s-1p2", fmax=0.02)
-pipeline = staged(uma, embed=racerts.Embed(n_conformers=100))
+pipeline = staged(uma, config=racerts.PipelineConfig(embed={"n_conformers": 100}))
 ensemble = racerts.generate_ts("ts.xyz", [3, 4, 5], smiles="...", pipeline=pipeline)
 ```
 
@@ -26,9 +26,12 @@ Arguments:
 
 - **`expensive`:** the refinement of steps 3 and 4, an optimizer or a `Refine` stage. It
   should be an `ASEOptimizer` (xTB, an MLIP), since `Exploit` needs one.
-- **`cheap`:** default `MMFFOptimizer(converge=True)`.
+- **`cheap`:** default: the refinement of the default pipeline (MMFF, not converged:
+  it only has to remove the artifacts of the embedding).
 - **`windows`:** the three energy windows in kcal/mol.
-- **`embed`:** the `Embed` stage.
+- **`embed`:** the `Embed` stage; default: that of the default pipeline.
+- **`config`:** the [settings](pipeline.md#settings) of the default embedding and cheap
+  refinement, e.g. `PipelineConfig(embed={"n_conformers": 100})`.
 - **`exploit`:** the settings of `Exploit` as a dict, or `None` to leave it out.
 - **`rescore`:** a `Rescore` stage.
 - **`clash_filter`:** step 1 drops conformers with heavy atoms closer than this times

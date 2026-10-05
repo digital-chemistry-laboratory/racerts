@@ -671,7 +671,7 @@ def write_active_bonds(ensemble, path: str) -> None:
     for conf_id in ensemble.conf_ids:
         provenance = ensemble.provenance(conf_id)
         lengths = provenance.get("active_bond_lengths", {})
-        targets = provenance.get("active_bond_targets", {})
+        targets = provenance.get("active_bond_targets") or {}
         bonds = bonds or sorted(lengths)
         energy = ensemble.energy(conf_id)
         cells = [str(conf_id), "" if energy is None else f"{energy:.4f}"]

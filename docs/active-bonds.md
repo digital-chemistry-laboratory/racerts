@@ -50,9 +50,16 @@ What changes with a window (`TransitionState(..., active_window=...)`):
   pushes them to the upper edge). The TS optimization that follows relaxes the core.
   Optimizers that take no restraints raise in window mode, unless they search the
   saddle point freely (`Refine(optimizer, anchors=False)`).
+- **Free refinement:** `Refine(optimizer, anchors=False)` releases the frozen atoms and
+  the windows of the task (active bonds, neighbours); restraints of other sources stay.
+  Afterwards the conformers are no longer at their targets and compare as one group: two
+  targets can lead to the same saddle point. The provenance keeps the targets as
+  `released_targets`.
 - **Pruning:** the energy window and the duplicate RMSD apply per target (stratified) or
   per fifth of the window (unstratified). Energies at different constrained lengths are
-  not comparable: on the aldol TS, MMFF puts 2.0 Å about 66 kcal/mol above 2.9 Å.
+  not comparable: on the aldol TS, MMFF puts 2.0 Å about 66 kcal/mol above 2.9 Å. For
+  the same reason `PruneCount` and `FamilySelector` let the targets take turns: the
+  lowest conformer of each target, then the second lowest, and so on.
 - **Attack face:** conformers whose partner approaches a reacting atom from the other
   face than in the reference are dropped after refinement (`AttackFace`, a validator;
   `TransitionState(..., stereo_filter=False)` with `racerts.generate` turns it off). A

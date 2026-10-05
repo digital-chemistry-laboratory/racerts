@@ -11,6 +11,9 @@ from rdkit.Geometry import Point3D
 
 import racerts
 from racerts import PipelineConfig, TransitionState
+from racerts.prune import FamilySelector
+from racerts.prune.targets import window_bins
+from racerts.restraints import DistanceRestraint, RestraintSet
 from racerts.system import build_mol
 from racerts.validate import AttackFace
 
@@ -173,6 +176,87 @@ def test_cli_writes_active_bonds(tmp_path):
     assert {line.split(",")[2] for line in lines[1:]} == {"2.0000", "2.9000"}
 
 
+class _Recording(racerts.refine.BaseOptimizer):
+    """Records the sources of the restraints it gets; leaves the conformers."""
+
+    def __init__(self):
+        self.sources = set()
+
+    def _refine(self, mol, reference, anchors, restraints=()):
+        self.sources.update(getattr(r, "source", "position") for r in restraints)
+        for conf in mol.GetConformers():
+            conf.SetDoubleProp("energy", 0.0)
+        return 0
+
+
+def _two_targets(aldol, energies):
+    """Three conformers at each of two targets (2.0 and 2.9 A), with these energies."""
+    task = TransitionState(
+        REACTING, active_window=(2.0, 2.9), active_bonds=[CC], stratify=2
+    )
+    # A restraint of the user between two free atoms, at their reference distance.
+    user = RestraintSet([DistanceRestraint.around(14, 2, 6.62)])
+    ctx = racerts.Context.create(aldol, task, restraints=user)
+    ensemble = racerts.Embed(n_conformers=6).run(ctx)
+    targets = [
+        ensemble.provenance(i)["active_bond_targets"]["10-12"]
+        for i in ensemble.conf_ids
+    ]
+    assert targets == [2.0] * 3 + [2.9] * 3
+    for conf_id, energy in zip(ensemble.conf_ids, energies):
+        ensemble.mol.GetConformer(conf_id).SetDoubleProp("energy", energy)
+    return ctx, ensemble
+
+
+ENERGIES = [137.7, 158.9, 160.7, 82.8, 72.0, 94.9]  # 2.0 A, then 2.9 A
+
+
+def test_counts_and_families_are_chosen_per_target(aldol):
+    # Energies at different held lengths do not compare: the best of every target
+    # first, then the second best, ...
+    ctx, ensemble = _two_targets(aldol, ENERGIES)
+    first, second = ensemble.conf_ids[:3], ensemble.conf_ids[3:]
+
+    kept = racerts.PruneCount(2).run(ctx, ensemble.copy())
+    assert kept.conf_ids == [first[0], second[1]]
+    kept = racerts.PruneCount(3).run(ctx, ensemble.copy())
+    assert kept.conf_ids == [first[0], second[1], first[1]]
+    kept = racerts.PruneCount(2, renumber=True).run(ctx, ensemble.copy())
+    assert kept.conf_ids == [0, 1] and kept.energies().tolist() == [137.7, 72.0]
+    # Without a context (or a windowed task) there is one group, ranked by energy.
+    assert racerts.PruneCount(2).run(None, ensemble.copy()).conf_ids == [
+        second[1],
+        second[0],
+    ]
+
+    families = FamilySelector(2).run(ctx, ensemble.copy())
+    assert sorted(families.conf_ids) == sorted([first[0], second[1]])
+
+
+def test_a_free_refinement_releases_the_windows_of_the_task(aldol):
+    ctx, ensemble = _two_targets(aldol, ENERGIES)
+    held = _Recording()
+    racerts.Refine(held, fallback=False).run(ctx, ensemble.copy())
+    assert held.sources == {"target", "neighbor", "user"}
+
+    free = _Recording()
+    released = racerts.Refine(free, fallback=False, anchors=False).run(
+        ctx, ensemble.copy()
+    )
+    # A free search (e.g. for the saddle point) is no longer held at the targets or
+    # the neighbour windows; restraints from other sources stay.
+    assert free.sources == {"user"}
+    provenance = released.provenance(released.conf_ids[0])
+    assert provenance["active_bond_targets"] is None
+    assert provenance["released_targets"] == {"10-12": 2.0}
+    assert "10-12" in provenance["active_bond_lengths"]
+    # Afterwards the conformers are one group: a TS reached from two targets is one.
+    assert len(set(window_bins(ctx, released).values())) == 1
+    for conf_id, energy in zip(released.conf_ids, ENERGIES):
+        released.mol.GetConformer(conf_id).SetDoubleProp("energy", energy)
+    assert racerts.PruneCount(2).run(ctx, released).energies().tolist() == [72.0, 82.8]
+
+
 # ---- regression tests ----
 
 
@@ -189,8 +273,6 @@ def test_unstratified_windows_are_pruned_per_length(aldol):
 
 def test_task_windows_win_over_generated_restraints(aldol, sn2_ts_water, caplog):
     import logging
-
-    from racerts.restraints import DistanceRestraint, RestraintSet
 
     # A graph hint on the proton transfer H19...O11, an active bond: left out.
     config = PipelineConfig.from_dict(

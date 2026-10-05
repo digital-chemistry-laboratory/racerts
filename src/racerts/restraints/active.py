@@ -10,6 +10,8 @@ OUTSIDE_TOLERANCE = 0.05  # A: distance geometry meets a window to about this
 # Half widths (A) of the windows that hold an active bond at its target.
 EMBED_TARGET_HALF_WIDTH = 0.01
 REFINE_TARGET_HALF_WIDTH = 0.02
+# The sources of the restraints that place the reacting atoms of a windowed TS.
+WINDOW_SOURCES = ("active", "neighbor", "core", "target")
 
 
 def target_windows(restraints, target, half_width, force_constant=None):
@@ -37,6 +39,20 @@ def target_provenance(target) -> dict:
     return {
         "active_bond_targets": {f"{a}-{b}": round(t, 4) for (a, b), t in target.items()}
     }
+
+
+def release_targets(ensemble) -> None:
+    """
+    After a free refinement of a windowed TS: the conformers are no longer held at
+    their targets, so they compare as one group (two targets can lead to the same
+    saddle point). The provenance keeps the targets as "released_targets".
+    """
+    for conf_id in ensemble.conf_ids:
+        targets = ensemble.provenance(conf_id).get("active_bond_targets")
+        if targets:
+            ensemble.add_provenance(
+                conf_id, active_bond_targets=None, released_targets=targets
+            )
 
 
 def record_active_lengths(ctx, ensemble) -> None:

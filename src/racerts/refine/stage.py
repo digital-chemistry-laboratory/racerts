@@ -7,7 +7,9 @@ from racerts.pipeline import ConformerEnsemble
 from racerts.pipeline.ensemble import PROVENANCE
 from racerts.restraints.active import (
     REFINE_TARGET_HALF_WIDTH,
+    WINDOW_SOURCES,
     record_active_lengths,
+    release_targets,
     target_windows,
 )
 from racerts.restraints.model import accepts_restraints, applying, position_restraints
@@ -81,8 +83,11 @@ class Refine:
         fallback: Fall back to UFF if MMFF fails.
         anchors: Hold the hard frozen atoms at the reference (default). False
             releases them, e.g. for a saddle-point search from TS-like conformers
-            (ASEOptimizer with Sella); distance restraints and soft atoms still hold
-            with MMFF/UFF.
+            (ASEOptimizer with Sella), and with them the windows of a TS with
+            active-bond windows: its conformers then are no longer at their targets
+            and compare as one group (the provenance keeps the targets as
+            "released_targets"). Other distance restraints and the soft atoms still
+            hold.
         stereo_anchors: Also hold the free substituents that alone set the
             configuration of a frozen stereocentre (racerts.system.stereo),
             which the "frozen_first" embedding places at the reference; the default
@@ -123,9 +128,12 @@ class Refine:
             extra = [i for i in stereo_anchors(ctx.mol, ctx.frozen) if i not in anchors]
             anchors = (*anchors, *extra)
         restraints = ctx.restraints.for_stage("refine")
+        released = not self.anchors and getattr(ctx.task, "windowed", False)
+        if released:
+            restraints = [r for r in restraints if r.source not in WINDOW_SOURCES]
         # soft atoms are held at the reference conformer the optimizer aligns on
         conf_id_ref = getattr(optimizer, "conf_id_ref", -1)
-        groups = _refine_groups(ctx, ensemble, restraints, conf_id_ref)
+        groups = _refine_groups(ctx, ensemble, restraints, conf_id_ref, not released)
         if conf_id_ref != -1 and len({id(reference) for reference, *_ in groups}) > 1:
             raise ValueError(
                 "With several references (Embed(references=...)) each conformer is "
@@ -150,6 +158,8 @@ class Refine:
         )
         ensemble.mol.SetProp("energy_method", energy_method)
         record_active_lengths(ctx, ensemble)
+        if released:
+            release_targets(ensemble)
         return ensemble
 
 
@@ -173,13 +183,13 @@ def _write_back(ensemble: ConformerEnsemble, part: ConformerEnsemble, conf_ids) 
             target.SetProp(PROVENANCE, source.GetProp(PROVENANCE))
 
 
-def _refine_groups(ctx, ensemble, base, conf_id_ref=-1):
+def _refine_groups(ctx, ensemble, base, conf_id_ref=-1, hold_targets=True):
     """
     (reference, conformer ids, restraints) groups: by reference (Embed(references=
     ...)), by active-bond target of a windowed TS (held at +/-
-    REFINE_TARGET_HALF_WIDTH) and by the optional restraints of the embedding batch
-    (Embed restraint_fraction). The soft atoms of the task get position restraints at
-    their reference positions.
+    REFINE_TARGET_HALF_WIDTH, unless hold_targets is off) and by the optional
+    restraints of the embedding batch (Embed restraint_fraction). The soft atoms of
+    the task get position restraints at their reference positions.
     """
     groups = []
     soft = ctx.frozen.soft
@@ -190,7 +200,7 @@ def _refine_groups(ctx, ensemble, base, conf_id_ref=-1):
         by_target = {}
         for conf_id in conf_ids:
             provenance = ensemble.provenance(conf_id)
-            targets = provenance.get("active_bond_targets")
+            targets = provenance.get("active_bond_targets") if hold_targets else None
             subset = provenance.get("restraint_subset")
             key = (
                 None if not targets else tuple(sorted(targets.items())),

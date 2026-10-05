@@ -1,6 +1,6 @@
 """The pruning stages."""
 
-from typing import Optional
+from typing import List, Optional
 
 import numpy as np
 
@@ -10,6 +10,7 @@ from .base import BasePruner, check_n_max
 from .cluster import ClusterPruner
 from .energy import EnergyPruner
 from .rmsd import RMSDPruner
+from .targets import in_turns, target_groups
 
 
 class _Prune:
@@ -33,7 +34,7 @@ class _Prune:
 
     def run(self, ctx, ensemble: ConformerEnsemble) -> ConformerEnsemble:
         pruner = self.pruner if self.pruner is not None else self.default_pruner()
-        groups = _target_groups(ctx, ensemble)
+        groups = target_groups(ctx, ensemble)
         if len(groups) <= 1:
             pruner.prune(mol=ensemble.mol)
             return ensemble
@@ -46,49 +47,6 @@ class _Prune:
             if conf_id not in kept:
                 ensemble.mol.RemoveConformer(conf_id)
         return ensemble
-
-
-LENGTH_BINS = 5  # unstratified active-bond windows are pruned per fifth of the window
-
-
-def _target_groups(ctx, ensemble):
-    """
-    The conformer ids per target of the active bonds of a windowed TS: per target
-    (stratified) or per fifth of the window (unstratified); else one group.
-    """
-    groups = {}
-    for conf_id, key in window_bins(ctx, ensemble).items():
-        groups.setdefault(key, []).append(conf_id)
-    return list(groups.values()) or [ensemble.conf_ids]
-
-
-def window_bins(ctx, ensemble) -> dict:
-    """
-    The window bin of every conformer of a windowed TS, whose energies and geometries
-    are comparable only within it: its targets (stratified) or the fifths of the
-    windows that its targets fall in (uniform). () for every conformer otherwise.
-    """
-    if ctx is None or not getattr(ctx.task, "windowed", False):
-        return {conf_id: () for conf_id in ensemble.conf_ids}
-    windows = {f"{a}-{b}": w for (a, b), w in ctx.task.active_windows(ctx.mol).items()}
-    stratified = getattr(ctx.task, "stratify", 0)
-    bins = {}
-    for conf_id in ensemble.conf_ids:
-        targets = ensemble.provenance(conf_id).get("active_bond_targets") or {}
-        key = []
-        for bond, t in sorted(targets.items()):
-            if stratified or bond not in windows:
-                key.append((bond, t))
-            else:
-                lo, hi = windows[bond]
-                key.append(
-                    (
-                        bond,
-                        min(int((t - lo) / (hi - lo) * LENGTH_BINS), LENGTH_BINS - 1),
-                    )
-                )
-        bins[conf_id] = tuple(key)
-    return bins
 
 
 class PruneEnergy(_Prune):
@@ -132,6 +90,10 @@ class PruneCount:
     """
     Keeps the n_max conformers of lowest energy, ordered by energy; with renumber,
     their ids become 0, 1, ... in that order. Every conformer needs a finite energy.
+
+    The targets of a TS with active-bond windows take turns (the lowest of each target,
+    then the second lowest, ...; the result is in that order): energies at different
+    constrained lengths are not comparable.
     """
 
     name = "prune_count"
@@ -151,7 +113,11 @@ class PruneCount:
             raise ValueError(
                 f"Conformers {missing} have no finite energy; refine or rescore first."
             )
-        order = np.argsort(energies, kind="stable")[: self.n_max]
-        return ensemble.filter(
-            [ensemble.conf_ids[i] for i in order], renumber=self.renumber
-        )
+        order = in_turns(ctx, ensemble, by_energy)
+        return ensemble.filter(order[: self.n_max], renumber=self.renumber)
+
+
+def by_energy(ensemble: ConformerEnsemble) -> List[int]:
+    """The conformer ids by energy; conformers of the same energy keep their order."""
+    order = np.argsort(ensemble.energies(), kind="stable")
+    return [ensemble.conf_ids[i] for i in order]

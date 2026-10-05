@@ -15,6 +15,7 @@ from .base import (
     check_threshold,
     drop_conformers_without_energy,
 )
+from .targets import in_turns
 
 logger = logging.getLogger(__name__)
 
@@ -203,6 +204,9 @@ class FamilySelector:
     their lowest member, are filled round-robin (the best of each family, then the
     second best, ...). The result is ordered by energy. Every conformer needs an
     energy.
+
+    A TS with active-bond windows has its families per target, and the targets take
+    turns, as in PruneCount.
     """
 
     name = "select_families"
@@ -223,17 +227,23 @@ class FamilySelector:
             raise ValueError(
                 "FamilySelector needs a finite energy for every conformer."
             )
-        families = self.clusterer.clusters(ensemble.mol)
-        ordered = []
-        for rank in range(max((len(f) for f in families), default=0)):
-            ordered.extend(f[rank] for f in families if rank < len(f))
-        chosen = set(ordered[: self.n_max])
+        sizes = []
+
+        def by_family(part: ConformerEnsemble) -> List[int]:
+            families = self.clusterer.clusters(part.mol)
+            sizes.extend(len(f) for f in families)
+            ranks = range(max((len(f) for f in families), default=0))
+            return [f[rank] for rank in ranks for f in families if rank < len(f)]
+
+        chosen = set(in_turns(ctx, ensemble, by_family)[: self.n_max])
         logger.info(
             "%d families (sizes %s); keeping %d of %d conformers",
-            len(families),
-            [len(f) for f in families],
+            len(sizes),
+            sizes,
             len(chosen),
             len(ensemble),
         )
-        by_energy = [i for i in _by_energy(ensemble.mol) if i in chosen]
-        return ensemble.filter(by_energy, renumber=self.renumber)
+        ordered = in_turns(ctx, ensemble, lambda part: _by_energy(part.mol))
+        return ensemble.filter(
+            [i for i in ordered if i in chosen], renumber=self.renumber
+        )

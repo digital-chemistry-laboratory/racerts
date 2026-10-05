@@ -1090,6 +1090,69 @@ def test_positioned_atoms_are_listed_once():
     assert len(result.attachments) == 2 and result.positioned == [0]
 
 
+def test_stereo_that_the_graphs_leave_open_comes_from_the_reference():
+    # One rule for every element without a configuration in the graph of the result
+    # (not carried over from the reference or the fragment): it takes the reference
+    # geometry where that defines it, whatever the selector, and whether the swap
+    # creates the element or it was there without a tag.
+    mol = embedded("OCc1ccccc1")
+    hydrogens = [
+        n.GetIdx()
+        for n in mol.GetAtomWithIdx(1).GetNeighbors()
+        if n.GetAtomicNum() == 1
+    ]
+    # The site selector, as remove_atoms: each hydrogen gives its enantiomer.
+    by_site = {
+        identity(apply_swap(label_hydrogen_at(mol, h), Swap("[*]C", site=1)).mol)
+        for h in hydrogens
+    }
+    by_atoms = {
+        identity(apply_swap(mol, Swap("[*]C", remove_atoms=[h])).mol) for h in hydrogens
+    }
+    assert by_site == by_atoms and len(by_site) == 2
+
+    # A centre of the reference that its graph does not tag (a SMILES without stereo)
+    # keeps the configuration of its geometry next to the swap.
+    untagged = embedded("CC(O)C(C)CC")
+    assert not any(int(a.GetChiralTag()) for a in untagged.GetAtoms())
+    result = apply_swap(untagged, Swap("[*]F", remove_atoms=[0]))
+    assert result.mol.GetAtomWithIdx(1).GetChiralTag() in TETRAHEDRAL_TAGS
+    assert result.mol.GetAtomWithIdx(3).GetChiralTag() in TETRAHEDRAL_TAGS
+    assert _stereo_agrees(result.mol)
+    ensemble = racerts.swap(
+        untagged, Swap("[*]F", remove_atoms=[0]), conserve="free", n_conformers=12
+    )
+    assert len(set(_labels(ensemble.mol)[1])) == 1  # one diastereomer, not a mixture
+
+    # A tag written in the fragment stays, also where its ring partner has none.
+    ring = embedded("CC1CCCCC1")
+    result = apply_swap(ring, Swap("[*:1][C@H](F)[*:2]", remove_atoms=[4]))
+    tagged = [a.GetIdx() for a in result.mol.GetAtoms() if int(a.GetChiralTag())]
+    assert len(tagged) == 2  # the new centre, and C1 from the geometry: cis or trans
+
+    # An addition at a centre keeps its configuration: the three kept neighbours fix
+    # it (a phosphine made a phosphine oxide).
+    phosphine = embedded("C[P@](CC)c1ccccc1")
+    oxide = apply_swap(phosphine, Swap("[*:1]=O", remove_atoms=[], attach_map={1: 1}))
+    assert oxide.mol.GetAtomWithIdx(1).GetChiralTag() in TETRAHEDRAL_TAGS
+    expected = {canonical("C[P@@](=O)(CC)c1ccccc1"), canonical("C[P@](=O)(CC)c1ccccc1")}
+    assert identity(oxide.mol) in expected
+    sampled = racerts.swap(
+        phosphine,
+        Swap("[*:1]=O", remove_atoms=[], attach_map={1: 1}),
+        conserve="free",
+        n_conformers=8,
+    )
+    assert set(_labels(sampled.mol)[1]) == {identity(oxide.mol)}
+
+
+def label_hydrogen_at(mol, hydrogen):
+    """mol with the map number 1 on this hydrogen (a site)."""
+    labelled = Chem.Mol(mol)
+    labelled.GetAtomWithIdx(hydrogen).SetAtomMapNum(1)
+    return labelled
+
+
 def _labels(mol):
     """Canonical SMILES of the graph and of the geometry of each conformer."""
     graph = identity(mol)

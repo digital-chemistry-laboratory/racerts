@@ -193,7 +193,7 @@ def apply_swap(
     new_order, frag_to_new, ref_to_new = _layout(
         mol, swap, fragment, removed, attachments
     )
-    result, carried_atoms, carried_bonds = _build(
+    result, carried_atoms, carried_bonds, dropped = _build(
         mol, swap, fragment, attachments, new_order, frag_to_new, ref_to_new
     )
 
@@ -209,7 +209,17 @@ def apply_swap(
         anchored = set(ref_to_new.values()) | {
             frag_to_new[a.root] for a in attachments if a.partner is not None
         }
-    _settle_new_stereo(mol, result, ref_to_new, anchored, carried_atoms, carried_bonds)
+    settled = _settle_stereo(result, anchored, carried_atoms, carried_bonds)
+    _perceive_stereo(result, carried_bonds | settled)
+    for i in sorted(dropped):  # a tag that was neither carried nor settled
+        if result.GetAtomWithIdx(i).GetChiralTag() not in TETRAHEDRAL and (
+            i in _stereo_candidates(result)[0]
+        ):
+            logger.warning(
+                "Atom %d changes its neighbours in the swap and the reference does "
+                "not define its configuration; its stereo is left unspecified.",
+                i,
+            )
     _charge_and_multiplicity(mol, result, fragment, frag_to_new, removed)
 
     conserved = [ref_to_new[i] for i in sorted(ref_to_new)]
@@ -610,7 +620,7 @@ def _build(mol, swap, fragment, attachments, slots, frag_to_new, ref_to_new):
     def frag_image(atom, seen_from):
         return frag_map.get(atom)
 
-    carried_bonds, carried_atoms = set(), set()
+    carried_bonds, carried_atoms, dropped = set(), set(), set()
     for source, image in ((mol, ref_image), (fragment, frag_image)):
         for bond in source.GetBonds():
             stereo_atoms = list(bond.GetStereoAtoms())
@@ -664,12 +674,15 @@ def _build(mol, swap, fragment, attachments, slots, frag_to_new, ref_to_new):
             target = result.GetAtomWithIdx(new_index)
             actual = [n.GetIdx() for n in target.GetNeighbors()]
             if None in expected or sorted(expected) != sorted(actual):
-                logger.warning(
-                    "Atom %d changes its neighbours in the swap; its stereo is left "
-                    "unspecified.",
-                    new_index,
-                )
                 target.SetChiralTag(Chem.ChiralType.CHI_UNSPECIFIED)
+                if atom.GetChiralTag() in TETRAHEDRAL:
+                    dropped.add(new_index)  # settled from the geometry, or warned
+                else:
+                    logger.warning(
+                        "Atom %d changes its neighbours in the swap; its "
+                        "non-tetrahedral stereo is left unspecified.",
+                        new_index,
+                    )
                 continue
             if atom.GetChiralTag() not in TETRAHEDRAL:
                 # e.g. square planar: only the parity of tetrahedral tags is remapped
@@ -695,8 +708,7 @@ def _build(mol, swap, fragment, attachments, slots, frag_to_new, ref_to_new):
         result.UpdatePropertyCache(strict=False)
     _check_valences(mol, result, ref_to_new)
     result = result.GetMol()
-    _perceive_stereo(result, carried_bonds)
-    return result, carried_atoms, carried_bonds
+    return result, carried_atoms, carried_bonds, dropped
 
 
 def _charge_and_multiplicity(mol, result, fragment, frag_to_new, removed) -> None:
@@ -840,80 +852,90 @@ def _dihedral(positions, i, j, k, m) -> float:
     return float(np.degrees(np.arctan2(np.dot(np.cross(b1, v), w), np.dot(v, w))))
 
 
-def _settle_new_stereo(mol, result, ref_to_new, anchored, carried_atoms, carried_bonds):
+def _settle_stereo(result, anchored, carried_atoms, carried_bonds) -> set:
     """
-    Stereo elements that the swap creates (e.g. CH2 -> CH(R), a ring that gets
-    cis/trans, a double bond that gets E/Z) take the configuration of the reference
-    geometry where it defines them: the element and all its neighbours are anchored
-    (kept atoms or atoms that replace one), and every reference conformer agrees on
-    it (else a warning). Which hydrogen is replaced thus chooses the configuration
-    (prochiral sites). Other new elements stay unspecified. New elements are
-    those of the result that the reference does not have.
+    Every stereo element of the result that the graphs leave unspecified (not carried
+    over from the reference or the fragment) takes the configuration of the reference
+    geometry where it defines it: the element is anchored (kept atoms or atoms that
+    replace one) with all its neighbours, or, for a centre, with all but one and at
+    least three (the missing one then lies opposite the three: a phosphine made a
+    phosphine oxide), and every reference conformer agrees (else a warning). Which
+    hydrogen is replaced thus chooses the configuration of a prochiral site. Returns
+    the double bonds (atom pairs) that were set.
     """
     if not anchored:
-        return
-    first = mol.GetConformers()[0].GetId()
-    old_atoms, old_bonds = _stereo_3d(mol, first, _stereo_candidates(mol))
-    old_atoms = {ref_to_new[i] for i in old_atoms if i in ref_to_new}
-    old_bonds = {
-        frozenset(ref_to_new[i] for i in pair)
-        for pair in old_bonds
-        if all(i in ref_to_new for i in pair)
-    }
-
-    def neighbourhood(atoms):
-        return set(atoms) | {
-            n.GetIdx() for i in atoms for n in result.GetAtomWithIdx(i).GetNeighbors()
-        }
-
+        return set()
     candidates = _stereo_candidates(result)
-    atom_values, bond_values = {}, {}
+
+    def neighbours(i):
+        return [n.GetIdx() for n in result.GetAtomWithIdx(i).GetNeighbors()]
+
+    atom_values, bond_values, virtual = {}, {}, {}
+    for i in candidates[0] - carried_atoms:
+        loose = [k for k in neighbours(i) if k not in anchored]
+        if i in anchored and len(loose) == 1 and len(neighbours(i)) - 1 >= 3:
+            virtual[i] = loose[0]
     for conf in result.GetConformers():
-        atoms, bonds = _stereo_3d(result, conf.GetId(), candidates)
+        probe = Chem.Mol(result, False, conf.GetId())
+        positions = probe.GetConformer().GetPositions()
+        for i, k in virtual.items():  # the missing neighbour opposite the others
+            arms = [positions[j] - positions[i] for j in neighbours(i) if j != k]
+            arms = [arm / np.linalg.norm(arm) for arm in arms]
+            away = -np.sum(arms, axis=0)
+            if np.linalg.norm(away) > 0.3:
+                spot = positions[i] + 1.5 * away / np.linalg.norm(away)
+                probe.GetConformer().SetAtomPosition(k, spot.tolist())
+        atoms, bonds = _stereo_3d(probe, probe.GetConformer().GetId(), candidates)
         for i in candidates[0] | set(atoms):
             atom_values.setdefault(i, []).append(atoms.get(i))
         for pair in candidates[1] | set(bonds):
             bond_values.setdefault(pair, []).append(bonds.get(pair))
     n = result.GetNumConformers()
-    new_atoms = {
+
+    def defined(atoms):
+        return all(
+            i in anchored
+            and all(k in anchored or virtual.get(i) == k for k in neighbours(i))
+            for i in atoms
+        )
+
+    open_atoms = {
         i: values
         for i, values in atom_values.items()
-        if i not in old_atoms | carried_atoms and neighbourhood([i]) <= anchored
+        if i not in carried_atoms and defined([i])
     }
-    new_bonds = {
+    open_bonds = {
         pair: values
         for pair, values in bond_values.items()
-        if pair not in old_bonds | carried_bonds and neighbourhood(pair) <= anchored
+        if pair not in carried_bonds
+        and set(pair) <= anchored
+        and all(k in anchored for i in pair for k in neighbours(i))
     }
-    # the same configuration in every reference conformer (stereo atoms may differ
-    # only if the configuration is the same: compare after aligning to the first)
     agreed_atoms = {
         i: values[0]
-        for i, values in new_atoms.items()
+        for i, values in open_atoms.items()
         if len(values) == n and values[0] is not None and len(set(values)) == 1
     }
     agreed_bonds = {
         pair: values[0]
-        for pair, values in new_bonds.items()
+        for pair, values in open_bonds.items()
         if len(values) == n and values[0] is not None and len(set(values)) == 1
     }
     disputed = sorted(
-        {i for i, v in new_atoms.items() if i not in agreed_atoms and any(v)}
+        {i for i, v in open_atoms.items() if i not in agreed_atoms and any(v)}
         | {
             i
-            for p, v in new_bonds.items()
+            for p, v in open_bonds.items()
             if p not in agreed_bonds and any(v)
             for i in p
         }
     )
     if disputed:
         logger.warning(
-            "The reference conformers disagree on the configuration of new stereo at "
-            "atoms %s; it stays unspecified.",
+            "The reference conformers disagree on the configuration of the "
+            "unspecified stereo at atoms %s; it stays unspecified.",
             disputed,
         )
-    if not (agreed_atoms or agreed_bonds):
-        return
     for i, tag in agreed_atoms.items():
         result.GetAtomWithIdx(i).SetChiralTag(tag)
     for pair, (stereo_atoms, stereo) in agreed_bonds.items():
@@ -922,10 +944,7 @@ def _settle_new_stereo(mol, result, ref_to_new, anchored, carried_atoms, carried
             stereo_atoms = stereo_atoms[::-1]
         bond.SetStereoAtoms(*stereo_atoms)
         bond.SetStereo(stereo)
-    for bond in result.GetBonds():  # re-perceive, E/Z by CIP of the new graph
-        if bond.GetStereo() in GEOMETRIC:
-            bond.SetStereo(GEOMETRIC[bond.GetStereo()])
-    _perceive_stereo(result, carried_bonds | set(agreed_bonds))
+    return set(agreed_bonds)
 
 
 def _accept_problems_of_the_reference(mol, result, ref_to_new, error) -> None:

@@ -37,16 +37,21 @@ The new fragment is a SMILES with one dummy per attachment (`[*]`, or `[*:1]`,
   atoms keep their indices when the fragment has at least as many atoms as leave;
   otherwise the unused slots close up (`SwapResult.ref_to_new`; the CLI logs changed
   indices). `mode="renumber"` puts the kept atoms first.
-- Stereo: the tetrahedral chiral tags and double-bond stereo of the kept atoms and of
-  the fragment are carried over by the order of their neighbours, so a swap never
-  inverts them (other tags, e.g. square planar, are dropped when the order changes).
-  Stereo that the swap creates (CH₂ → CH(R), cis/trans on a ring, E/Z of a double bond)
-  takes the configuration of the reference where the reference geometry defines it
-  (the atoms around it are kept or replace a removed atom): which hydrogen is replaced
-  chooses it. Otherwise (e.g. around the rest of a grafted fragment) it stays
-  unspecified. A stereocentre that gains a neighbour in the swap (a phosphine made a
-  phosphine oxide) is left unspecified as well, with a warning: both configurations
-  are then generated.
+- Stereo, in two rules:
+    1. What the graphs specify is carried over: the tetrahedral chiral tags and the
+       double-bond stereo of the kept atoms and of the fragment, by the order of their
+       neighbours, so a swap never inverts them (other tags, e.g. square planar, are
+       dropped when the order changes).
+    2. What the graphs leave open takes the configuration of the reference geometry
+       where that defines it: the atoms around the centre or double bond are kept or
+       replace a removed atom (for a centre one neighbour may be new if three are
+       kept: a phosphine made a phosphine oxide). This holds for stereo that the swap
+       creates (CH₂ → CH(R), cis/trans on a ring, E/Z of a double bond: which
+       hydrogen is replaced chooses it) and for stereo of the reference that its
+       graph does not tag (a SMILES without stereo on a geometry that has one).
+       Otherwise, e.g. around the rest of a grafted fragment, it stays unspecified
+       and both configurations are generated. A warning names a centre whose tag is
+       lost this way, and reference conformers that disagree.
 - Charge: that of the reference, changed by the formal charges of the fragment and of
   the atoms that leave; the multiplicity of the reference, if it has one.
 - A kept atom may not lose bond order (e.g. C=O replaced by C–F would leave the carbon

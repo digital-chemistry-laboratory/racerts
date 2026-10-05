@@ -27,6 +27,9 @@ from .dg import BoundsMatrixEmbedder, CmapEmbedder, DistanceGeometryEmbedder
 
 logger = logging.getLogger(__name__)
 
+# A: a reference distance this far outside a window is outside it
+OUTSIDE = 0.01
+
 DEFAULT_CONF_FACTOR = 80
 DEFAULT_HINT_SHARE = 0.3
 # RDKit attempts per conformer within which a hint has to embed. On a 146-atom peptide
@@ -226,6 +229,7 @@ class Embed:
             common = [r.label for r in restraints if r.source != "hint"]
             if common:
                 provenance["restraints"] = common
+            _warn_of_windows_between_placed_atoms(ctx, embedder, restraints)
 
         references = self._references(ctx)
         stratified = getattr(ctx.task, "stratify", 0)
@@ -476,3 +480,31 @@ def _batch_embedder(embedder, k: int):
     if legacy_seeds:
         batch_embedder.sequential_seeds = True
     return batch_embedder
+
+
+def _warn_of_windows_between_placed_atoms(ctx, embedder, restraints) -> None:
+    """
+    A window between two atoms that the coordinate map places at the reference (hard
+    and soft atoms) does not shape the embedding. Said once per run where the
+    reference distance lies outside the window: only refinement can then follow it,
+    against the terms that hold soft atoms in place.
+    """
+    placed = getattr(embedder, "_placed", None)
+    if placed is None or ctx.reference is None:
+        return
+    held = set(placed(ctx.mol, ctx.frozen))
+    positions = ctx.reference.GetConformer().GetPositions()
+    for r in restraints:
+        if r.first not in held or r.second not in held:
+            continue
+        apart = float(((positions[r.first] - positions[r.second]) ** 2).sum() ** 0.5)
+        if not r.lower - OUTSIDE <= apart <= r.upper + OUTSIDE:
+            logger.warning(
+                "The window %s (%.2f-%.2f A) is between two atoms that start at the "
+                "reference, %.2f A apart: the embedding does not follow it, only "
+                "refinement can.",
+                r.label,
+                r.lower,
+                r.upper,
+                apart,
+            )

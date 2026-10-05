@@ -503,3 +503,36 @@ def test_every_reference_is_embedded_with_seeds_of_its_own(hept_1_ene_ts):
     first, second = groups[0], groups[1]
     assert len(first) == len(second) == 6
     assert not any(np.allclose(a, b, atol=1e-3) for a in first for b in second)
+
+
+def test_a_window_between_two_placed_atoms_is_said_to_wait_for_refinement(caplog):
+    # Both ends of butane start at the reference (soft atoms), 3.9 A apart: a window
+    # of 2.5-2.7 A cannot shape the embedding, only refinement can pull on it.
+    from racerts.restraints import DistanceRestraint, RestraintSet
+
+    mol = Chem.AddHs(Chem.MolFromSmiles("CCCC"))
+    AllChem.EmbedMolecule(mol, randomSeed=1)
+    AllChem.MMFFOptimizeMolecule(mol)
+    Chem.rdMolTransforms.SetDihedralDeg(mol.GetConformer(), 0, 1, 2, 3, 180.0)
+    apart = float(
+        np.linalg.norm(np.subtract(*mol.GetConformer().GetPositions()[[0, 3]]))
+    )
+
+    def embed(lower, upper):
+        window = DistanceRestraint(0, 3, lower, upper)
+        ctx = racerts.Context.create(
+            mol, Constrained(soft=[0, 3]), restraints=RestraintSet([window])
+        )
+        caplog.clear()
+        with caplog.at_level(logging.WARNING):
+            ensemble = racerts.Embed(n_conformers=3).run(ctx)
+        return [
+            float(np.linalg.norm(np.subtract(*c.GetPositions()[[0, 3]])))
+            for c in ensemble.mol.GetConformers()
+        ]
+
+    assert embed(2.5, 2.7) == pytest.approx([apart] * 3, abs=1e-6)
+    assert "user:0-3 (2.50-2.70 A)" in caplog.text
+    assert f"{apart:.2f} A apart" in caplog.text and caplog.text.count("user:0-3") == 1
+    embed(apart - 0.2, apart + 0.2)  # a window that holds the reference: nothing to say
+    assert "user:0-3" not in caplog.text

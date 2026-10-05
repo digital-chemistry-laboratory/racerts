@@ -4,6 +4,8 @@ import logging
 import time
 from typing import Iterable, Optional, Protocol, runtime_checkable
 
+from racerts.system.roles import describe
+
 from .context import Context
 from .ensemble import ConformerEnsemble
 
@@ -40,6 +42,9 @@ class Pipeline:
     ) -> ConformerEnsemble:
         if ensemble is not None:
             ensemble = ensemble.copy()
+        fragments = getattr(ctx, "fragments", ())
+        if len(fragments) > 1:
+            logger.info("Fragments: %s", describe(fragments))
         for stage in self.stages:
             start = time.perf_counter()
             ensemble = stage.run(ctx, ensemble)

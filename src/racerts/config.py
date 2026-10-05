@@ -33,6 +33,7 @@ from racerts.refine.forcefield import DIELECTRIC_MODELS
 from racerts.restraints import build_restraints
 from racerts.restraints.model import DEFAULT_FORCE_CONSTANT, DEFAULT_HALF_WIDTH
 from racerts.restraints.sources import LINK_SEED, MAX_HINTS
+from racerts.system.roles import ROLE_OVERRIDES
 from racerts.task import Task
 from racerts.utils.checks import is_integer
 from racerts.utils.optional import require
@@ -202,8 +203,8 @@ class PruneConfig:
 class RestraintConfig:
     """
     Distance restraints (see racerts.restraints.build_restraints): windows in the
-    embedding and flat-bottom terms in MMFF/UFF refinement; reported energies leave
-    them out, and ASE refinements run without them.
+    embedding and flat-bottom terms in refinement (MMFF/UFF and ASE calculators);
+    reported energies leave them out.
 
     Attributes:
         user: [atom, atom, target distance (A)] triplets.
@@ -217,6 +218,10 @@ class RestraintConfig:
         link_fragments: Also choose links that join every fragment.
         hints: Candidate hydrogen bonds from the graph (at most max_hints) as
             embedding-only windows, used in a share hint_share of the conformers.
+        contain: Radius (A) of a containment restraint for every fragment that no
+            restraint anchors (e.g. a counterion near the core); 0: none.
+        roles: {atom: role} overrides of the fragment roles ("anchored",
+            "contained", "free"; see racerts.system.roles).
     """
 
     user: list = field(default_factory=list)
@@ -230,9 +235,14 @@ class RestraintConfig:
     hints: bool = False
     max_hints: int = MAX_HINTS
     hint_share: float = DEFAULT_HINT_SHARE
+    contain: float = 0.0
+    roles: dict = field(default_factory=dict)
 
     def __post_init__(self):
         _check_types(self, "restraints")
+        if self.contain < 0:
+            raise ValueError("restraints.contain must be a radius >= 0 (0: none).")
+        self.roles = _roles(self.roles)
         if not 0 <= self.hint_share <= 1:
             raise ValueError("restraints.hint_share must be between 0 and 1.")
         if self.max_hints < 1:
@@ -261,6 +271,7 @@ class RestraintConfig:
             or self.fragment_links
             or self.link_fragments
             or self.hints
+            or self.contain
         )
 
     def build(self, mol, frozen, seed: int = LINK_SEED):
@@ -279,6 +290,7 @@ class RestraintConfig:
             seed=seed,
             hints=self.hints,
             max_hints=self.max_hints,
+            contain=self.contain,
         )
 
 
@@ -290,6 +302,26 @@ def _is_restraint_item(item, size: int) -> bool:
     if not (is_integer(item[0]) and is_integer(item[1])):
         return False
     return size == 2 or (isinstance(item[2], Real) and not isinstance(item[2], bool))
+
+
+def _roles(roles) -> dict:
+    """{atom: role} with integer atoms (JSON and YAML keys can be strings)."""
+    if not isinstance(roles, dict):
+        raise ValueError("restraints.roles must be a mapping {atom: role}.")
+    checked = {}
+    for atom, role in roles.items():
+        try:
+            index = int(atom)
+        except (TypeError, ValueError):
+            raise ValueError(
+                f"restraints.roles: {atom!r} is not an atom index."
+            ) from None
+        if role not in ROLE_OVERRIDES:
+            raise ValueError(
+                f"restraints.roles: unknown role {role!r} (use {ROLE_OVERRIDES})."
+            )
+        checked[index] = role
+    return checked
 
 
 _SECTIONS = {

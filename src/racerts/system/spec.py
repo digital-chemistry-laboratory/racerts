@@ -96,10 +96,21 @@ def split_fragments(
     return core, free
 
 
-def rigid_body_dof(mol: Chem.Mol, core_atoms: Sequence[int]) -> int:
+def rigid_body_dof(mol: Chem.Mol, core_atoms: Sequence[int], fragments=None) -> int:
     """
     Rigid-body degrees of freedom of the fragments that move relative to the core (see
-    split_fragments): 3 translations for a single atom, 6 for a molecule.
+    split_fragments): 3 translations for a single atom, 6 for a molecule. With
+    fragments (racerts.system.roles.Fragment), by their roles: an anchored fragment
+    only turns (3, a single atom 0); reactive ones do not count.
     """
+    if fragments is not None:
+        dof = 0
+        for fragment in fragments:
+            single = len(fragment.atoms) == 1
+            if fragment.role == "anchored":
+                dof += 0 if single else 3
+            elif fragment.role in ("contained", "free"):
+                dof += 3 if single else 6
+        return dof
     _, free = split_fragments(mol, core_atoms)
     return sum(3 if len(fragment) == 1 else 6 for fragment in free)

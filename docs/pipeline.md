@@ -196,8 +196,8 @@ PruneRMSD → Exploit → PruneRMSD`). It is usage-directed multiple-minimum Mon
   minimum and applies one to three random moves:
   - torsions: never the side with frozen atoms; not amide or ester bonds, not methyl
     groups;
-  - rotations of fragments without frozen atoms, about their restrained atom (or
-    shifted as well);
+  - rotations of fragments by their role ([fragment roles](restraints.md#fragment-roles-and-containment)):
+    anchored fragments turn about their anchor, contained and free ones also shift;
   - ring flips of non-fused five- and six-membered rings: chair flips, twist-boats,
     envelopes and twists. The substituents turn with their ring atom, so a chair flip
     swaps axial and equatorial;

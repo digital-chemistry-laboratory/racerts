@@ -31,6 +31,7 @@ ensemble = racerts.generate_ts("sn2_water.xyz", [0, 1, 2], charge=-1,
 | `half_width` | 0.25 | of the `user`, `hbonds`, `contacts` and `keep_fragments` windows |
 | `force_constant` | 20.0 | of all these windows and of the fragment links |
 | `hints`, `max_hints`, `hint_share` | false, 8, 0.3 | see [Hints](#hints) |
+| `contain`, `roles` | 0, none | see [Fragment roles and containment](#fragment-roles-and-containment) |
 
 `hbonds`, `contacts` and `keep_fragments` need a reference geometry (not for
 `generate_gs` from a SMILES).
@@ -73,3 +74,32 @@ A share `hint_share` of the conformers is embedded with a hint: one batch per hi
 one with all of them, if they fit together; the others without. Refinement is free, so
 a hint only chooses starting points. The provenance of each conformer lists its hints
 (`active_restraints`).
+
+## Fragment roles and containment
+
+In a system of several molecules (solvent, counterions, a separate substrate), every
+fragment has a role that says how it may move as a whole (`racerts.system.roles`):
+
+| Role | Fragment | Moves in `Exploit` |
+| --- | --- | --- |
+| reactive | holds core atoms of the task (for a TS the reacting atoms); without any, the largest fragment | none |
+| anchored | a restraint of the refinement ties it to the core, directly or through other anchored fragments (hints do not count) | turns about its anchor |
+| contained | only a containment restraint holds it near the core | turns about its central atom and shifts |
+| free | nothing holds it | turns and shifts |
+
+- **Where roles come from:** racerts infers the roles from the task and the restraints,
+  and a pipeline logs them when it starts (logger `racerts.pipeline.runner`, level
+  INFO).
+- **Containment:** `restraints.contain` puts a containment restraint on every fragment
+  that no restraint anchors. It is a window `[0, contain]` (Å) between the fragment's
+  central atom and the central atom of the core.
+- **Overrides:** `restraints.roles` changes single fragments, keyed by any atom of the
+  fragment (not the reactive ones).
+- **Conformer count:** the count policy `"fragments"` counts 3 rotational degrees of
+  freedom for an anchored fragment and 6 for the others.
+
+```python
+config = racerts.PipelineConfig.from_dict({
+    "restraints": {"hbonds": True, "contain": 6.0, "roles": {"9": "free"}},
+})
+```

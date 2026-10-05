@@ -3,11 +3,13 @@
 import logging
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
-from typing import List, Optional, Tuple
+from functools import cached_property
+from typing import Dict, List, Optional, Tuple
 
 from rdkit import Chem
 
 from racerts.restraints.model import RestraintSet
+from racerts.system.roles import fragment_roles
 from racerts.system.spec import set_charge_and_multiplicity
 from racerts.task import FrozenSet, Task
 from racerts.task.base import check_atom_indices
@@ -27,8 +29,9 @@ class Context:
         frozen: The FrozenSet of the task for mol.
         seed: The random seed; embedders that stages create use it as their RDKit
             seed (-1: random).
-        restraints: Distance windows for embedding and force-field refinement (see
+        restraints: Distance windows for embedding and refinement (see
             racerts.restraints).
+        roles: {atom: role} overrides of the fragment roles (see fragments).
     """
 
     mol: Chem.Mol
@@ -36,6 +39,16 @@ class Context:
     frozen: FrozenSet
     seed: int = 12
     restraints: RestraintSet = field(default_factory=RestraintSet)
+    roles: Dict[int, str] = field(default_factory=dict)
+
+    @cached_property
+    def fragments(self):
+        """
+        The fragments of mol with their roles (racerts.system.roles.fragment_roles):
+        reactive, anchored by restraints, contained, or free; with the overrides of
+        roles.
+        """
+        return fragment_roles(self.mol, self.frozen, self.restraints, self.roles)
 
     @property
     def reference(self) -> Optional[Chem.Mol]:
@@ -85,12 +98,14 @@ class Context:
         charge: Optional[int] = None,
         multiplicity: Optional[int] = None,
         restraints: Optional[RestraintSet] = None,
+        roles: Optional[Dict[int, str]] = None,
     ) -> "Context":
         """
         A context for a copy of mol: charge and multiplicity are settled and stored as
         properties of the copy (see set_charge_and_multiplicity), then the frozen atoms
         of the task are determined and checked. Restraints between two frozen atoms
-        are left out (their distance is fixed), with a warning.
+        are left out (their distance is fixed), with a warning. roles: overrides of
+        the fragment roles (see fragments).
         """
         if not isinstance(mol, Chem.Mol):
             raise TypeError(f"Expected an RDKit Mol, not {type(mol).__name__}.")
@@ -102,7 +117,9 @@ class Context:
         set_charge_and_multiplicity(mol, charge, multiplicity)
         frozen = task.frozen_atoms(mol)
         check_atom_indices(mol, frozen.hard + frozen.core + frozen.soft, "frozen atoms")
-        ctx = cls(mol=mol, task=task, frozen=frozen, seed=seed)
+        roles = {int(atom): role for atom, role in (roles or {}).items()}
+        fragment_roles(mol, frozen, (), roles)  # raises for a wrong override
+        ctx = cls(mol=mol, task=task, frozen=frozen, seed=seed, roles=roles)
         return ctx.with_restraints(restraints or ())
 
     def with_restraints(self, restraints) -> "Context":

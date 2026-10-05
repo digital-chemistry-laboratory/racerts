@@ -40,12 +40,14 @@ def conformer_count(
     conf_factor: int = DEFAULT_CONF_FACTOR,
     policy: CountPolicy = "legacy",
     frozen: Optional[FrozenSet] = None,
+    fragments=None,
 ) -> int:
     """
     number_of_conformers, or for -1 the count of the policy (n_rot: rotatable bonds):
     - "legacy": n_rot * conf_factor + 30 (legacy racerts);
     - "fragments": (n_rot + rigid-body freedom of the fragments that move relative to
-      the frozen core, e.g. solvent molecules) * conf_factor + 30;
+      the frozen core, e.g. solvent molecules; by their roles if fragments are given,
+      see racerts.system.roles) * conf_factor + 30;
     - "per_bond": max(7, 10 * n_rot);
     - a callable policy(mol, frozen) that returns the count.
     """
@@ -58,7 +60,7 @@ def conformer_count(
         return n_rot * conf_factor + 30
     if policy == "fragments":
         core = frozen.core if frozen is not None else ()
-        return (n_rot + rigid_body_dof(mol, core)) * conf_factor + 30
+        return (n_rot + rigid_body_dof(mol, core, fragments)) * conf_factor + 30
     if policy == "per_bond":
         return max(7, 10 * n_rot)
     raise ValueError(
@@ -180,6 +182,7 @@ class Embed:
             self.conf_factor,
             self.count_policy,
             ctx.frozen,
+            ctx.fragments,
         )
         provenance = {
             "embedder": type(embedder).__name__,

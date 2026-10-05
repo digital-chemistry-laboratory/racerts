@@ -32,6 +32,7 @@ def build_restraints(
     seed: int = sources.LINK_SEED,
     hints: bool = False,
     max_hints: int = sources.MAX_HINTS,
+    contain: float = 0.0,
 ) -> RestraintSet:
     """
     The distance restraints for mol, which carries the reference geometry if a source
@@ -58,6 +59,8 @@ def build_restraints(
         hints: Candidate hydrogen bonds from the graph (sources.graph_hints, at most
             max_hints) as embedding-only windows (source "hint", stage "embed"): Embed
             uses them in some batches only (see Embed hint_share).
+        contain: Radius (A) of a containment restraint (racerts.system.roles.
+            containment) for every fragment that no other restraint anchors; 0: none.
 
     User restraints win over generated ones for the same pair (two user restraints
     for one pair must be equal); of two generated ones the later source wins.
@@ -114,6 +117,11 @@ def build_restraints(
             mol, frozen, restraints, candidates, each=True
         ):
             restraints.add(hint)
+    if contain:
+        from racerts.system.roles import containment  # it imports racerts.restraints
+
+        for restraint in containment(mol, frozen, contain, restraints, force_constant):
+            restraints.add(restraint)
     if restraints:
         logger.info(
             "Restraints (atoms: window in A): %s",

@@ -54,9 +54,15 @@ def generate(
             (they win for the same atom pair).
     """
     config = config if config is not None else PipelineConfig()
+    roles = config.restraints.roles or None
     with verbose_logging(verbose):
         ctx = Context.create(
-            mol, task, seed=config.seed, charge=charge, multiplicity=multiplicity
+            mol,
+            task,
+            seed=config.seed,
+            charge=charge,
+            multiplicity=multiplicity,
+            roles=roles,
         )
         if config.restraints or restraints:
             combined = RestraintSet()

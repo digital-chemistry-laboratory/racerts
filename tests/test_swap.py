@@ -1586,3 +1586,87 @@ def test_the_rigid_route_and_the_graft_take_their_seeds_from_the_seed_utility():
         np.linalg.norm(a[:, None] - a[None, :], axis=-1) for a in fragments[:2]
     )
     assert not np.allclose(first, second, atol=1e-3)
+
+
+# ---- rings
+
+
+def _dihedral(positions, i, j, k, m):
+    b0, b1, b2 = (
+        positions[i] - positions[j],
+        positions[k] - positions[j],
+        positions[m] - positions[k],
+    )
+    b1 = b1 / np.linalg.norm(b1)
+    v, w = b0 - (b0 @ b1) * b1, b2 - (b2 @ b1) * b1
+    return abs(float(np.degrees(np.arctan2(np.cross(b1, v) @ w, v @ w))))
+
+
+def _ethene_hydrogens():
+    """Ethene, a hydrogen of the first carbon, and the hydrogens of the second that are
+    cis and trans to it."""
+    ethene = embedded("C=C")
+    positions = ethene.GetConformer().GetPositions()
+    first, *_ = [
+        n.GetIdx()
+        for n in ethene.GetAtomWithIdx(0).GetNeighbors()
+        if n.GetAtomicNum() == 1
+    ]
+    others = [
+        n.GetIdx()
+        for n in ethene.GetAtomWithIdx(1).GetNeighbors()
+        if n.GetAtomicNum() == 1
+    ]
+    cis = min(others, key=lambda h: _dihedral(positions, first, 0, 1, h))
+    trans = max(others, key=lambda h: _dihedral(positions, first, 0, 1, h))
+    return ethene, first, cis, trans
+
+
+def _ring_dihedrals(ensemble, result):
+    """C-C=C-C of the new ring in every conformer (degrees, 0 to 180)."""
+    a, b = result.ref_to_new[0], result.ref_to_new[1]
+    ends = dict(result.attachments)
+    return [
+        _dihedral(ensemble.mol.GetConformer(i).GetPositions(), ends[a], a, b, ends[b])
+        for i in ensemble.conf_ids
+    ]
+
+
+@pytest.mark.parametrize("size", [7, 8])
+def test_a_ring_closed_on_a_double_bond_is_cis_or_trans_as_the_hydrogens_say(size):
+    # Which hydrogens leave chooses the configuration (the rule for created stereo),
+    # also in a ring of seven atoms, where RDKit's graph has no cis and trans.
+    ethene, first, cis, trans = _ethene_hydrogens()
+    chain = f"[*:1]{'C' * (size - 2)}[*:2]"
+    for other, low, high in ((cis, 0.0, 30.0), (trans, 90.0, 180.0)):
+        change = Swap(chain, remove_atoms=[first, other])
+        result = apply_swap(ethene, change)
+        assert identity(result.mol).count("C") == size
+        ensemble = racerts.swap(ethene, change, n_conformers=10)
+        angles = _ring_dihedrals(ensemble, result)
+        assert angles and all(low <= angle <= high for angle in angles)
+
+
+def test_a_configuration_that_the_force_field_cannot_hold_fails():
+    # A trans double bond in a ring of six atoms relaxes to cis in MMFF: no conformer
+    # has the configuration asked for, and the swap says so instead of returning cis.
+    ethene, first, _, trans = _ethene_hydrogens()
+    with pytest.raises(SwapError, match=r"trans double bond 0=1 \(ring of 6\)"):
+        racerts.swap(
+            ethene, Swap("[*:1]CCCC[*:2]", remove_atoms=[first, trans]), n_conformers=6
+        )
+
+
+def test_ring_atoms_are_replaced_by_a_chain_of_another_length():
+    # The fused three-membered ring of bicyclo[7.1.0]decane, opened: its three
+    # carbons leave, a chain of three comes. By the atoms or by a pattern.
+    bicycle = embedded("C1CCCC2CC2CCC1")
+    three = [a.GetIdx() for a in bicycle.GetAtoms() if a.IsInRingSize(3)]
+    by_atoms = Swap("[*:1]CCC[*:2]", remove_atoms=three)
+    by_pattern = Swap("[*:1]CCC[*:2]", old_fragment="[C:1]C1CC1[C:2]")
+    assert identity(apply_swap(bicycle, by_atoms).mol) == canonical("C1CCCCCCCCC1")
+    assert identity(apply_swap(bicycle, by_pattern).mol) == canonical("C1CCCCCCCCC1")
+    ensemble = racerts.swap(bicycle, by_atoms, n_conformers=10)
+    assert len(ensemble) >= 3 and set(_labels(ensemble.mol)[1]) == {
+        canonical("C1CCCCCCCCC1")
+    }

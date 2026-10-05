@@ -77,6 +77,37 @@ stretched.
 | `"soft"` (default) | start at the reference; held within 0.3 Å by position restraints (k = 5 kcal/(mol Å²)) in MMFF/UFF; the junction is free | sampled |
 | `"free"` | only the frozen atoms of `task` held | sampled with everything else |
 
+## Rings
+
+Rings are not special: a swap removes atoms and binds the fragment where bonds were
+cut, one dummy per cut bond. So ring atoms can leave if the fragment closes every cut.
+
+```python
+# a ring atom replaced, a ring made larger: one CH2 of cyclohexane
+racerts.swap(ring, racerts.Swap("[*:1]S[*:2]", remove_atoms=[0]))    # thiane
+racerts.swap(ring, racerts.Swap("[*:1]CC[*:2]", remove_atoms=[0]))   # cycloheptane
+
+# a fused ring opened: the three ring carbons of bicyclo[7.1.0]decane become a chain,
+# which gives cyclodecane (by the atoms, or by a pattern that maps both ends)
+racerts.swap(bicycle, racerts.Swap("[*:1]CCC[*:2]", remove_atoms=[4, 5, 6]))
+racerts.swap(bicycle, racerts.Swap("[*:1]CCC[*:2]", old_fragment="[C:1]C1CC1[C:2]"))
+
+# a ring closed on a double bond: one hydrogen leaves on each carbon of C=C
+racerts.swap(alkene, racerts.Swap("[*:1]CCCCC[*:2]", remove_atoms=[h_a, h_b]))
+```
+
+- A pattern over part of a ring maps the ring atoms that stay at both ends
+  (`[C:1]...[C:2]`); with one end mapped, what leaves would run round the ring.
+- Which hydrogens leave chooses cis or trans of a ring closed on a double bond, by the
+  rule for created stereo: the two hydrogens on the same side give the cis ring.
+- RDKit's graphs have cis and trans only for double bonds in rings of eight atoms and
+  more. racerts keeps the configuration of smaller rings as well: it is set on the
+  bond with its two reference atoms, embedded, and checked on every conformer.
+- A trans double bond in a small ring is strained, and whether it holds depends on
+  the method that refines it: MMFF holds it in a ring of seven atoms (31 kcal/mol
+  above cis) and of eight (16 kcal/mol), not of six. If no conformer has the
+  configuration, the swap raises and names the bond; it does not return cis.
+
 Two limits of the sampling:
 
 - A double bond in a strained ring or bridge can embed with the stereo of the graph,

@@ -758,8 +758,11 @@ def _perceive_stereo(mol: Chem.Mol, keep_bonds) -> None:
     rebuilt from it alone; a double bond whose directions come only from its
     neighbours (not in keep_bonds) is left unspecified.
     """
+    given = {}
     for bond in mol.GetBonds():
         bond.SetBondDir(Chem.BondDir.NONE)
+        if frozenset(_ends(bond)) in keep_bonds and bond.GetStereo() in FLIPPED_STEREO:
+            given[bond.GetIdx()] = (list(bond.GetStereoAtoms()), bond.GetStereo())
     Chem.SetDoubleBondNeighborDirections(mol)
     Chem.AssignStereochemistry(mol, cleanIt=True, force=True)
     for bond in mol.GetBonds():
@@ -769,6 +772,13 @@ def _perceive_stereo(mol: Chem.Mol, keep_bonds) -> None:
             and frozenset(_ends(bond)) not in keep_bonds
         ):
             bond.SetStereo(Chem.BondStereo.STEREONONE)
+        elif bond.GetIdx() in given and bond.GetStereo() in UNSPECIFIED_BOND:
+            # RDKit perceives no cis/trans in a ring of fewer than eight atoms: the
+            # bond keeps what was set, with its stereo atoms
+            atoms, stereo = given[bond.GetIdx()]
+            if len(atoms) == 2:
+                bond.SetStereoAtoms(*atoms)
+                bond.SetStereo(stereo)
 
 
 def _stereo_candidates(mol: Chem.Mol):
@@ -786,6 +796,22 @@ def _stereo_candidates(mol: Chem.Mol):
             atoms.add(info.centeredOn)
         elif info.type == Chem.StereoType.Bond_Double:
             bonds.add(frozenset(_ends(mol.GetBondWithIdx(info.centeredOn))))
+    # RDKit leaves out the double bonds in rings of fewer than eight atoms.
+    ranks = list(Chem.CanonicalRankAtoms(mol, breakTies=False))
+    for bond in mol.GetBonds():
+        if bond.GetBondType() != Chem.BondType.DOUBLE or not bond.IsInRing():
+            continue
+        ends = _ends(bond)
+        sides = [
+            [
+                ranks[n.GetIdx()]
+                for n in mol.GetAtomWithIdx(end).GetNeighbors()
+                if n.GetIdx() != other
+            ]
+            for end, other in (ends, ends[::-1])
+        ]
+        if all(side and len(set(side)) == len(side) for side in sides):
+            bonds.add(frozenset(ends))
     return atoms, bonds
 
 

@@ -18,6 +18,7 @@ from racerts.restraints import RestraintSet
 from racerts.system.build import BaseMolGetter, build_mol
 from racerts.system.graph import radical_multiplicity
 from racerts.system.spec import set_charge_and_multiplicity
+from racerts.system.stereo import trans_in_small_rings
 from racerts.system.swap import Swap, SwapError, apply_swap
 from racerts.task import Constrained, FrozenSet, GroundState, Task, TransitionState
 from racerts.utils.checks import is_integer
@@ -455,13 +456,17 @@ def swap(
                 num_threads=config.num_threads,
             )
             several = new_task.needs_reference and result.mol.GetNumConformers() > 1
-            embedded = Embed(
+            stage = Embed(
                 embedder,
                 config.embed.n_conformers if n_conformers == -1 else n_conformers,
                 config.embed.conf_factor,
                 count_policy=config.embed.count_policy,
                 references="all" if several else None,
-            ).run(ctx)
+            )
+            try:
+                embedded = stage.run(ctx)
+            except RuntimeError as error:
+                raise _strained(result.mol, error) or error from None
             embedded.add_provenance(route="dg")
             parts.append(embedded)
         if "rigid" in routes:
@@ -480,7 +485,10 @@ def swap(
         for stage in stages:  # the swap embeds with the frozen_first fallback
             if stage.name == "refine":
                 stage.stereo_anchors = True
-        ensemble = Pipeline(stages).run(ctx, ensemble)
+        try:
+            ensemble = Pipeline(stages).run(ctx, ensemble)
+        except RuntimeError as error:
+            raise _strained(result.mol, error) or error from None
         _record_index_map(ensemble.mol, index_map)
         if restraints is not None:
             ensemble.mol.SetProp(
@@ -488,6 +496,19 @@ def swap(
             )
         _warn_residual_clash(ensemble, held, reference=result)
     return ensemble
+
+
+def _strained(mol: Chem.Mol, error) -> Optional[SwapError]:
+    """The error of a swap that no conformer survived, if the graph asks for a trans
+    double bond in a small ring: the likely reason."""
+    strained = trans_in_small_rings(mol)
+    if not strained:
+        return None
+    listed = ", ".join(f"{a}={b} (ring of {n})" for a, b, n in strained)
+    return SwapError(
+        f"No conformer has the trans double bond {listed} that the swap asks for: "
+        f"the embedding or the force field does not hold it ({error})"
+    )
 
 
 def _record_index_map(mol: Chem.Mol, index_map) -> None:

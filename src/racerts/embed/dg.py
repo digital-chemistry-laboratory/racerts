@@ -13,6 +13,7 @@ from racerts.system.stereo import (
     reference_fixed,
     reference_tags,
     stereo_anchors,
+    trans_in_small_rings,
 )
 from racerts.task import FrozenSet
 from racerts.utils import seeds
@@ -161,6 +162,9 @@ class DistanceGeometryEmbedder(BaseEmbedder):
         params.useSmallRingTorsions = True
         params.embedFragmentsSeparately = False
         params.clearConfs = False
+        if trans_in_small_rings(mol):
+            # ETKDG's torsion preferences hold the double bonds of small rings cis
+            params.useExpTorsionAnglePrefs = False
         self.widened = []
         self._configure(params, mol, reference, frozen, restraints)
         if restraints and self.etkdg:

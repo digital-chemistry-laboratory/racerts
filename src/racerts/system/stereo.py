@@ -69,8 +69,7 @@ class StereoCheck:
             and b.GetBeginAtomIdx() not in exempt
             and b.GetEndAtomIdx() not in exempt
         ]
-        labels = _bond_labels(self.graph) if specified else {}
-        self.bonds = {i: labels[i] for i in specified if i in labels}
+        self.bonds = _bond_configurations(self.graph, specified) if specified else {}
 
     def __bool__(self) -> bool:
         return bool(self.atoms or self.bonds)
@@ -86,14 +85,10 @@ class StereoCheck:
             found = geometry_tags(geometry, conf_id, self.atoms)
             wrong += [f"atom {i}" for i, tag in self.atoms.items() if found[i] != tag]
         if self.bonds:
-            probe = Chem.Mol(geometry)
-            for bond in probe.GetBonds():
-                bond.SetStereo(Chem.BondStereo.STEREONONE)
-            Chem.AssignStereochemistryFrom3D(probe, confId=conf_id)
-            found = _bond_labels(probe)
-            wrong += [
-                f"bond {i}" for i, label in self.bonds.items() if found.get(i) != label
-            ]
+            positions = conf.GetPositions()
+            for i, (quad, cis) in self.bonds.items():
+                if (abs(_dihedral(positions, *quad)) < 90.0) != cis:
+                    wrong.append(f"bond {i}")
         return f"stereo of {', '.join(wrong)} inverted" if wrong else None
 
 
@@ -139,6 +134,71 @@ def stereo_anchors(mol: Chem.Mol, frozen) -> List[int]:
         if len(free) == 1:
             anchors.add(free[0])
     return sorted(anchors)
+
+
+CIS = (Chem.BondStereo.STEREOCIS, Chem.BondStereo.STEREOZ)
+TRANS = (Chem.BondStereo.STEREOTRANS, Chem.BondStereo.STEREOE)
+
+
+def _bond_configurations(graph: Chem.Mol, bonds) -> dict:
+    """
+    Bond index -> ((x, a, b, y), cis): the stereo atoms x and y of the double bond a=b
+    and whether they are cis. E/Z as RDKit perceives it (its stereo atoms are then the
+    neighbours of highest CIP rank); a bond whose cis/trans is set with its stereo atoms
+    but that RDKit does not perceive (a ring of fewer than eight atoms) as it is set.
+    """
+    cleaned = Chem.Mol(graph)
+    Chem.AssignStereochemistry(cleaned, cleanIt=True, force=True)
+    found = {}
+    for i in bonds:
+        for source in (cleaned, graph):
+            bond = source.GetBondWithIdx(i)
+            atoms = list(bond.GetStereoAtoms())
+            if bond.GetStereo() in UNSPECIFIED_BOND or len(atoms) != 2:
+                continue
+            quad = (atoms[0], bond.GetBeginAtomIdx(), bond.GetEndAtomIdx(), atoms[1])
+            found[i] = (quad, bond.GetStereo() in CIS)
+            break
+    return found
+
+
+def _dihedral(positions, i, j, k, m) -> float:
+    b0, b1, b2 = (
+        positions[i] - positions[j],
+        positions[k] - positions[j],
+        positions[m] - positions[k],
+    )
+    b1 = b1 / np.linalg.norm(b1)
+    v = b0 - np.dot(b0, b1) * b1
+    w = b2 - np.dot(b2, b1) * b1
+    return float(np.degrees(np.arctan2(np.dot(np.cross(b1, v), w), np.dot(v, w))))
+
+
+SMALL_RING = 8  # RDKit has cis and trans for the double bonds of rings from this size
+
+
+def trans_in_small_rings(mol: Chem.Mol) -> List[tuple]:
+    """
+    The double bonds that are set trans in a ring of fewer than SMALL_RING atoms, as
+    (begin atom, end atom, ring size): configurations that RDKit's stereo perception
+    does not have, that its embedding follows only without torsion preferences, and
+    that a force field may not hold (MMFF holds a ring of seven, not of six).
+    """
+    found = []
+    rings = mol.GetRingInfo().AtomRings()
+    for bond in mol.GetBonds():
+        stereo = bond.GetStereo()
+        atoms = list(bond.GetStereoAtoms())
+        if stereo not in (*CIS, *TRANS) or len(atoms) != 2:
+            continue
+        a, b = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
+        for ring in rings:
+            if a in ring and b in ring and len(ring) < SMALL_RING:
+                outside = sum(atom not in ring for atom in atoms)
+                if (stereo in TRANS) != (outside % 2 == 1):
+                    found.append((a, b, len(ring)))
+                    break
+    return found
 
 
 def _bond_labels(mol: Chem.Mol) -> Dict[int, str]:

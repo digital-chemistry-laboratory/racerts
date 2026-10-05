@@ -8,12 +8,13 @@ from racerts.config import PipelineConfig
 from racerts.embed import Embed
 from racerts.exploit import Exploit
 from racerts.pipeline import Pipeline
-from racerts.prune import PruneEnergy, PruneRMSD
+from racerts.prune import FamilySelector, PruneCount, PruneEnergy, PruneRMSD
 from racerts.prune.energy import EnergyPruner
 from racerts.refine import Refine
 from racerts.validate import OVERLAP_FACTOR, AttackFace, Clash, Validate, gate
 
 WINDOWS = (25.0, 8.0, 6.0)  # kcal/mol: cheap level, expensive level, final
+POOLS = ("family", "energy")
 
 
 class _WindowedTS:
@@ -61,6 +62,8 @@ def staged(
     clash_filter: Optional[float] = OVERLAP_FACTOR,
     config: Optional[PipelineConfig] = None,
     rank=None,
+    pool: Optional[int] = None,
+    pool_by: str = "family",
 ) -> Pipeline:
     """
     The staged workflow as a pipeline:
@@ -71,7 +74,8 @@ def staged(
        validity gate
        (racerts.validate.gate), the forming-bond stereo filter for windowed TSs, and a
        loose energy window (windows[0]) with the RMSD pruning: this removes embedding
-       artifacts and duplicates, while the cheap energies do not decide much;
+       artifacts and duplicates, while the cheap energies do not decide much; with
+       pool, at most that many conformers go on;
     3. refine at the expensive level (an ASE calculator: xTB, an MLIP), the gate again,
        the ranking energy if it is another one (rank), the ranking window (windows[1])
        and the RMSD pruning;
@@ -101,6 +105,13 @@ def staged(
             conformer that is the lowest afterwards.
         config: The settings of the default embedding and cheap refinement (default:
             PipelineConfig()); of no use with both embed and cheap given.
+        pool: The most conformers that go on to the expensive level (default: all
+            that pass step 2), which limits its cost.
+        pool_by: How the pool is chosen: "family" (spread over structural families:
+            the best of each cluster, then the second best, ...; FamilySelector) or
+            "energy" (the lowest by the cheap energy; PruneCount). The cheap level
+            often misranks a flexible system, and Exploit searches only around what
+            it gets: families keep more regions in the pool.
         rank: A Rescore stage for the energy that steps 3 to 5 rank by, if not the
             energy of the expensive refinement: e.g. that energy plus a solvation
             correction (Rescore(batch=..., add=True)). It follows every expensive
@@ -120,6 +131,11 @@ def staged(
     windows = tuple(windows)
     if len(windows) != 3 or not all(w > 0 for w in windows):
         raise ValueError("windows needs three positive energies (kcal/mol).")
+    if pool_by not in POOLS:
+        raise ValueError(f"pool_by must be one of {POOLS}, not {pool_by!r}.")
+    select = []
+    if pool is not None:
+        select = [FamilySelector(pool) if pool_by == "family" else PruneCount(pool)]
     cheap = _refine(cheap) if cheap is not None else config.refine_stage()
     expensive = _refine(expensive)
     stages = [embed if embed is not None else _DefaultEmbed(config)]
@@ -131,6 +147,7 @@ def staged(
         _WindowedTS(Validate(AttackFace())),
         PruneEnergy(EnergyPruner(threshold=windows[0])),
         PruneRMSD(),
+        *select,
         expensive,
         gate(),
         *([rank] if rank is not None else []),

@@ -105,6 +105,46 @@ def test_options():
     assert exploit.batch == 3 and exploit.max_optimizations == 9
 
 
+def test_the_pool_for_the_expensive_level():
+    # Without a pool every conformer that passes the cheap level is refined at the
+    # expensive one. With one, the conformers are chosen by structural family (the
+    # best of each cluster first): the cheap energies often misrank.
+    names = [s.name for s in staged(LJ, pool=30).stages]
+    cheap_duplicates = names.index("prune_rmsd")
+    assert names[cheap_duplicates + 1 : cheap_duplicates + 3] == [
+        "select_families", "refine",
+    ]  # fmt: skip
+    selector = staged(LJ, pool=30).stages[cheap_duplicates + 1]
+    assert selector.n_max == 30
+    by_energy = staged(LJ, pool=30, pool_by="energy").stages[cheap_duplicates + 1]
+    assert by_energy.name == "prune_count" and by_energy.n_max == 30
+    assert "select_families" not in [s.name for s in staged(LJ).stages]
+    with pytest.raises(ValueError, match="pool_by"):
+        staged(LJ, pool=30, pool_by="random")
+    with pytest.raises((TypeError, ValueError), match="n_max"):
+        staged(LJ, pool=0)
+
+
+def test_the_pool_limits_the_expensive_refinements():
+    class Counting(ASEOptimizer):
+        def __init__(self):
+            super().__init__(LennardJones(), method="counting")
+            self.calls = 0
+
+        def _refine(self, mol, reference, anchors, restraints=()):
+            for k, conf in enumerate(mol.GetConformers()):
+                self.calls += 1
+                conf.SetDoubleProp("energy", float(k))
+            return 0
+
+    mol = Chem.AddHs(Chem.MolFromSmiles("CCCCCCO"))
+    counting = Counting()
+    config = racerts.PipelineConfig.from_dict({"embed": {"n_conformers": 30}})
+    pipeline = staged(counting, pool=4, exploit=None, config=config)
+    ensemble = racerts.generate(mol, racerts.GroundState(), pipeline=pipeline)
+    assert counting.calls == 4 and 1 <= len(ensemble) <= 4
+
+
 def test_a_ranking_energy_follows_every_expensive_refinement():
     rank = Rescore(LennardJones(), method="lj-rank")
     pipeline = staged(LJ, rank=rank)

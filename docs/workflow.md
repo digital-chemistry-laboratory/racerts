@@ -17,7 +17,7 @@ ensemble = racerts.generate_ts("ts.xyz", [3, 4, 5], smiles="...", pipeline=pipel
 | Step | Stages | Purpose |
 | --- | --- | --- |
 | 1 | `Embed`, `Validate(Clash(0.5))` | one embedding: its batches mix biased (restraints, hints, active-bond targets) and unbiased settings, and every conformer records its batch; conformers with overlapping heavy atoms are dropped |
-| 2 | `Refine(cheap)`, the gate, `AttackFace` (windowed TSs), `PruneEnergy` (25 kcal/mol), `PruneRMSD` | remove embedding artifacts and duplicates; the window is loose, since the cheap energies should not decide populations |
+| 2 | `Refine(cheap)`, the gate, `AttackFace` (windowed TSs), `PruneEnergy` (25 kcal/mol), `PruneRMSD`, with `pool`: `FamilySelector` | remove embedding artifacts and duplicates; the window is loose, since the cheap energies should not decide populations |
 | 3 | `Refine(expensive)`, the gate, `PruneEnergy` (8 kcal/mol), `PruneRMSD` | rank at the expensive level: the first point where "low energy" means anything |
 | 4 | `Exploit` | Monte Carlo around the best conformers with the same refinement ([Exploit](pipeline.md#exploit)); its acceptance already applies an energy window and the RMSD check |
 | 5 | `PruneRMSD`, `PruneEnergy` (6 kcal/mol), optionally `Rescore` | the final ensemble; rescoring (a higher level, the target solvent) restores the populations after the biasing upstream |
@@ -33,6 +33,11 @@ Arguments:
 - **`config`:** the [settings](pipeline.md#settings) of the default embedding and cheap
   refinement, e.g. `PipelineConfig(embed={"n_conformers": 100})`.
 - **`exploit`:** the settings of `Exploit` as a dict, or `None` to leave it out.
+- **`pool`, `pool_by`:** the most conformers that go on to the expensive level (default:
+  all that pass step 2), chosen by structural family (`"family"`, the default: the best
+  of each cluster, then the second best, ...) or by the cheap energy (`"energy"`). The
+  cheap level often misranks a flexible system, and Exploit searches only around what
+  it gets.
 - **`rescore`:** a `Rescore` stage at the end.
 - **`rank`:** a `Rescore` stage for the energy that steps 3 to 5 rank by, when that is
   not the energy of the expensive refinement (see below).

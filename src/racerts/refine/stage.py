@@ -105,7 +105,8 @@ class Refine:
             raise ValueError(
                 f"In window mode the reacting atoms are held by restraints, which "
                 f"{type(optimizer).__name__} does not take, while their neighbours stay "
-                "fixed. Refine with racerts.refine.MMFFOptimizer or UFFOptimizer, or "
+                "fixed. Refine with an optimizer that takes restraints "
+                "(racerts.refine.MMFFOptimizer, UFFOptimizer or ASEOptimizer), or "
                 "search the saddle point freely: Refine(optimizer, anchors=False)."
             )
         anchors = ctx.frozen.hard if self.anchors else ()

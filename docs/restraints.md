@@ -4,12 +4,13 @@ A restraint keeps the distance of two atoms in a window `[lower, upper]` (Å):
 
 - in embedding, the window replaces the bounds of the pair (distance geometry places the
   atoms in it, in most conformers);
-- in MMFF/UFF refinement, a flat-bottom term ½·k·(d − bound)² outside the window holds it
-  (k in kcal/(mol Å²), as in RDKit; default 20, with ±0.25 Å windows).
+- in refinement, a flat-bottom term ½·k·(d − bound)² outside the window holds it (k in
+  kcal/(mol Å²), as in RDKit; default 20, with ±0.25 Å windows). MMFF/UFF add it to the
+  force field; ASE calculators (xTB, MLIPs) get it through
+  `racerts.refine.restrained.RestrainedCalculator`, which wraps the calculator.
 
 Reported energies never include the restraint terms (nor the terms that hold the frozen
-atoms). Refinements with ASE calculators (xTB, MLIPs) run without restraints: the
-restraints guide the starting geometries only.
+atoms).
 
 ```python
 config = racerts.PipelineConfig.from_dict({

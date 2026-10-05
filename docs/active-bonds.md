@@ -43,12 +43,13 @@ What changes with a window (`TransitionState(..., active_window=...)`):
   through k target lengths evenly spaced in the window, which covers it evenly.
   Conformers embedded outside the window are reported; if all are, the frozen atoms
   cannot take the window, and embedding raises.
-- **Refinement:** MMFF/UFF holds each conformer at its target (stratified) or at its
-  embedded length (unstratified), within ± 0.02 Å (k = 10⁴ kcal/(mol Å²)). A flat-bottom
-  window would not do: the force field's repulsion between the unbonded atoms pushes
-  every conformer to the upper edge. ASE calculators take no restraints, so
-  `Refine(ASEOptimizer(...))` with anchors raises in window mode; refine with MMFF/UFF
-  first, or search the saddle point freely (`Refine(optimizer, anchors=False)`).
+- **Refinement:** MMFF/UFF and ASE calculators (xTB, MLIPs) hold each conformer at its
+  target (stratified) or at its embedded length (unstratified), within ± 0.02 Å (k = 10⁴
+  kcal/(mol Å²)). A flat-bottom window would not do: a minimizer pushes every conformer
+  to one edge of the window (a force field's repulsion between the unbonded atoms
+  pushes them to the upper edge). The TS optimization that follows relaxes the core.
+  Optimizers that take no restraints raise in window mode, unless they search the
+  saddle point freely (`Refine(optimizer, anchors=False)`).
 - **Pruning:** the energy window and the duplicate RMSD apply per target (stratified) or
   per fifth of the window (unstratified). Energies at different constrained lengths are
   not comparable: on the aldol TS, MMFF puts 2.0 Å about 66 kcal/mol above 2.9 Å.

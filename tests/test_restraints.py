@@ -298,7 +298,8 @@ def test_reported_energies_leave_out_the_restraints():
 
 
 @pytest.mark.ase
-def test_ase_refinement_runs_without_the_restraints(caplog):
+def test_ase_refinement_takes_the_restraints(caplog):
+    # The terms themselves: tests/test_restrained.py.
     pytest.importorskip("ase")
     from ase.calculators.lj import LennardJones
 
@@ -309,7 +310,7 @@ def test_ase_refinement_runs_without_the_restraints(caplog):
         ASEOptimizer(LennardJones(), max_steps=2).refine(
             mol, restraints=[DistanceRestraint(0, 5, 2.6, 3.0)]
         )
-    assert "refines without the 1 distance restraints" in caplog.text
+    assert "refines without" not in caplog.text
 
 
 # ---- the pipeline ----

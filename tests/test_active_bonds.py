@@ -219,19 +219,23 @@ def test_task_windows_win_over_generated_restraints(aldol, sn2_ts_water, caplog)
 
 
 @pytest.mark.ase
+class _NoRestraints(racerts.refine.BaseOptimizer):
+    """An optimizer that takes no restraints; it leaves the conformers as they are."""
+
+    def _refine(self, mol, reference, anchors):
+        for conf in mol.GetConformers():
+            conf.SetDoubleProp("energy", 0.0)
+        return 0
+
+
 def test_windowed_refinement_needs_restraints(aldol):
-    pytest.importorskip("ase")
-    from ase.calculators.lj import LennardJones
-
-    from racerts.refine import ASEOptimizer
-
     task = TransitionState(REACTING, active_window=0.25)
     ctx = racerts.Context.create(aldol, task)
     ensemble = racerts.Embed(n_conformers=2).run(ctx)
-    lj = ASEOptimizer(LennardJones(), max_steps=2)
+    plain = _NoRestraints()
     with pytest.raises(ValueError, match="anchors=False"):
-        racerts.Refine(lj).run(ctx, ensemble.copy())
-    racerts.Refine(lj, anchors=False).run(ctx, ensemble.copy())  # a free search: fine
+        racerts.Refine(plain).run(ctx, ensemble.copy())
+    racerts.Refine(plain, anchors=False).run(ctx, ensemble.copy())  # a free search
 
 
 def test_attack_face_with_an_atom_in_two_active_bonds(sn2_ts):

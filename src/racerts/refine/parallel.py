@@ -25,6 +25,9 @@ class OptimizationConfig:
     calculator instance before its first structure, e.g. to warm a calculator that
     perceives a topology from the first geometry it sees (GFN-FF) on the reference.
     For worker processes it must be picklable (a module-level function).
+
+    restraints (DistanceRestraint, PositionRestraint) are added to the calculator as
+    flat-bottom terms (racerts.refine.restrained); the reported energy leaves them out.
     """
 
     optimizer_cls: type
@@ -32,6 +35,7 @@ class OptimizationConfig:
     fmax: float = 0.05
     max_steps: int = 100
     prepare: Optional[Callable[[Any, Any], None]] = None
+    restraints: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -108,6 +112,10 @@ def optimize_one(
     start = time.perf_counter()
     n_steps = 0
     try:
+        if config.restraints:
+            from .restrained import RestrainedCalculator
+
+            calculator = RestrainedCalculator(calculator, config.restraints)
         atoms.calc = calculator
         converged = True
         # ASE optimizers ask for forces even without steps, and ASE < 3.23 treats
@@ -117,6 +125,8 @@ def optimize_one(
             converged = optimizer.run(fmax=config.fmax, steps=config.max_steps)
             n_steps = int(getattr(optimizer, "nsteps", 0))
         energy = float(atoms.get_potential_energy())
+        if config.restraints:
+            energy -= float(calculator.results["restraint_energy"])
     except Exception as exc:
         return Outcome(
             conf_id,

@@ -30,8 +30,8 @@ class BaseOptimizer(ABC):
         """
         Refine all conformers; the anchors stay at their reference positions.
         restraints (DistanceRestraint and PositionRestraint) go to optimizers whose
-        _refine takes them (MMFF, UFF of racerts.refine); others refine without them,
-        which is logged.
+        _refine takes them (MMFF and UFF of racerts.refine, ASE); others refine
+        without them, which is logged.
         """
         if anchors and reference is None:
             raise ValueError("Anchor atoms need a reference geometry.")

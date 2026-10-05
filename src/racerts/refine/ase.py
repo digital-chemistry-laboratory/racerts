@@ -10,6 +10,7 @@ from rdkit import Chem
 
 from racerts.io import ase as ase_io
 from racerts.pipeline.ensemble import ConformerEnsemble
+from racerts.restraints.model import PositionRestraint
 from racerts.system.spec import infer_charge_and_multiplicity
 from racerts.utils.optional import require
 from racerts.utils.units import EV_TO_KCAL_MOL
@@ -22,7 +23,9 @@ logger = logging.getLogger(__name__)
 
 class ASEOptimizer(BaseOptimizer):
     """
-    Refinement with any ASE calculator (xTB, MLIPs, ...), with the anchor atoms fixed.
+    Refinement with any ASE calculator (xTB, MLIPs, ...), with the anchor atoms fixed
+    (FixAtoms) and restraints (distance windows, soft atoms) as flat-bottom terms added to
+    the calculator (racerts.refine.restrained); stored energies leave them out.
 
     Args:
         calculator: An ASE calculator, or a callable that returns one (a factory: one
@@ -108,6 +111,7 @@ class ASEOptimizer(BaseOptimizer):
         constraints: Optional[List[Any]] = None,
         conf_id: Optional[int] = None,
         reference: Optional[Chem.Mol] = None,
+        restraints: Sequence = (),
     ) -> int:
         """Optimize one conformer or the full ensemble in place.
 
@@ -119,6 +123,7 @@ class ASEOptimizer(BaseOptimizer):
         A conformer whose calculation fails (e.g. an SCF that does not converge) is
         left without an energy, so the pruners drop it. If all fail, RuntimeError is
         raised. Returns the number of conformers that failed or did not converge.
+        restraints: flat-bottom terms added to the calculator (energies without them).
         """
         conf_ids = (
             [conf_id]
@@ -142,6 +147,7 @@ class ASEOptimizer(BaseOptimizer):
             fmax=self.fmax,
             max_steps=self.max_steps,
             prepare=self.prepare,
+            restraints=tuple(restraints),
         )
         reference_atoms = None
         if self.prepare is not None:
@@ -224,19 +230,31 @@ class ASEOptimizer(BaseOptimizer):
         return ase_io.rdkit_conformer_to_ase_atoms(mol, conf_id=conf_id, **state)
 
     def _refine(
-        self, mol: Chem.Mol, reference: Optional[Chem.Mol], anchors: Sequence[int]
+        self,
+        mol: Chem.Mol,
+        reference: Optional[Chem.Mol],
+        anchors: Sequence[int],
+        restraints: Sequence = (),
     ) -> int:
         """
         Optimize all conformers, with the anchors fixed (FixAtoms) after aligning the
-        conformers on them to the reference. Returns the number of conformers that
-        failed or did not converge.
+        conformers on them to the reference, and the restraints as flat-bottom terms.
+        Position restraints (soft atoms) hold atoms near points of the reference frame:
+        without anchors, the conformers are aligned on their atoms (as for MMFF/UFF).
+        Returns the number of conformers that failed or did not converge.
         """
+        positions = [r for r in restraints if isinstance(r, PositionRestraint)]
+        if positions and reference is None:
+            raise ValueError("Position restraints need a reference geometry.")
         anchors = list(anchors)
-        self.align_mols(mol, reference, anchors)
+        align_indices = anchors or [r.atom for r in positions]
+        self.align_mols(mol, reference, align_indices)
         constraints = None
         if anchors:
             constraints = [require("ase.constraints", "ase").FixAtoms(indices=anchors)]
-        failures = self.optimize(mol=mol, constraints=constraints, reference=reference)
-        self.align_mols(mol, reference, anchors)
+        failures = self.optimize(
+            mol=mol, constraints=constraints, reference=reference, restraints=restraints
+        )
+        self.align_mols(mol, reference, align_indices)
         logger.info("ASE failures: %d", failures)
         return failures

@@ -257,8 +257,9 @@ class RestraintSet:
     def violations(self, positions) -> np.ndarray:
         return np.array([r.violation(positions) for r in self])
 
-    def sample(self, rng: np.random.Generator, fraction: float) -> "RestraintSet":
-        """A random subset: each restraint is kept with probability fraction."""
+    def sample(self, rng, fraction: float) -> "RestraintSet":
+        """A random subset: each restraint is kept with probability fraction. rng: the
+        random numbers (racerts.utils.seeds.Stream)."""
         if not 0 <= fraction <= 1:
             raise ValueError("fraction must be between 0 and 1.")
         return RestraintSet(r for r in self if rng.random() < fraction)

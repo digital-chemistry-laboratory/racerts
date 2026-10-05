@@ -4,7 +4,6 @@ import copy
 import logging
 from typing import Callable, Optional, Sequence, Union
 
-import numpy as np
 from rdkit import Chem
 from rdkit.Chem import Descriptors
 
@@ -19,6 +18,7 @@ from racerts.restraints.active import (
 from racerts.restraints.model import OPTIONAL_SOURCES, accepts_restraints
 from racerts.system.spec import rigid_body_dof
 from racerts.task import FrozenSet
+from racerts.utils import seeds
 from racerts.utils.checks import is_integer
 
 from .base import BaseEmbedder
@@ -34,7 +34,6 @@ DEFAULT_HINT_SHARE = 0.3
 # run for minutes with RDKit's own limit (ten attempts per atom).
 HINT_ATTEMPTS = 20
 FRACTION_BATCHES = 10  # with restraint_fraction: batches that draw their restraints
-STREAM = 11  # the random stream of those draws, apart from the embedding's
 EMBED_MODES = {"cmap": CmapEmbedder, "bounds": BoundsMatrixEmbedder}
 COUNT_POLICIES = ("legacy", "fragments", "per_bond")
 
@@ -372,7 +371,7 @@ class Embed:
         optional restraint with probability restraint_fraction."""
         if not any(r.source in OPTIONAL_SOURCES for _, rs, _ in batches for r in rs):
             return batches
-        rng = np.random.default_rng(None if ctx.seed < 0 else [ctx.seed, STREAM])
+        rng = seeds.Stream(ctx.seed, "restraint fraction")
         size = max(1, n // FRACTION_BATCHES)
         split = []
         for count, chosen, extra in batches:
@@ -468,7 +467,7 @@ def _batch_embedder(embedder, k: int):
         return embedder
     batch_embedder = copy.copy(embedder)
     if own_seed:
-        batch_embedder.randomSeed = (seed + 7919 * k) % (2**31 - 1)  # RDKit: 31 bits
+        batch_embedder.randomSeed = seeds.derive(seed, "batch", k)
     if legacy_seeds:
         batch_embedder.sequential_seeds = True
     return batch_embedder

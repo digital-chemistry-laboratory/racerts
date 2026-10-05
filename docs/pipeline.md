@@ -76,7 +76,7 @@ ensemble = racerts.generate_ts("ts.xyz", [3, 4, 5], config=config)
 
 | Section | Setting | Default | Meaning |
 | --- | --- | --- | --- |
-| | `seed` | 12 | RDKit embedding seed |
+| | `seed` | 12 | the seed of a run: the seeds of its conformers and batches and the random draws of its stages are all derived from it by a hash (`racerts.utils.seeds`), the same with every version of Python and NumPy; -1: not reproducible |
 | | `num_threads` | 1 | threads for embedding and force fields |
 | `embed` | `mode` | `cmap` | `cmap` (coordinate map) or `bounds` (bounds matrix) |
 | | `n_conformers` | -1 | conformers to embed; -1: rotatable bonds × `conf_factor` + 30 |

@@ -13,6 +13,7 @@ import racerts
 import racerts.embed.dg as dg
 from racerts import Constrained, EmbedConfig, PipelineConfig
 from racerts.embed.bounds import distance_matrix
+from racerts.utils import seeds
 
 SMALL = PipelineConfig(embed=EmbedConfig(n_conformers=4))
 
@@ -184,7 +185,7 @@ def test_sequential_seeds_are_one_seed_stream(hept_1_ene_ts):
     later = Chem.Mol(hept_1_ene_ts)
     later.RemoveAllConformers()
     params = AllChem.EmbedParameters()
-    params.randomSeed = dg.stream_start(12) + 3
+    params.randomSeed = seeds.derive(12) + 3
     params.enableSequentialRandomSeeds = True
     params.useRandomCoords = True
     params.embedFragmentsSeparately = False
@@ -209,13 +210,13 @@ def test_neighbouring_seeds_give_different_streams(hept_1_ene_ts):
         if np.allclose(a, b)
     ]
     assert shared == []
-    assert dg.stream_start(1) != dg.stream_start(2) and dg.stream_start(1) >= 0
+    assert seeds.derive(1) != seeds.derive(2) and seeds.derive(1) >= 0
     # The stream of a seed is fixed for good: a hash of the seed, which no library
     # version changes.
-    assert dg.stream_start(12) == 1051840539
-    assert dg.stream_start(np.int64(12)) == 1051840539
+    assert seeds.derive(12) == 1051840539
+    assert seeds.derive(np.int64(12)) == 1051840539
     assert all(
-        0 <= dg.stream_start(seed) < 2**31 - 2**24 for seed in (0, 1, 2**31, 10**12)
+        0 <= seeds.derive(seed) < 2**31 - 2**24 for seed in (0, 1, 2**31, 10**12)
     )
 
 

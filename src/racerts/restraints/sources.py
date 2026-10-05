@@ -1,6 +1,5 @@
 """Where restraints come from: the user, the reference geometry, fragment links."""
 
-import random
 from itertools import combinations
 from numbers import Real
 from typing import Iterable, List, Optional, Sequence, Tuple
@@ -9,6 +8,7 @@ import numpy as np
 from rdkit import Chem
 
 from racerts.system.spec import split_fragments
+from racerts.utils import seeds
 from racerts.utils.checks import is_integer
 
 # Hydrogen bonds D-H...A: donor atoms of the hydrogen and acceptor elements.
@@ -191,7 +191,7 @@ def fallback_links(
     if len(fragments) < 2:
         return []
     active = set(active_atoms or [])
-    rng = random.Random(seed)
+    rng = seeds.Stream(seed, "fragment links")
     distances = Chem.GetDistanceMatrix(mol)
     heavy = [a.GetIdx() for a in mol.GetAtoms() if a.GetAtomicNum() > 1]
 

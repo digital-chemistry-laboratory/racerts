@@ -1,6 +1,5 @@
 """Distance-geometry embedders: coordinate map (CmapEmbedder) or bounds matrix."""
 
-import hashlib
 import logging
 from typing import List, Optional, Sequence, Union
 
@@ -16,6 +15,7 @@ from racerts.system.stereo import (
     stereo_anchors,
 )
 from racerts.task import FrozenSet
+from racerts.utils import seeds
 
 from .base import BaseEmbedder
 from .bounds import (
@@ -60,8 +60,8 @@ class DistanceGeometryEmbedder(BaseEmbedder):
 
     With sequential_seeds (the default), conformer i is embedded with the seed
     start + i (enableSequentialRandomSeeds) across all calls of one embedding, where
-    start is derived from randomSeed (stream_start), so that the streams of different
-    seeds do not overlap. False reproduces legacy racerts, which restarts the seed for
+    start is derived from randomSeed (racerts.utils.seeds.derive), so that the streams
+    of different seeds do not overlap. False reproduces legacy racerts, which restarts the seed for
     the second call, so that its first 3 conformers are embedded twice.
 
     reference_bounds decides what happens to distance bounds of the graph that exclude
@@ -187,7 +187,7 @@ class DistanceGeometryEmbedder(BaseEmbedder):
             if self.sequential_seeds:
                 params.enableSequentialRandomSeeds = True
                 if self.randomSeed >= 0:
-                    params.randomSeed = stream_start(self.randomSeed) + requested
+                    params.randomSeed = seeds.derive(self.randomSeed) + requested
             requested += count
             return EmbedMultipleConfs(mol, count, params)
 
@@ -334,23 +334,6 @@ class DistanceGeometryEmbedder(BaseEmbedder):
         return needed_fallback(
             len(result), params.GetFailureCounts(), chiral_check, params.maxIterations
         )
-
-
-# Room for this many conformers after the start of a seed stream (RDKit seeds are
-# 31-bit integers).
-_STREAM_LENGTH = 2**24
-
-
-def stream_start(seed: int) -> int:
-    """
-    The RDKit seed of the first conformer of a sequential-seed embedding with the
-    user seed seed: spread over the seed range, so that seeds 1, 2, ... do not give
-    shifted copies of the same stream (as seed + i would). It is a hash of the seed
-    (SHA-256), so that a seed gives the same conformers with every version of the
-    libraries.
-    """
-    digest = hashlib.sha256(str(int(seed)).encode()).digest()
-    return int.from_bytes(digest[:8], "big") % (2**31 - 1 - _STREAM_LENGTH)
 
 
 def needed_fallback(

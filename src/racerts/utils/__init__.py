@@ -1,6 +1,6 @@
 """
 Helpers: logging (log), optional dependencies (optional), unit conversions (units),
-checks of argument values (checks).
+checks of argument values (checks), seeds and random draws (seeds).
 """
 
 # racerts.utils of legacy racerts had these functions; they live in racerts.compat.

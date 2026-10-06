@@ -160,8 +160,11 @@ class DistanceGeometryEmbedder(BaseEmbedder):
         self._configure(params, mol, reference, frozen, restraints)
         if restraints and self.etkdg:
             # ETKDG's torsion terms override about 60 % of bounds windows otherwise
-            # (verified on RDKit 2023.09-2026.03); plain DG keeps most of them.
+            # (verified on RDKit 2023.09-2026.03); plain DG keeps most of them. The
+            # small-ring terms are not scaled down from RDKit 2026.09 on: a window
+            # that needs a boat embeds in 1 % of the attempts with them (66 % before).
             params.boundsMatForceScaling = 100.0
+            params.useSmallRingTorsions = False
         params.trackFailures = True
         if getattr(self, "max_attempts", None) is not None:
             params.maxIterations = int(self.max_attempts)

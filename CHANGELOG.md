@@ -103,9 +103,10 @@ pruner with the legacy ones is `racerts.pruner.RMSDPruner`.
 - Distance windows in the bounds; a window that cannot be embedded is reported, and a hint
   that does not embed within its budget is dropped while the conformer count is kept.
 - A warning when a window lies between two atoms that the coordinate map places.
-- ETKDGv3 (ground states) runs with RDKit's macrocycle and small-ring torsion terms. RDKit
-  fails with the small-ring terms on cyclopentane rings ("bad direction in linearSearch"):
-  the embedding goes on without them, with a warning.
+- ETKDGv3 (ground states) runs with RDKit's macrocycle and small-ring torsion terms. With
+  restraints the small-ring terms are left out: from RDKit 2026.09 on they override a
+  window that needs another ring conformation. RDKit fails with them on cyclopentane rings
+  ("bad direction in linearSearch"): the embedding goes on without them, with a warning.
 
 #### Restraints
 

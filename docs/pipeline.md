@@ -136,7 +136,8 @@ get in place. `Embed` starts an ensemble: to combine two embedding runs (with di
 seeds), merge their ensembles. Components passed to a stage (an embedder with its seed,
 an optimizer) keep their own settings; stages create default ones for the task, e.g.
 `Embed()` uses ETKDGv3 for ground states, with RDKit's macrocycle and small-ring torsion
-terms. RDKit fails with the small-ring terms on cyclopentane rings: the embedding then
+terms. The small-ring terms are left out with restraints, so that a window can take a
+ring out of its chair. RDKit fails with them on cyclopentane rings: the embedding then
 goes on without them, with a warning.
 
 The pipeline logs every stage with its number of conformers and run time (logger

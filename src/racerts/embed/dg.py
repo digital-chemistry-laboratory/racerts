@@ -37,45 +37,36 @@ CHIRALITY_FALLBACKS = (True, False, *CHIRALITY_FALLBACK_MODES)  # True: "legacy"
 
 class DistanceGeometryEmbedder(BaseEmbedder):
     """
-    Embedding with RDKit's EmbedMultipleConfs. Plain distance geometry by default;
-    etkdg=True uses ETKDGv3 (with the same settings otherwise, e.g. the torsion
-    preferences of small rings and macrocycles).
+    Embedding with RDKit's EmbedMultipleConfs: plain distance geometry by default,
+    ETKDGv3 with etkdg=True (the same settings otherwise).
 
-    The first min(n, 3) conformers check for chirality problems (the fixed atoms of a
-    TS can contradict a chiral tag); then the other n - 3 are added. If most of the
-    first ones fail on chirality, chirality_fallback decides:
-    - True or "legacy" (legacy racerts): n conformers are embedded without any chiral
-      tags, or without enforcing chirality, with a warning; free stereocentres can
-      then come out inverted.
-    - "frozen_first": where legacy racerts drops all chiral tags (the first
-      minimization fails), only the tags of the frozen atoms whose configuration the
-      reference fixes (see reference_fixed) are dropped first and the check is
-      repeated; the legacy fallback follows only if it still fails. After any
-      fallback, the graph keeps its chiral tags, and conformers whose specified stereo
-      is inverted are removed, with a warning (not checked: core atoms that are free
-      or fixed by the reference, e.g. the reacting atoms). In this mode the
-      coordinate-map embedder always places the free substituent that alone sets the
-      configuration of a frozen stereocentre (racerts.system.stereo.stereo_anchors).
-    - False: no fallback (the ground-state default: stereocentres of the input are
-      never given up).
+    chirality_fallback: the first min(n, 3) conformers show whether the fixed atoms
+    contradict a chiral tag. If most of them fail on chirality:
+    - True or "legacy": all n are embedded without chiral tags, or without enforcing
+      chirality, with a warning; free stereocentres can then come out inverted.
+    - "frozen_first": only the tags of the frozen atoms whose configuration the
+      reference fixes (reference_fixed) are dropped first; the legacy fallback follows
+      only if that fails too. The graph keeps its tags, and conformers whose specified
+      stereo is inverted are removed with a warning (not checked: core atoms). The
+      coordinate-map embedder then also places the free substituent that alone sets
+      the configuration of a frozen stereocentre (system.stereo.stereo_anchors).
+    - False: no fallback (the ground-state default).
 
-    With sequential_seeds (the default), conformer i is embedded with the seed
-    start + i (enableSequentialRandomSeeds) across all calls of one embedding, where
-    start is derived from randomSeed (racerts.utils.seeds.derive), so that the streams
-    of different seeds do not overlap. False reproduces legacy racerts, which restarts the seed for
-    the second call, so that its first 3 conformers are embedded twice.
+    sequential_seeds (default): conformer i gets the seed start + i across all calls
+    of one embedding, with start derived from randomSeed (utils.seeds.derive), so the
+    streams of different seeds do not overlap. False is legacy racerts: the seed
+    restarts for the second call, and the first 3 conformers are embedded twice.
 
-    reference_bounds decides what happens to distance bounds of the graph that exclude
-    a distance of the reference geometry (a TS core far from the graph's equilibrium
-    geometry, e.g. a metal over a ring bond; see bounds.widened_bounds):
-    - "fallback": they are widened to the reference only when triangle smoothing
-      fails without (RDKit embeds nothing then), with a warning;
-    - "never": as legacy racerts, no conformers then;
-    - "always": they are widened whenever they exclude the reference.
-    The embedder's attribute widened lists the widened pairs of its last embedding.
+    reference_bounds: what happens to bounds of the graph that exclude a distance of
+    the reference geometry (e.g. a metal over a ring bond; bounds.widened_bounds):
+    - "fallback": widened to the reference only when RDKit embeds nothing without,
+      with a warning;
+    - "always": widened whenever they exclude the reference;
+    - "never": as legacy racerts, no conformers then.
+    The attribute widened lists the widened pairs of the last embedding.
 
-    max_attempts: RDKit's attempts per conformer (maxIterations; default: RDKit's, ten
-    per atom). A conformer that does not embed within them is left out.
+    max_attempts: RDKit's attempts per conformer (maxIterations; default ten per
+    atom). A conformer that does not embed within them is left out.
     """
 
     def __init__(

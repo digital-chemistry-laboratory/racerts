@@ -10,7 +10,7 @@ module paths such as racerts.embedder or racerts.optimizer.ase) is kept in
 racerts.compat and importable from here.
 """
 
-from .api import generate, generate_gs, generate_runs, generate_ts, swap
+from .api import generate, generate_gs, generate_runs, generate_ts
 from .compat import (
     ConformerGenerator,
     conformer_generator,
@@ -45,6 +45,7 @@ from .pipeline import (
 )
 from .prune import PruneCluster, PruneCount, PruneEnergy, PruneRMSD
 from .refine import Refine, Rescore
+from .swaps import swap
 from .system.swap import Swap, SwapError, SwapResult, apply_swap
 from .task import Constrained, FrozenSet, GroundState, Task, TransitionState
 from .validate import Validate

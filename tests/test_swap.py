@@ -630,13 +630,13 @@ def test_swap_takes_the_conformer_count_of_the_config(methylbiphenyl, caplog):
 
 def test_swap_takes_reference_bounds_from_the_config(methylbiphenyl, monkeypatch):
     seen = {}
-    original = racerts.api.default_embedder
+    original = racerts.swaps.default_embedder
 
     def recording(*args, **settings):
         seen.update(settings)
         return original(*args, **settings)
 
-    monkeypatch.setattr(racerts.api, "default_embedder", recording)
+    monkeypatch.setattr(racerts.swaps, "default_embedder", recording)
     config = racerts.PipelineConfig.from_dict({"embed": {"reference_bounds": "never"}})
     racerts.swap(methylbiphenyl, BUTYL_SWAP, config=config, n_conformers=2)
     assert seen["reference_bounds"] == "never"

@@ -329,33 +329,62 @@ OVERLAP_FACTOR = 0.5
 REFERENCE_MARGIN = 0.2  # A: pairs that close in the reference clash only this closer
 
 
-def clash_limits(mol, held=(), reference=None, factor: float = CLASH_FACTOR):
+def clash_limits(
+    mol,
+    held=(),
+    reference=None,
+    factor: float = CLASH_FACTOR,
+    hydrogen_factor: Optional[float] = None,
+    between=None,
+    reference_atoms=None,
+):
     """
-    The atom pairs to check for clashes and their distance limits (A): heavy atoms more
-    than three bonds apart (or in different fragments), not both held (e.g. the hard
-    and core atoms of a task, which keep the reference geometry), clash when closer than
+    The atom pairs to check for clashes and their distance limits (A): atoms more than
+    three bonds apart (or in different fragments), not both held (e.g. the hard and
+    core atoms of a task, which keep the reference geometry), clash when closer than
     factor times their vdW sum. A pair closer than that in the reference geometry
     (positions; e.g. a coordination that the graph lacks) clashes only if it comes
     more than REFERENCE_MARGIN closer.
+
+    Args:
+        hydrogen_factor: None: heavy atoms only. A number: pairs with a hydrogen are
+            checked too, with this factor.
+        between: Two groups of atoms: only pairs with one atom in each.
+        reference_atoms: The atoms among which the reference decides (default all).
 
     Returns:
         Arrays (first atoms, second atoms, limits) of the pairs to check.
     """
     table = Chem.GetPeriodicTable()
-    numbers = [atom.GetAtomicNum() for atom in mol.GetAtoms()]
-    heavy = np.array([z > 1 for z in numbers])
-    radii = np.array([table.GetRvdw(z) for z in numbers])
+    numbers = np.array([atom.GetAtomicNum() for atom in mol.GetAtoms()])
+    indices = np.arange(len(numbers))
+    radii = np.array([table.GetRvdw(int(z)) for z in numbers])
+    with_hydrogen = (numbers[:, None] == 1) | (numbers[None, :] == 1)
     check = np.triu(Chem.GetDistanceMatrix(mol) > 3, k=1)
-    check &= heavy[:, None] & heavy[None, :]
+    if hydrogen_factor is None:
+        check &= ~with_hydrogen
     held = sorted(set(held))
     if held:
         check[np.ix_(held, held)] = False
+    if between is not None:
+        one, other = (np.isin(indices, list(group)) for group in between)
+        check &= (one[:, None] & other[None, :]) | (other[:, None] & one[None, :])
     first, second = np.nonzero(check)
     limits = factor * (radii[first] + radii[second])
+    if hydrogen_factor is not None:
+        limits = np.where(
+            with_hydrogen[first, second],
+            hydrogen_factor * (radii[first] + radii[second]),
+            limits,
+        )
     if reference is not None:
         reference = np.asarray(reference, dtype=float)
         seed = np.linalg.norm(reference[first] - reference[second], axis=1)
-        limits = np.where(seed < limits, seed - REFERENCE_MARGIN, limits)
+        decides = seed < limits
+        if reference_atoms is not None:
+            inside = np.isin(indices, list(reference_atoms))
+            decides &= inside[first] & inside[second]
+        limits = np.where(decides, seed - REFERENCE_MARGIN, limits)
     return first, second, limits
 
 

@@ -9,10 +9,9 @@ from rdkit.Chem import AllChem
 from racerts.pipeline import ConformerEnsemble
 from racerts.system.swap import SwapResult, rotation_between
 from racerts.utils import seeds
+from racerts.validate.checks import CLASH_FACTOR, clash_limits, first_clash
 
 logger = logging.getLogger(__name__)
-
-CLASH_FACTOR = 0.7  # heavy atoms closer than this times their vdW sum clash
 
 
 def rigid_attach(
@@ -53,22 +52,8 @@ def rigid_attach(
 
     mol = result.mol
     new_atoms = sorted(result.fragment_map.values())
-    kept_heavy = [
-        i for i in result.conserved if mol.GetAtomWithIdx(i).GetAtomicNum() > 1
-    ]
-    new_heavy = [i for i in new_atoms if mol.GetAtomWithIdx(i).GetAtomicNum() > 1]
-    topological = Chem.GetDistanceMatrix(mol)
-    table = Chem.GetPeriodicTable()
-    pairs = [(i, j) for i in new_heavy for j in kept_heavy if topological[i, j] > 3]
-    limits = np.array(
-        [
-            clash_factor
-            * (
-                table.GetRvdw(mol.GetAtomWithIdx(i).GetAtomicNum())
-                + table.GetRvdw(mol.GetAtomWithIdx(j).GetAtomicNum())
-            )
-            for i, j in pairs
-        ]
+    pairs = clash_limits(
+        mol, factor=clash_factor, between=(new_atoms, result.conserved)
     )
     frag_idx = np.array(list(result.fragment_map))
     new_idx = np.array([result.fragment_map[j] for j in frag_idx])
@@ -92,12 +77,9 @@ def rigid_attach(
                 turn = _axis_rotation(axis, 2 * np.pi * step / n_rotations)
                 pose = positions.copy()
                 pose[new_idx] = (placed[frag_idx] - anchor) @ turn.T + anchor
-                if pairs:
-                    first, second = zip(*pairs)
-                    d = np.linalg.norm(pose[list(first)] - pose[list(second)], axis=1)
-                    if (d < limits).any():
-                        clashes += 1
-                        continue
+                if first_clash(pose, pairs) is not None:
+                    clashes += 1
+                    continue
                 conf = Chem.Conformer(mol.GetNumAtoms())
                 for k, p in enumerate(pose):
                     conf.SetAtomPosition(k, p.tolist())

@@ -22,6 +22,7 @@ from racerts.system.swap import Swap, SwapError, apply_swap
 from racerts.task import Constrained, FrozenSet, GroundState, Task, TransitionState
 from racerts.utils.checks import is_integer
 from racerts.utils.log import verbose_logging
+from racerts.validate.checks import clash_limits, first_clash
 
 logger = logging.getLogger(__name__)
 
@@ -549,39 +550,20 @@ def _warn_residual_clash(
         energies = ensemble.energies()
         found = energies.size and np.isfinite(energies).any()
         conf_ids = [ensemble.best() if found else ensemble.conf_ids[0]]
-    table = Chem.GetPeriodicTable()
-    numbers = np.array([a.GetAtomicNum() for a in mol.GetAtoms()])
-    radii = np.array([table.GetRvdw(int(z)) for z in numbers])
-    factor = np.where(
-        (numbers[:, None] == 1) | (numbers[None, :] == 1),
-        HYDROGEN_CLASH_FACTOR,
-        RESIDUAL_CLASH_FACTOR,
-    )
-    limit = factor * (radii[:, None] + radii[None, :])
-    check = np.triu(Chem.GetDistanceMatrix(mol) > 3, k=1)
-    held = sorted(set(held))
-    if held:
-        check[np.ix_(held, held)] = False
-    kept = np.array(reference.conserved) if reference is not None else None
     for conf_id in conf_ids:
-        positions = mol.GetConformer(conf_id).GetPositions()
-        distances = np.linalg.norm(positions[:, None] - positions[None, :], axis=-1)
-        bound = limit
-        if kept is not None:  # the reference this conformer comes from
+        reference_positions = None
+        if reference is not None:  # the reference this conformer comes from
             first = reference.mol.GetConformers()[0].GetId()
             ref_id = ensemble.provenance(conf_id).get("reference", first)
-            x = reference.mol.GetConformer(ref_id).GetPositions()[kept]
-            ref = np.linalg.norm(x[:, None] - x[None, :], axis=-1)
-            bound = limit.copy()
-            own = bound[np.ix_(kept, kept)]
-            bound[np.ix_(kept, kept)] = np.where(ref < own, ref - 0.2, own)
-        clashes = np.argwhere(check & (distances < bound))
-        if len(clashes):
-            i, j = clashes[0]
-            logger.warning(
-                "Conformer %d has a clash: atoms %d and %d are closer than %.2f A.",
-                conf_id,
-                i,
-                j,
-                bound[i, j],
-            )
+            reference_positions = reference.mol.GetConformer(ref_id).GetPositions()
+        pairs = clash_limits(
+            mol,
+            held,
+            reference_positions,
+            RESIDUAL_CLASH_FACTOR,
+            hydrogen_factor=HYDROGEN_CLASH_FACTOR,
+            reference_atoms=None if reference is None else reference.conserved,
+        )
+        clash = first_clash(mol.GetConformer(conf_id).GetPositions(), pairs)
+        if clash:
+            logger.warning("Conformer %d has a clash: %s.", conf_id, clash)

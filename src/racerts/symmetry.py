@@ -44,6 +44,10 @@ from scipy.optimize import linear_sum_assignment
 
 from racerts.geometry import symmetrize_terminal_atoms
 
+# Up to this many equivalent atom mappings a list of all of them is still affordable:
+# the limit of legacy racerts, and of the callers that want the exact minimum.
+LISTED_MAPS = 10000
+
 logger = logging.getLogger(__name__)
 
 POLAR_PARENTS = (7, 8, 15, 16)  # "polar" hydrogens: bonded to N, O, P or S
@@ -321,7 +325,7 @@ class SymmetricRMSD:
         mol: Chem.Mol,
         atoms: Union[str, Sequence[int]] = "heavy",
         max_maps: int = 100,
-        hard_max_maps: int = 10000,
+        hard_max_maps: int = LISTED_MAPS,
         reference=None,
         min_spread: float = 0.2,
         max_pairs: int = 200000,

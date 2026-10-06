@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from racerts.geometry import rmsd_within, symmetry_maps
+from racerts.symmetry import LISTED_MAPS, SymmetricRMSD
 
 from .ensemble import ConformerEnsemble
 
@@ -234,11 +234,11 @@ class _Row:
 class _Matcher:
     def __init__(self, mol, energy_tolerance: float, rmsd: float):
         self.energy_tolerance, self.rmsd = energy_tolerance, rmsd
-        self.symmetry = symmetry_maps(mol)
+        self.kernel = SymmetricRMSD(mol, "heavy", max_maps=LISTED_MAPS)
 
     def same(self, a: _Row, b: _Row) -> bool:
-        return abs(a.energy - b.energy) <= self.energy_tolerance and rmsd_within(
-            a.positions, b.positions, self.rmsd, self.symmetry.atoms, self.symmetry.maps
+        return abs(a.energy - b.energy) <= self.energy_tolerance and self.kernel.within(
+            a.positions, b.positions, self.rmsd
         )
 
 

@@ -4,7 +4,12 @@ import logging
 
 import numpy as np
 
-from racerts.symmetry import SymmetricRMSD, bound_descriptors, symmetry_classes
+from racerts.symmetry import (
+    LISTED_MAPS,
+    SymmetricRMSD,
+    bound_descriptors,
+    symmetry_classes,
+)
 from racerts.utils.checks import is_integer
 
 from .base import BasePruner, check_threshold, drop_conformers_without_energy
@@ -93,7 +98,7 @@ class RMSDPruner(BasePruner):
             mol,
             self.hydrogens,
             max_maps=self.max_maps,
-            hard_max_maps=max(self.max_maps, 10000),
+            hard_max_maps=max(self.max_maps, LISTED_MAPS),
         )
         classes = symmetry_classes(kernel.graph, kernel.weight)
         kept, prepared, described = [], [], ([], [])

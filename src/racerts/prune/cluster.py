@@ -6,8 +6,9 @@ from typing import Callable, List, Optional, Sequence
 import numpy as np
 from rdkit import Chem
 
-from racerts.geometry import heavy_atoms, rmsd, symmetry_maps
+from racerts.geometry import heavy_atoms, rmsd
 from racerts.pipeline import ConformerEnsemble
+from racerts.symmetry import LISTED_MAPS, SymmetricRMSD
 
 from .base import (
     BasePruner,
@@ -39,20 +40,20 @@ class ClusterPruner(BasePruner):
         method: "butina" (RDKit's Butina clustering),
             "hierarchical" (scipy linkage), or "leader" (in order of energy,
             a conformer joins the first leader within threshold or becomes a leader).
-        kernel: The distance, an RMSD of racerts.geometry after superposition:
-            "aligned" (a fixed atom correspondence; for bondless TS carriers) or
-            "symmetric" (the smallest over the symmetry maps of the graph, as
+        kernel: The distance, an RMSD after superposition: "aligned" (a fixed atom
+            correspondence; for bondless TS carriers) or "symmetric" (the smallest
+            over the symmetry of the graph, racerts.symmetry.SymmetricRMSD, as
             RMSDPruner).
         atom_indices: Atoms of the distance; default: heavy atoms (all atoms if there
-            are none). The "symmetric" kernel always uses the atoms of symmetry_maps
-            (the heavy atoms).
+            are none). The "symmetric" kernel always uses the heavy atoms.
         representative: The conformer kept per cluster: "lowest_energy" (the first by
             conformer order without energies) or "centroid" (the smallest sum of
             distances to the other members).
         linkage: The linkage of "hierarchical" (scipy method, e.g. "average").
         metric: Instead of the kernel: metric(mol, conf_id_a, conf_id_b) -> distance,
             e.g. a distance over paired reactant and product conformers.
-        max_matches: The most symmetry maps of the "symmetric" kernel.
+        max_matches: The most symmetry maps that the "symmetric" kernel lists; above
+            it, local symmetry is assigned without a list.
     """
 
     def __init__(
@@ -94,13 +95,26 @@ class ClusterPruner(BasePruner):
             pairs = self.metric
         else:
             if self.kernel == "aligned":
-                atoms, maps = self.atom_indices or heavy_atoms(mol), None
-            else:  # the maps depend on the graph only: once for all pairs
-                atoms, maps = symmetry_maps(mol, max_matches=self.max_matches)
-            positions = {i: mol.GetConformer(i).GetPositions() for i in conf_ids}
+                atoms = self.atom_indices or heavy_atoms(mol)
+                positions = {i: mol.GetConformer(i).GetPositions() for i in conf_ids}
 
-            def pairs(_, a, b):
-                return rmsd(positions[a], positions[b], atoms, maps)
+                def pairs(_, a, b):
+                    return rmsd(positions[a], positions[b], atoms)
+
+            else:  # the symmetry depends on the graph only: once for all pairs
+                kernel = SymmetricRMSD(
+                    mol,
+                    "heavy",
+                    max_maps=self.max_matches,
+                    hard_max_maps=max(self.max_matches, LISTED_MAPS),
+                )
+                positions = {
+                    i: kernel.prepare(mol.GetConformer(i).GetPositions())
+                    for i in conf_ids
+                }
+
+                def pairs(_, a, b):
+                    return kernel.rmsd(positions[a], positions[b])
 
         for i in range(1, n):
             for j in range(i):

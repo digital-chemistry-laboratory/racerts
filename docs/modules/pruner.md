@@ -33,7 +33,19 @@ Options of `racerts.prune.RMSDPruner`:
 
 With both prefilters off it decides every pair by its RMSD, as the pruner above.
 
-The same RMSD for other uses:
+The RMSD of the pruner for other uses:
+
+```python
+from racerts.symmetry import SymmetricRMSD
+
+kernel = SymmetricRMSD(mol, "polar")  # once per graph; "heavy", "polar", "all" or atom indices
+a = mol.GetConformer(0).GetPositions()
+b = mol.GetConformer(1).GetPositions()
+kernel.rmsd(a, b)
+kernel.within(a, b, 0.125)  # with early exits
+```
+
+The RMSD over a list of symmetry maps, as legacy racerts computes it:
 
 ```python
 from racerts.geometry import rmsd, symmetry_maps

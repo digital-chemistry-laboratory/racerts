@@ -109,3 +109,24 @@ def test_ground_states_with_radicals_get_their_multiplicity():
     assert racerts.generate_gs("C", config=config).mol.GetIntProp("multiplicity") == 1
     singlet = racerts.generate_gs("[CH2]", multiplicity=1, config=config)
     assert singlet.mol.GetIntProp("multiplicity") == 1
+    # The rule belongs to the task, not to the entry point; in the graph of a
+    # transition state radical electrons mostly stand for bonds that form or break.
+    mol = Chem.AddHs(Chem.MolFromSmiles("[CH2]"))
+    AllChem.EmbedMolecule(mol, randomSeed=1)
+    for task, multiplicity in [
+        (racerts.GroundState(), 3),
+        (racerts.TransitionState([0]), 1),
+    ]:
+        ensemble = racerts.generate(mol, task, config=config)
+        assert ensemble.mol.GetIntProp("multiplicity") == multiplicity
+
+
+@pytest.mark.parametrize("multiplicity", [0, -3])
+def test_a_multiplicity_below_one_is_refused(multiplicity):
+    from racerts.system import set_charge_and_multiplicity
+
+    mol = mol_from_explicit_h_smiles("[H]C([H])([H])[H]")
+    with pytest.raises(ValueError, match="multiplicity must be at least 1"):
+        set_charge_and_multiplicity(mol, multiplicity=multiplicity)
+    with pytest.raises(ValueError, match="multiplicity must be at least 1"):
+        racerts.generate_gs("C", multiplicity=multiplicity)

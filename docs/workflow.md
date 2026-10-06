@@ -50,7 +50,7 @@ A `Level` has:
 The other arguments of `staged`:
 
 - **`embed`:** the `Embed` stage; default: that of the default pipeline.
-- **`config`:** the [settings](pipeline.md#settings) of the default embedding and of a
+- **`config`:** the [settings](settings.md) of the default embedding and of a
   level without an optimizer, e.g. `PipelineConfig(embed={"n_conformers": 100})`.
 - **`final_window`:** the energy window of the result (6 kcal/mol).
 - **`rescore`:** a `Rescore` stage at the end.

@@ -12,7 +12,7 @@ Without `PipelineConfig.legacy()` or `--legacy`, `generate_ts`, `generate_gs` an
 conformer, the `frozen_first` chirality fallback with a stereo check after refinement,
 energies without the anchor terms, conformer counts that include separate fragments,
 and duplicates decided by their RMSD alone, without the energy and inertia prefilters
-([Settings](pipeline.md#settings)).
+([Settings](settings.md)).
 
 ## What stays
 

@@ -36,6 +36,8 @@ nav:
   - Getting started: getting-started.md
   - User guide:
       - Pipelines and tasks: pipeline.md
+      - Settings: settings.md
+      - Plug-in points: plugins.md
       - Staged workflow: workflow.md
       - Restraints: restraints.md
       - Active-bond windows: active-bonds.md

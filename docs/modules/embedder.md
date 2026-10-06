@@ -10,7 +10,7 @@ Constructor parameters:
 - `remove_all_conformers: bool = True` : Legacy embedders only (`racerts.embedder`); it has no effect.
 
 `etkdg`, `chirality_fallback`, `sequential_seeds` and `num_threads` are described with the
-[settings](../pipeline.md#settings).
+[settings](../settings.md).
 
 
 ### CmapEmbedder

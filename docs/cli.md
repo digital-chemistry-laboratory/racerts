@@ -22,7 +22,7 @@ $ racerts gs "OC(=O)[C@@H]1CCCN1C(C)=C" [options]
 | `--graph` (ts) | first method for the graph: `smiles`, `bonds` or `connect` |
 | `-c`, `--charge` | total charge (ts: default 0; gs: from the SMILES) |
 | `--multiplicity` | spin multiplicity (default: the lowest for the electrons) |
-| `--config` | [PipelineConfig](pipeline.md#settings) as JSON or YAML; the other options override it |
+| `--config` | [PipelineConfig](settings.md) as JSON or YAML; the other options override it |
 | `--legacy` | the settings of legacy racerts, whatever the defaults (the config file and the other options override them) |
 | `-n`, `--n-conformers`, `--conf-factor` | conformers to embed |
 | `--count-policy` | how the default number is counted: `legacy`, `fragments`, `per_bond` |

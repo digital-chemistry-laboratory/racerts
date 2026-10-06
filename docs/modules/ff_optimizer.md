@@ -8,7 +8,7 @@ Constructor parameters:
 - `force_constant: float = 1e6` : force constant of distance constraints to TS reference points
 
 Further settings (`converge`, `energies_without_anchors`, the MMFF dielectric) are described
-with the [settings](../pipeline.md#settings).
+with the [settings](../settings.md).
 
 <a id="mmff_optimizer"></a>
 ### MMFFOptimizer

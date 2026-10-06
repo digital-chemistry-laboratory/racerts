@@ -7,10 +7,10 @@ seed and the restraints through the stages. `PipelineConfig.legacy()` (`racerts 
 settings: one seed per conformer, the `frozen_first` chirality fallback with a stereo
 check after refinement, energies without the anchor terms, conformer counts that
 include the freedom of separate fragments, and duplicates decided by their RMSD alone,
-without the two prefilters (see [Settings](#settings)).
+without the two prefilters (see [Settings](settings.md)).
 
-See also: [restraints](restraints.md), [active-bond windows](active-bonds.md) and
-[swaps](swap.md).
+See also: [settings](settings.md), [plug-in points](plugins.md), [restraints](restraints.md),
+[active-bond windows](active-bonds.md) and [swaps](swap.md).
 
 ```python
 import racerts
@@ -59,68 +59,6 @@ ensemble = racerts.generate_gs("OC(=O)[C@@H]1CCCN1C(C)=C")
 mol = build_mol("complex.xyz", charge=0, reacting_atoms=[])
 ensemble = racerts.generate(mol, racerts.Constrained(hard=[0, 1, 2, 3]))
 ```
-
-## Settings
-
-`PipelineConfig` holds the settings of the default pipeline as plain data; it can be
-written to and read from JSON or YAML files. Values are checked when the config is made:
-unknown keys and values of the wrong type raise `ValueError`. In YAML files, numbers such
-as `1e6` are read as numbers (as in YAML 1.2).
-
-```python
-config = racerts.PipelineConfig.from_dict(
-    {"seed": 7, "embed": {"mode": "bounds", "n_conformers": 200}, "refine": {"backend": "uff"}}
-)
-config.to_file("settings.yaml")
-ensemble = racerts.generate_ts("ts.xyz", [3, 4, 5], config=config)
-```
-
-| Section | Setting | Default | Meaning |
-| --- | --- | --- | --- |
-| | `seed` | 12 | the seed of a run: the seeds of its conformers and batches and the random draws of its stages are all derived from it by a hash (`racerts.utils.seeds`), the same with every version of Python and NumPy; -1: not reproducible |
-| | `num_threads` | 1 | threads for embedding and force fields |
-| `embed` | `mode` | `cmap` | `cmap` (coordinate map) or `bounds` (bounds matrix) |
-| | `n_conformers` | -1 | conformers to embed; -1: rotatable bonds × `conf_factor` + 30 |
-| | `conf_factor` | 80 | |
-| | `etkdg` | None | ETKDGv3 instead of plain distance geometry; None: only without frozen atoms |
-| | `use_random_coords` | true | |
-| | `count_policy` | `fragments` | how -1 is counted: `legacy`; `fragments` (adds 3 or 6 rigid-body degrees of freedom per fragment without frozen atoms, e.g. a solvent molecule); `per_bond` (max(7, 10 × rotatable bonds)) |
-| | `sequential_seeds` | true | one seed per conformer, in a stream that starts at a value derived from `seed` (different seeds do not overlap); legacy racerts embeds its first 3 conformers twice |
-| | `reference_bounds` | `fallback` | bounds of the graph that exclude a distance of the reference: widened to it when embedding fails without (`fallback`), `always`, or `never` (as legacy racerts: no conformers then) |
-| | `chirality_fallback` | `frozen_first` | what happens when the frozen atoms make the chirality checks fail: `legacy` or `frozen_first` (see below) |
-| `refine` | `backend` | `mmff` | `mmff` or `uff` |
-| | `fallback` | true | UFF if MMFF has no parameters |
-| | `force_constant` | 1e6 | kcal/mol/Å² on the frozen atoms |
-| | `converge` | false | minimize until the energy stops dropping; legacy racerts stops early next to the frozen atoms |
-| | `energies_without_anchors` | true | energies without the terms that hold the frozen atoms (always left out with restraints, soft atoms or active-bond windows) |
-| | `dielectric_model`, `dielectric_constant` | `constant`, 1.0 | MMFF electrostatics; e.g. `distance`, 4.0 damps salt bridges in vacuum |
-| | `num_workers` | 1 | worker processes of the force-field refinement, with the results of one process; threads (`num_threads`) gain nothing there, since RDKit's minimizer holds Python's lock |
-| `prune` | `energy_threshold` | 20.0 | kcal/mol above the lowest conformer |
-| | `rmsd_threshold` | 0.125 | Å, heavy atoms |
-| | `check_stereo` | true | after refinement, drop conformers whose specified stereo differs from the graph (see below) |
-| | `method` | `rmsd` | `rmsd` (duplicates, as legacy racerts) or `cluster` (one conformer per cluster) |
-| | `cluster_method`, `cluster_threshold` | `butina`, 1.5 | `butina`, `hierarchical` or `leader`; Å, heavy-atom RMSD after superposition |
-| | `hydrogens` | polar | the hydrogens in the duplicate RMSD: `none` (heavy atoms, as legacy racerts), `polar` (also those on N, O, P, S, so that the rotamers of a hydrogen bond stay apart; needs both prefilters off) or `all` |
-| | `filter_energies`, `filter_rotations` | false, false | the prefilters of legacy racerts: compute the RMSD only for pairs within `rmsd_energy_threshold` (0.1 kcal/mol) and with principal moments within `rot_fraction_threshold` (0.03). Off: every pair is decided by its RMSD (a pair is skipped only where a lower bound of the RMSD is above the threshold). On, duplicates whose energies differ by more stay in the ensemble |
-| | `max_matches` | 100 | the most equivalent atom mappings that are listed for the RMSD (legacy racerts: 10000); above it, local symmetry is assigned without a list (prefilters off), or the list is cut (prefilters on); see [pruner](modules/pruner.md) (there: `maxMatches`) |
-| `restraints` | | | see [restraints](restraints.md) |
-
-**Chirality fallback.** `legacy` drops all chiral tags, or stops enforcing chirality, so
-free stereocentres can come out inverted. `frozen_first` first drops only the tags of
-the frozen atoms whose configuration the reference fixes (those with at most one free
-neighbour); afterwards these atoms take the configuration of the reference, and
-conformers with inverted stereo are removed. A free substituent that alone sets the
-configuration of a frozen stereocentre is held at the reference in embedding and
-refinement.
-
-**Stereo check.** `check_stereo` compares the stereo outside the core atoms of the task
-(e.g. the reacting atoms) with the graph. After the `legacy` fallback there is nothing
-left to compare with (it drops the tags): use `frozen_first`.
-
-`PipelineConfig.legacy(**settings)` gives the settings of legacy racerts whatever the
-defaults, updated by the settings given (`racerts ts --legacy`, and
-`PipelineConfig.from_file(path, legacy=True)` for files). `ConformerGenerator` and the
-legacy command line always use them.
 
 ## Pipelines and stages
 
@@ -250,84 +188,6 @@ stage keeps the numbers of its last run in `stats` (of a pipeline:
 `next(s for s in pipeline.stages if s.name == "exploit").stats`). For a windowed TS,
 children keep their parent's active-bond targets, and energies are compared per window
 bin.
-
-## Plug-in points
-
-Calculators, optimizers and checks from other packages go into the stages unchanged:
-
-- **Calculators:** `ASEOptimizer(calculator=...)` and `Rescore(calculator)` take an ASE
-  calculator or a callable that returns one (a factory: one calculator per worker
-  process, or per conformer without workers). Wrapping calculators work as they are,
-  e.g. a bias potential such as AFIR.
-- **Optimizers:** `ASEOptimizer(optimizer_cls=..., optimizer_kwargs=...)` takes any class
-  with the ASE optimizer interface, e.g. `sella.Sella` with `{"order": 1}` for saddle
-  points. Every conformer records `converged`, `n_steps` and `wall_time` in its
-  provenance; `drop_unconverged=True` removes the unconverged ones.
-- **Warm-up:** `prepare(calculator, reference_atoms)` is called once for every
-  calculator before its first conformer, with the reference geometry (e.g. for
-  calculators that take their topology from the first geometry they see).
-- **Batch energies:** `Rescore(batch=fn)`, with `fn(list_of_atoms)` returning energies
-  in eV.
-- **Validators:** any object with a `name` and `validate(ctx, ensemble)`, returning the
-  reason for each conformer that fails; `racerts.validate.validator(fn)` turns a
-  function `fn(mol, conf_id)` into one. The validators of one `Validate` stage need
-  distinct names.
-
-Built-in validators (`racerts.validate`):
-
-- `Connectivity()`: the bonds perceived from the geometry and the specified stereo are
-  those of the graph (bonds between reacting atoms exempt); `IdentityFilter()` drops
-  the conformers that fail it.
-- `FrozenCore(tolerance)`: the frozen atoms are at the reference.
-- `ImaginaryModes(calculator, expected=1)`: finite-difference frequencies, for
-  stationary points.
-- `ReactionMode(calculator)`: one imaginary mode that moves an active bond of the TS
-  (a rotor of a loose complex is a first-order saddle point too), and `Converged()`:
-  see [the saddle search](workflow.md#from-ts-like-conformers-to-transition-states).
-- `ReactionCore(tolerance=0.5)`: the distances between the reacting atoms are those of
-  the reference TS within tolerance (Å). After a free saddle search it tells a TS of the
-  reaction from other saddles of the same atoms, which pass the two checks above.
-- `AttackFace()`: for [active-bond windows](active-bonds.md).
-- `Clash(factor=0.7)`: no heavy atoms more than three bonds apart (or in different
-  fragments) closer than factor × their vdW sum. Pairs of hard and core atoms keep the
-  reference geometry (e.g. a forming bond) and are not checked; pairs that are close in
-  the reference count only if they come 0.2 Å closer.
-- `RestraintViolation(tolerance=0.5)`: no restraint of the refinement (distance windows,
-  soft atoms) violated by more than tolerance (Å): a contact that broke, not the small
-  excess that flat-bottom terms allow.
-
-`racerts.validate.gate()` combines `FrozenCore`, `Connectivity`, `Clash` and
-`RestraintViolation` into the validity gate after a refinement: it drops the conformers
-that fail and warns when more than 30 % fail (`Validate(..., warn_above=0.3)`), which
-points to a wrong charge, restraint or hypothesis rather than to single bad conformers.
-Its `FrozenCore` allows 0.1 Å: MMFF and UFF hold the frozen atoms with stiff springs,
-which leave them a few hundredths of an Å from the reference.
-
-From TS-like conformers to transition states with GFN2-xTB (tblite) and Sella:
-
-```python
-from sella import Sella
-from tblite.ase import TBLite
-from racerts.refine import ASEOptimizer
-from racerts.validate import ImaginaryModes, ReactionCore
-
-def gfn2():
-    return TBLite(method="GFN2-xTB", verbosity=0)
-
-saddle = ASEOptimizer(gfn2, optimizer_cls=Sella, optimizer_kwargs={"order": 1}, fmax=0.005)
-pipeline = racerts.Pipeline([
-    racerts.Embed(),
-    racerts.Refine(),
-    racerts.PruneEnergy(),
-    racerts.PruneRMSD(),
-    racerts.Rescore(gfn2, method="GFN2-xTB"),
-    racerts.PruneCount(5),
-    racerts.Refine(saddle, anchors=False, fallback=False),
-    racerts.Validate(ImaginaryModes(gfn2, expected=1), ReactionCore()),
-])
-ensemble = racerts.generate_ts("sn2.xyz", [0, 1, 2], charge=-1, smiles="CCl.[Cl-]",
-                               pipeline=pipeline)
-```
 
 ## Independent runs
 

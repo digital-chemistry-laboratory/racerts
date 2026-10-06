@@ -6,7 +6,9 @@ racer<sup>TS</sup> generates conformer ensembles for transition states (TS) usin
 
 This documentation covers how to install and use racer<sup>TS</sup>, the command-line interface, and how to configure the individual components.
 
-- [Pipelines and tasks](pipeline.md): transition states, ground states, settings
+- [Pipelines and tasks](pipeline.md): transition states, ground states, stages,
+  ensembles; [settings](settings.md) and [plug-in points](plugins.md)
+- [Staged workflow](workflow.md): several levels of theory, saddle points
 - [Restraints](restraints.md), [active-bond windows](active-bonds.md) and
   [swaps](swap.md)
 - [Command-line interface](cli.md)
@@ -47,7 +49,7 @@ print(ensemble.summary())
 
 `generate_ts` returns a [`ConformerEnsemble`](pipeline.md#conformer-ensembles): the RDKit
 molecule with its conformers (`ensemble.mol`), their energies and provenance. Settings
-are passed as a [`PipelineConfig`](pipeline.md#settings); tasks other than transition
+are passed as a [`PipelineConfig`](settings.md); tasks other than transition
 states (ground states, constrained cores) are described in [Pipelines and
 tasks](pipeline.md).
 

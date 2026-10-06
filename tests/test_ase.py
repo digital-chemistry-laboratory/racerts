@@ -300,3 +300,20 @@ def test_prepare_without_reference_gets_the_unrelaxed_first_conformer(refined):
     )
     assert len(RecordingPrepare.seen) == 4  # a factory: one calculator per conformer
     assert all(np.allclose(seen, first) for seen in RecordingPrepare.seen)
+
+
+def test_an_ensemble_gives_ase_atoms():
+    # ConformerEnsemble.to_ase: the conformer with its charge and multiplicity where
+    # ASE calculators read them.
+    config = racerts.PipelineConfig(embed={"n_conformers": 2})
+    ensemble = racerts.generate_gs("C[NH3+]", config=config)
+    conf_id = ensemble.best()
+    atoms = ensemble.to_ase(conf_id)
+    assert atoms.get_chemical_symbols() == [
+        a.GetSymbol() for a in ensemble.mol.GetAtoms()
+    ]
+    np.testing.assert_allclose(
+        atoms.get_positions(), ensemble.mol.GetConformer(conf_id).GetPositions()
+    )
+    assert (atoms.info["charge"], atoms.info["multiplicity"]) == (1, 1)
+    assert atoms.get_initial_charges().sum() == pytest.approx(1.0)

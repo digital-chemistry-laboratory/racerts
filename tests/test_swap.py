@@ -442,6 +442,11 @@ def test_small_kept_share_warns(caplog):
     mol = embedded("CO")
     result = apply_swap(mol, Swap("[*]CCCCCCCC", remove_atoms=[0]))
     assert result.warnings and "close to a new embedding" in result.warnings[0]
+    # The limit is 30 % of the atoms (MIN_KEPT_SHARE): methane keeps 4 of 17 atoms
+    # with a butyl group for a hydrogen, 4 of 11 with an ethyl group.
+    methane = embedded("C")
+    assert apply_swap(methane, Swap("[*]CCCC", remove_atoms=[1])).warnings
+    assert not apply_swap(methane, Swap("[*]CC", remove_atoms=[1])).warnings
 
 
 # Tiers: soft atoms (coordinate map in embedding, position restraints in refinement).

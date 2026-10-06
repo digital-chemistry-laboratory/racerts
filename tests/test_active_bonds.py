@@ -534,6 +534,21 @@ def test_ring_13_pairs_are_not_forming_bonds():
     assert explicit.active_pairs(mol) == [(0, 2)]
 
 
+def test_a_13_pair_is_a_forming_bond_below_80_degrees():
+    # Propane with all three carbons reacting: its ends are a forming bond where the
+    # angle at the middle carbon is narrow (a three-membered TS), not where it is
+    # open (the angle then sets their distance). The limit is MIN_OPEN_ANGLE.
+    from rdkit import Chem
+    from rdkit.Chem import AllChem, rdMolTransforms
+
+    mol = Chem.AddHs(Chem.MolFromSmiles("CCC"))
+    AllChem.EmbedMolecule(mol, randomSeed=1)
+    task = TransitionState([0, 1, 2], active_window=0.3)
+    for angle, pairs in [(75.0, [(0, 2)]), (85.0, [])]:
+        rdMolTransforms.SetAngleDeg(mol.GetConformer(), 0, 1, 2, angle)
+        assert task.active_pairs(mol) == pairs
+
+
 def test_three_membered_forming_bonds_stay_active():
     # A reductive-elimination TS C-Pd-C: C...C 1.88 A at a 56 degree angle forms a
     # bond although the two carbons share Pd.

@@ -122,10 +122,11 @@ def boronic_acid_generate_ts():
 
 
 def ex_ase_pipeline():
-    # Stages built by hand, with the legacy embedding settings.
+    # Stages built by hand, with the embedding settings and the pruner of legacy racerts.
     from ase.calculators.lj import LennardJones
 
     from racerts.embed import CmapEmbedder
+    from racerts.pruner import RMSDPruner
     from racerts.refine import ASEOptimizer
 
     embedder = CmapEmbedder(chirality_fallback="legacy", sequential_seeds=False)
@@ -136,7 +137,7 @@ def ex_ase_pipeline():
                 ASEOptimizer(calculator=LennardJones(), fmax=0.1, max_steps=10)
             ),
             racerts.PruneEnergy(),
-            racerts.PruneRMSD(),
+            racerts.PruneRMSD(RMSDPruner()),
         ]
     )
     return racerts.generate_ts(EX, [3, 4, 5], smiles="CCCCCC=C", pipeline=pipeline)

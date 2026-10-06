@@ -147,7 +147,9 @@ def test_refinement_holds_a_window_with_restraint_free_energies():
         )
         atoms.calc = single_point
         expected = atoms.get_potential_energy() * EV_TO_KCAL_MOL
-        assert conf.GetDoubleProp("energy") == pytest.approx(expected, abs=1e-6)
+        # 1e-4 kcal/mol: a new SCF and the optimizer's restarted one differ by about
+        # 1e-6 (the size depends on the numpy and tblite builds).
+        assert conf.GetDoubleProp("energy") == pytest.approx(expected, abs=1e-4)
 
 
 @pytest.mark.xtb

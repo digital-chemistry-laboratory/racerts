@@ -159,12 +159,12 @@ Basic run
 $ racerts ts.xyz --charge 0 --reacting_atoms 7 8 22
 ```
 
-Use SMILES-defined topology (one SMILES per fragment of the TS, here benzene and water)
+Use SMILES-defined topology (the fragments of the TS, here an iminium ion and methyl sulfate)
 and coordinate-map embedding
 ```bash
 $ racerts ts.xyz --charge 0 \
-  --reacting_atoms 2 3 4 \
-  --input_smiles "C1=CC=CC=C1" "O" \
+  --reacting_atoms 7 8 22 \
+  --input_smiles "C/[NH+]=C(OC)/c1ccccc1.COS(=O)(=O)[O-]" \
   --mol smiles --embed cmap --ff mmff --out_energies
 ```
 

@@ -85,12 +85,7 @@ class MolGetterBonds(BaseMolGetter):
                     allowChargedFragments=self.allowChargedFragments,
                 )
 
-        if mol_ts is None:
-            raise ValueError(
-                f"Failed to create molecule from {file_name}. Check the file format and content."
-            )
-
-        return mol_ts
+        return _made(mol_ts, file_name)
 
 
 class MolGetterConnectivity(BaseMolGetter):
@@ -124,11 +119,7 @@ class MolGetterConnectivity(BaseMolGetter):
         )
         Chem.AssignStereochemistryFrom3D(mol_ts)
 
-        if mol_ts is None:
-            raise ValueError(
-                f"Failed to create molecule from {file_name}. Check the file format and content."
-            )
-        return mol_ts
+        return _made(mol_ts, file_name)
 
 
 class MolGetterSMILES(BaseMolGetter):
@@ -282,11 +273,7 @@ class MolGetterSMILES(BaseMolGetter):
                 f"{dict(in_smiles - in_xyz)}."
             )
         new_mol = self.setup_mol(mol_ts, reacting_atoms, input_mol)
-        if new_mol is None:
-            raise ValueError(
-                f"Failed to create molecule from {file_name}. Check the file format and content."
-            )
-        return new_mol
+        return _made(new_mol, file_name)
 
     def setup_mol(self, mol_ts, reacting_atoms, input_mol):
         rdDetermineBonds.DetermineConnectivity(mol_ts)
@@ -421,9 +408,14 @@ def _build_mol(
             )
     else:
         raise ValueError("Only the file extensions .xyz, .sdf and .mol are supported.")
-    if mol_ts is None:
+    return _made(mol_ts, file_name)
+
+
+def _made(mol, file_name: str) -> Chem.Mol:
+    """mol, or the error of a file that gave no molecule."""
+    if mol is None:
         raise ValueError(
             f"Failed to create molecule from {file_name}. Check the file format and "
             "content."
         )
-    return mol_ts
+    return mol

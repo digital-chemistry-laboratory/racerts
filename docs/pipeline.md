@@ -135,7 +135,9 @@ method) and leaves the ensemble passed in unchanged; stages may change the ensem
 get in place. `Embed` starts an ensemble: to combine two embedding runs (with different
 seeds), merge their ensembles. Components passed to a stage (an embedder with its seed,
 an optimizer) keep their own settings; stages create default ones for the task, e.g.
-`Embed()` uses ETKDGv3 for ground states.
+`Embed()` uses ETKDGv3 for ground states, with RDKit's macrocycle and small-ring torsion
+terms. RDKit fails with the small-ring terms on cyclopentane rings: the embedding then
+goes on without them, with a warning.
 
 The pipeline logs every stage with its number of conformers and run time (logger
 `racerts.pipeline.runner`, level INFO); `generate`, `generate_ts` and `generate_gs` take

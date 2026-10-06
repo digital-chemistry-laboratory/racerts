@@ -221,6 +221,44 @@ def test_embed_checks_the_number_of_conformers(n):
             racerts.Embed(**settings)
 
 
+def test_an_rdkit_error_in_the_ring_terms_does_not_end_the_embedding(
+    monkeypatch, caplog
+):
+    # RDKit's small-ring torsion terms raise for cyclopentane rings ("bad direction in
+    # linearSearch": about half of the conformers with RDKit 2025.03 and 2026.03,
+    # nearly all with 2026.09), and one error ends RDKit's whole call.
+    embed_only = racerts.Pipeline([racerts.Embed(n_conformers=6)])
+    for smiles in ["C1CCCC1", "OC1CCCC1"]:
+        assert len(racerts.generate_gs(smiles, pipeline=embed_only)) == 6
+
+    # Whatever RDKit does with these rings: the error is caught and said, and only
+    # the terms are given up.
+    rdkit_embed, calls = dg.EmbedMultipleConfs, []
+
+    def failing_ring_terms(mol, count, params):
+        calls.append(params.useSmallRingTorsions)
+        if params.useSmallRingTorsions:
+            raise RuntimeError("Invariant Violation")
+        return rdkit_embed(mol, count, params)
+
+    monkeypatch.setattr(dg, "EmbedMultipleConfs", failing_ring_terms)
+    with caplog.at_level(logging.WARNING, logger="racerts"):
+        ensemble = racerts.generate_gs("CCO", pipeline=embed_only)
+    assert len(ensemble) == 6 and calls == [True, False, False]
+    assert "without the small-ring torsion terms" in caplog.text
+
+    # An error that stays without the terms is RDKit's to report.
+    def failing(mol, count, params):
+        calls.append(params.useSmallRingTorsions)
+        raise RuntimeError("Invariant Violation")
+
+    calls.clear()
+    monkeypatch.setattr(dg, "EmbedMultipleConfs", failing)
+    with pytest.raises(RuntimeError, match="Invariant Violation"):
+        racerts.generate_gs("CCO", pipeline=embed_only)
+    assert calls == [True, False]
+
+
 @pytest.fixture
 def butanol():
     """(S)-butan-2-ol with a geometry."""

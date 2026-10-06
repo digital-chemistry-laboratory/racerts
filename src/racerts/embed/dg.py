@@ -184,7 +184,19 @@ class DistanceGeometryEmbedder(BaseEmbedder):
                 if self.randomSeed >= 0:
                     params.randomSeed = seeds.derive(self.randomSeed) + requested
             requested += count
-            return EmbedMultipleConfs(mol, count, params)
+            try:
+                return EmbedMultipleConfs(mol, count, params)
+            except RuntimeError as error:
+                if not (self.etkdg and params.useSmallRingTorsions):
+                    raise
+                # e.g. cyclopentane rings: "bad direction in linearSearch"
+                logger.warning(
+                    "RDKit failed with its small-ring torsion terms (%s): embedding "
+                    "without the small-ring torsion terms.",
+                    " ".join(str(error).split()[:6]),
+                )
+                params.useSmallRingTorsions = False
+                return EmbedMultipleConfs(mol, count, params)
 
         chiral_check = min(n, 3)
         result = embed_more(chiral_check)

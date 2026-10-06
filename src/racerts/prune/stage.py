@@ -66,7 +66,8 @@ class PruneRMSD(_Prune):
     Drops duplicates (RMSD below the threshold), keeping the lowest in energy.
 
     Args:
-        pruner: Any BasePruner; default RMSDPruner() (threshold 0.125 A).
+        pruner: Any BasePruner; default RMSDPruner() (threshold 0.125 A, with the
+            polar hydrogens).
     """
 
     name = "prune_rmsd"

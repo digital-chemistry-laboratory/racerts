@@ -9,7 +9,8 @@ from rdkit import Chem
 from rdkit.Chem import AllChem, rdMolAlign
 
 import racerts
-import racerts.prune.rmsd
+import racerts.compat.pruner.pruner
+from racerts.compat.pruner import RMSDPruner as LegacyRMSDPruner
 from racerts.geometry import symmetry_maps
 from racerts.prune import EnergyPruner, PruneCount, RMSDPruner
 
@@ -28,15 +29,16 @@ def _conformers(smiles, n, seed=3):
 def test_symmetry_maps_are_computed_once(monkeypatch):
     mol = _conformers("CCCCC(C)(C)O", 12)
     calls = []
-    original = racerts.prune.rmsd.symmetry_maps
+    original = racerts.compat.pruner.pruner.symmetry_maps
 
     def counting(*args, **kwargs):
         calls.append(1)
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(racerts.prune.rmsd, "symmetry_maps", counting)
-    # No energy prefilter: every pair is compared by RMSD.
-    pruned = RMSDPruner(filter_energies=False).prune(Chem.Mol(mol))
+    monkeypatch.setattr(racerts.compat.pruner.pruner, "symmetry_maps", counting)
+    # The pruner of legacy racerts without its energy prefilter: every pair that the
+    # inertia prefilter lets through is compared by RMSD.
+    pruned = LegacyRMSDPruner(filter_energies=False).prune(Chem.Mol(mol))
     assert len(calls) == 1
     assert 0 < pruned.GetNumConformers() <= mol.GetNumConformers()
 
@@ -45,7 +47,7 @@ def test_too_many_symmetry_matches_are_reported(caplog):
     # Three identical water molecules (hydrogens included): 3! * 2^3 = 48 maps.
     mol = _conformers("O.O.O", 3)
     with caplog.at_level(logging.WARNING):
-        RMSDPruner(include_hs=True, maxMatches=10).prune(Chem.Mol(mol))
+        LegacyRMSDPruner(include_hs=True, maxMatches=10).prune(Chem.Mol(mol))
     assert "limit of 10" in caplog.text
 
 
@@ -99,13 +101,13 @@ def test_a_bent_conformer_differs_from_a_linear_one():
         copy = Chem.Mol(mol)
         for new_id, conf_id in enumerate(order):
             copy.GetConformer(conf_id).SetId(10 + new_id)
-        pruned = RMSDPruner(include_hs=True).prune(copy)
+        pruned = LegacyRMSDPruner(include_hs=True).prune(copy)
         assert pruned.GetNumConformers() == 2
 
 
 def test_calc_rmsd_gives_rdkits_best_rms():
     mol = Chem.RemoveHs(_conformers("CC(C)(C)CC(=O)[O-]", 4))
-    pruner = RMSDPruner()
+    pruner = LegacyRMSDPruner()
     for i, j in [(0, 1), (2, 3)]:
         best = rdMolAlign.GetBestRMS(Chem.Mol(mol), mol, prbId=i, refId=j)
         assert abs(pruner.calc_rmsd(mol, mol, i, j) - best) < 1e-6
@@ -151,8 +153,10 @@ def test_prune_count_needs_finite_energies(ensemble):
         (lambda: EnergyPruner(threshold=math.inf), ValueError),
         (lambda: RMSDPruner(threshold=math.nan), ValueError),
         (lambda: RMSDPruner(threshold="0.1"), TypeError),
-        (lambda: RMSDPruner(energy_threshold=-0.1), ValueError),
         (lambda: RMSDPruner(threshold=True), TypeError),
+        (lambda: RMSDPruner(max_maps=0), ValueError),
+        (lambda: LegacyRMSDPruner(energy_threshold=-0.1), ValueError),
+        (lambda: LegacyRMSDPruner(threshold=math.nan), ValueError),
     ],
 )
 def test_pruner_thresholds_are_checked(make, error):
@@ -191,7 +195,7 @@ def test_legacy_rmsd_pruners_without_maps_still_work():
             )  # fmt: skip
 
     mol = _conformers("CCCCCO", 6)
-    expected = RMSDPruner().prune(Chem.Mol(mol)).GetNumConformers()
+    expected = LegacyRMSDPruner().prune(Chem.Mol(mol)).GetNumConformers()
     assert LegacySubclass().prune(Chem.Mol(mol)).GetNumConformers() == expected
 
 
@@ -222,15 +226,16 @@ def test_without_the_prefilters_the_rmsd_alone_decides():
     # A twin 1 kcal/mol above its conformer is a duplicate by its RMSD (0 A). The
     # energy prefilter of legacy racerts never compares the two (0.1 kcal/mol).
     mol, n = _twins("OCCCCCO", 12)
-    legacy = RMSDPruner().prune(Chem.Mol(mol))
-    alone = RMSDPruner(filter_energies=False, filter_rotations=False).prune(
-        Chem.Mol(mol)
-    )
+    legacy = LegacyRMSDPruner().prune(Chem.Mol(mol))
+    alone = RMSDPruner(hydrogens="none").prune(Chem.Mol(mol))
     originals = set(range(n))
     assert {c.GetId() for c in alone.GetConformers()} <= originals
     assert not {c.GetId() for c in legacy.GetConformers()} <= originals
-    # The same conformers as the comparison of every pair over all maps.
+    # The same conformers as the comparison of every pair over all maps, and as the
+    # pruner of legacy racerts gives with its two prefilters switched off.
     assert {c.GetId() for c in alone.GetConformers()} == _every_pair(mol, 0.125)
+    unfiltered = LegacyRMSDPruner(filter_energies=False, filter_rotations=False)
+    assert unfiltered.prune(Chem.Mol(mol)).ToBinary() == alone.ToBinary()
 
 
 def _every_pair(mol, threshold):
@@ -262,26 +267,29 @@ def test_which_hydrogens_count():
     Chem.rdMolTransforms.SetDihedralDeg(turned, *hydroxyl, angle + 120)
     mol.AddConformer(turned, assignId=True)
 
-    def kept(**settings):
-        pruner = RMSDPruner(filter_energies=False, filter_rotations=False, **settings)
+    def kept(pruner):
         return pruner.prune(Chem.Mol(mol)).GetNumConformers()
 
-    assert kept() == kept(hydrogens="none") == 1
-    assert (
-        kept(hydrogens="polar") == kept(hydrogens="all") == kept(include_hs=True) == 2
-    )
+    assert kept(RMSDPruner(hydrogens="none")) == 1
+    assert kept(RMSDPruner()) == kept(RMSDPruner(hydrogens="polar")) == 2
+    assert kept(RMSDPruner(hydrogens="all")) == 2
     with pytest.raises(ValueError, match="hydrogens must be one of"):
         RMSDPruner(hydrogens="some")
+    # The pruner of legacy racerts: heavy atoms unless asked; no polar hydrogens with
+    # its prefilters; its keywords are not those of the current pruner.
+    off = dict(filter_energies=False, filter_rotations=False)
+    assert kept(LegacyRMSDPruner(**off)) == 1
+    assert kept(LegacyRMSDPruner(include_hs=True, **off)) == 2
     with pytest.raises(ValueError, match="filter_energies=False"):
-        RMSDPruner(hydrogens="polar").prune(Chem.Mol(mol))  # the legacy prefilters
+        LegacyRMSDPruner(hydrogens="polar").prune(Chem.Mol(mol))
+    with pytest.raises(TypeError, match="racerts.compat.pruner.RMSDPruner"):
+        RMSDPruner(filter_energies=False)
 
 
 def test_all_hydrogens_of_a_molecule_with_many_equal_branches():
     # Tri-tert-butylphenol with its hydrogens has more equivalent atom mappings than
     # any list holds. Its twins are found all the same, with few maps listed.
     mol, n = _twins("CC(C)(C)c1cc(C(C)(C)C)c(O)c(C(C)(C)C)c1", 3)
-    pruner = RMSDPruner(
-        hydrogens="all", maxMatches=100, filter_energies=False, filter_rotations=False
-    )
+    pruner = RMSDPruner(hydrogens="all", max_maps=100)
     pruned = pruner.prune(Chem.Mol(mol))
     assert {c.GetId() for c in pruned.GetConformers()} <= set(range(n))

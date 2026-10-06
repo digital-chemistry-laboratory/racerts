@@ -159,19 +159,22 @@ def test_the_legacy_modules_live_in_racerts_compat():
 
 
 def test_the_legacy_classes_extend_the_current_ones():
-    # The legacy methods (embed_TS, tune_ts_conformers) are only on the legacy classes.
+    # The legacy methods (embed_TS, tune_ts_conformers, check_similarity) are only on
+    # the legacy classes.
     pairs = [
         (racerts.embedder.CmapEmbedder, racerts.embed.CmapEmbedder),
         (racerts.embedder.BoundsMatrixEmbedder, racerts.embed.BoundsMatrixEmbedder),
         (racerts.optimizer.MMFFOptimizer, racerts.refine.MMFFOptimizer),
         (racerts.optimizer.UFFOptimizer, racerts.refine.UFFOptimizer),
         (racerts.optimizer.ASEOptimizer, racerts.refine.ASEOptimizer),
+        (racerts.pruner.RMSDPruner, racerts.prune.RMSDPruner),
+        (racerts.pruner.EnergyPruner, racerts.prune.EnergyPruner),
     ]
     for legacy, new in pairs:
         assert issubclass(legacy, new) and legacy.__name__ == new.__name__
     assert not hasattr(racerts.embed.BaseEmbedder, "embed_TS")
     assert not hasattr(racerts.refine.BaseOptimizer, "tune_ts_conformers")
-    assert racerts.pruner.RMSDPruner is racerts.prune.RMSDPruner
+    assert not hasattr(racerts.prune.RMSDPruner, "check_similarity")
     assert racerts.mol_getter.MolGetterSMILES is racerts.system.MolGetterSMILES
 
 

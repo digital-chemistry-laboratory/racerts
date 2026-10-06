@@ -551,8 +551,20 @@ class PipelineConfig:
                     threshold=prune.cluster_threshold, method=prune.cluster_method
                 )
             )
+        if not (prune.filter_energies or prune.filter_rotations):
+            return PruneRMSD(
+                RMSDPruner(
+                    prune.rmsd_threshold,
+                    hydrogens=prune.hydrogens,
+                    max_maps=prune.max_matches,
+                )
+            )
+        # with a prefilter: the pruner of legacy racerts (imported here: racerts.compat
+        # imports this module)
+        from racerts.compat.pruner import RMSDPruner as LegacyRMSDPruner
+
         return PruneRMSD(
-            RMSDPruner(
+            LegacyRMSDPruner(
                 threshold=prune.rmsd_threshold,
                 hydrogens=prune.hydrogens,
                 num_threads=self.num_threads,

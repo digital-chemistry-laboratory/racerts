@@ -13,7 +13,7 @@ from racerts.embed import DEFAULT_CONF_FACTOR, conformer_count
 from racerts.embed.stage import no_conformers_error
 from racerts.io.xyz import write_xyz as _write_xyz
 from racerts.pipeline import ConformerEnsemble, Context, Pipeline
-from racerts.prune import BasePruner, RMSDPruner
+from racerts.prune import BasePruner
 from racerts.refine import refine_with_fallback
 from racerts.system import (
     BaseMolGetter,
@@ -27,7 +27,7 @@ from racerts.utils.log import verbose_logging
 
 from .embedder import BaseEmbedder, CmapEmbedder
 from .optimizer import BaseOptimizer, MMFFOptimizer, UFFOptimizer
-from .pruner import EnergyPruner
+from .pruner import EnergyPruner, RMSDPruner
 from .utils import (
     EV_TO_KCAL_MOL,
     atom_idx_input_validation,

@@ -65,7 +65,8 @@ ensemble = racerts.generate(mol, racerts.Constrained(hard=[0, 1, 2, 3]))
 The default pipeline is `Embed → Refine → Validate (stereo) → PruneEnergy → PruneRMSD`
 (the legacy one has no stereo check). Each stage takes the
 context and the ensemble so far and returns an ensemble; stages built without arguments
-use the legacy racerts settings, except that they embed with a seed per conformer. A
+use the legacy racerts settings, except that they embed with a seed per conformer and
+that `PruneRMSD()` decides duplicates by their RMSD alone, with the polar hydrogens. A
 pipeline can be put together by hand, e.g. to refine
 with an ASE calculator (here Lennard-Jones, which stands in for a real one such as
 GFN2-xTB or a machine-learned potential):

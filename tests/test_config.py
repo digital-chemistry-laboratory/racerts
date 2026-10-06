@@ -39,7 +39,15 @@ def test_the_default_pipeline():
     assert optimizer.force_constant == 1e6
     assert prune_energy.pruner.threshold == 20.0
     assert prune_rmsd.pruner.threshold == 0.125
-    assert prune_rmsd.pruner.energy_threshold == 0.1
+    assert (prune_rmsd.pruner.hydrogens, prune_rmsd.pruner.max_maps) == ("polar", 100)
+    # With its settings the RMSD pruner is that of legacy racerts, prefilters included.
+    legacy_pruner = legacy[-1].pruner
+    assert type(legacy_pruner).__module__ == "racerts.compat.pruner.pruner"
+    assert (legacy_pruner.filter_energies, legacy_pruner.energy_threshold) == (
+        True,
+        0.1,
+    )
+    assert (legacy_pruner.hydrogens, legacy_pruner.maxMatches) == ("none", 10000)
 
     # Decided 2026-10-01: sequential seeds, frozen_first with the stereo check after
     # refinement, energies without the anchor terms and the fragments count; converged
@@ -92,7 +100,7 @@ def test_settings_reach_the_components():
     assert type(embed.embedder) is BoundsMatrixEmbedder
     assert embed.embedder.randomSeed == 3 and embed.embedder.num_threads == 2
     assert type(refine.optimizer) is UFFOptimizer and refine.fallback is False
-    assert prune_rmsd.pruner.threshold == 0.3 and prune_rmsd.pruner.include_hs is True
+    assert (prune_rmsd.pruner.threshold, prune_rmsd.pruner.hydrogens) == (0.3, "all")
 
 
 @pytest.mark.parametrize("suffix", [".json", ".yaml"])

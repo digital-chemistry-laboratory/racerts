@@ -29,7 +29,10 @@ The legacy API keeps working; all of it lives in `racerts.compat`:
 - Custom subclasses of the legacy base classes. The legacy embedders and optimizers are
   subclasses of the current ones in `racerts.embed` and `racerts.refine` that add the
   legacy methods `embed_TS` and `tune_ts_conformers`; the current classes do not have
-  them. Pruners and mol getters are the same classes in both.
+  them. The legacy pruners are subclasses too: `racerts.pruner.RMSDPruner` keeps the
+  prefilters, the keywords and the overridable methods of legacy racerts
+  (`check_similarity`, `calc_rmsd`, ...), while `racerts.prune.RMSDPruner` decides every
+  pair by its RMSD. The mol getters are the same classes in both.
 - The command line `racerts file.xyz [options]` with all its options (also as
   `racerts run ...`), in `racerts.compat.cli`.
 
@@ -82,7 +85,7 @@ Where the legacy code lives now:
 | `racerts.embedder.utils` | `racerts.embed.bounds`: `get_bounds_matrix(mol_ts, new_mol, frozen_atoms, reacting_atoms)` is `bounds_matrix(new_mol, mol_ts, fixed_distance_pairs(FrozenSet(tuple(frozen_atoms), tuple(reacting_atoms))))`; `tol_function`; `print_bounds_matrix_errors` is `log_inconsistent_bounds` |
 | `racerts.optimizer.ff_optimizer`, `racerts.optimizer.ase` | `racerts.refine` (without `tune_ts_conformers`), `racerts.io.ase` (`rdkit_conformer_to_ase_atoms`, `write_ase_positions_to_rdkit`) |
 | `racerts.optimizer.parallel` | `racerts.refine.parallel` |
-| `racerts.pruner.pruner` | `racerts.prune` (also `drop_conformers_without_energy`); `EnergyPruner(YAeHMOP_energies=True)` stays in `racerts.compat` only: a pipeline ranks by another level with `Rescore` |
+| `racerts.pruner.pruner` | `racerts.prune` (also `drop_conformers_without_energy`); `EnergyPruner(YAeHMOP_energies=True)` stays in `racerts.compat` only: a pipeline ranks by another level with `Rescore`; so do the prefilters and keywords of `RMSDPruner` (`filter_energies`, `energy_threshold`, `maxMatches`, ...), which the current class refuses with a pointer to the legacy one |
 | `racerts.mol_getter.mol_getter` | `racerts.system` (the mol getters, and `build_mol`, the legacy `get_mol` logic); the atom matching of the SMILES getter: `racerts.system.match` |
 | `racerts.utils` | `get_frozen_atoms`: `racerts.task.transition_state` (or `TransitionState(...).frozen_atoms(mol)`); `infer_charge_and_multiplicity`, `count_electrons`: `racerts.system`; `EV_TO_KCAL_MOL`: `racerts.utils.units`; `suppress_std`: `racerts.system.build`. `racerts.utils` itself is now the package of helpers (logging, optional imports, units). |
 | `racerts.visualizer` | `racerts.io.viz` |

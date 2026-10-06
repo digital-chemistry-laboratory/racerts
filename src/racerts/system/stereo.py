@@ -87,7 +87,7 @@ class StereoCheck:
         if self.bonds:
             positions = conf.GetPositions()
             for i, (quad, cis) in self.bonds.items():
-                if (abs(_dihedral(positions, *quad)) < 90.0) != cis:
+                if (abs(dihedral(positions, *quad)) < 90.0) != cis:
                     wrong.append(f"bond {i}")
         return f"stereo of {', '.join(wrong)} inverted" if wrong else None
 
@@ -162,7 +162,8 @@ def _bond_configurations(graph: Chem.Mol, bonds) -> dict:
     return found
 
 
-def _dihedral(positions, i, j, k, m) -> float:
+def dihedral(positions, i, j, k, m) -> float:
+    """The dihedral angle i-j-k-m in degrees, between -180 and 180."""
     b0, b1, b2 = (
         positions[i] - positions[j],
         positions[k] - positions[j],
@@ -199,14 +200,3 @@ def trans_in_small_rings(mol: Chem.Mol) -> List[tuple]:
                     found.append((a, b, len(ring)))
                     break
     return found
-
-
-def _bond_labels(mol: Chem.Mol) -> Dict[int, str]:
-    """The E/Z labels of the double bonds with stereo, as RDKit assigns them."""
-    mol = Chem.Mol(mol)
-    Chem.AssignStereochemistry(mol, cleanIt=True, force=True)
-    return {
-        b.GetIdx(): str(b.GetStereo())
-        for b in mol.GetBonds()
-        if b.GetStereo() not in UNSPECIFIED_BOND
-    }

@@ -12,7 +12,7 @@ from rdkit.Chem import rdCIPLabeler
 
 from racerts.utils.checks import is_integer
 
-from ..stereo import TETRAHEDRAL, UNSPECIFIED_BOND, geometry_tags
+from ..stereo import TETRAHEDRAL, UNSPECIFIED_BOND, dihedral, geometry_tags
 from .model import SwapError
 
 logger = logging.getLogger(__name__)
@@ -141,25 +141,13 @@ def _stereo_3d(mol: Chem.Mol, conf_id: int, candidates):
             continue
         if np.linalg.norm(positions[a] - positions[b]) < 1e-8:
             continue  # atoms without coordinates yet (at the origin)
-        dihedral = abs(_dihedral(positions, ends[0], a, b, ends[1]))
-        if 80 < dihedral < 100:  # twisted: neither cis nor trans
+        twist = abs(dihedral(positions, ends[0], a, b, ends[1]))
+        if 80 < twist < 100:  # neither cis nor trans
             continue
-        cis = dihedral < 90
+        cis = twist < 90
         stereo = Chem.BondStereo.STEREOCIS if cis else Chem.BondStereo.STEREOTRANS
         bonds[pair] = (tuple(ends), stereo)
     return atoms, bonds
-
-
-def _dihedral(positions, i, j, k, m) -> float:
-    b0, b1, b2 = (
-        positions[i] - positions[j],
-        positions[k] - positions[j],
-        positions[m] - positions[k],
-    )
-    b1 = b1 / np.linalg.norm(b1)
-    v = b0 - np.dot(b0, b1) * b1
-    w = b2 - np.dot(b2, b1) * b1
-    return float(np.degrees(np.arctan2(np.dot(np.cross(b1, v), w), np.dot(v, w))))
 
 
 def _settle_stereo(result, anchored, carried_atoms, carried_bonds, together=()) -> set:

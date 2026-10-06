@@ -18,7 +18,6 @@ REACTIVE = "reactive"  # holds core atoms (or, without any, is the largest fragm
 ANCHORED = "anchored"  # a restraint of the refinement ties it to the core side
 CONTAINED = "contained"  # only a containment restraint holds it near the core
 FREE = "free"
-ROLES = (REACTIVE, ANCHORED, CONTAINED, FREE)
 ROLE_OVERRIDES = (ANCHORED, CONTAINED, FREE)  # reactive fragments follow from the task
 CONTAIN = "contain"  # the source of containment restraints
 

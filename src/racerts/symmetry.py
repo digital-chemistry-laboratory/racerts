@@ -123,18 +123,6 @@ def matching_graph(
     return Chem.Mol(symmetrize_terminal_atoms(graph)), index, weight
 
 
-def _silent_labels(graph: Chem.Mol, weight: np.ndarray) -> Chem.Mol:
-    """graph with the weightless atoms told apart from the others (isotope labels)."""
-    if weight.all():
-        return graph
-    labelled = Chem.Mol(graph)
-    ids = {}
-    for atom in labelled.GetAtoms():
-        key = (atom.GetIsotope(), bool(weight[atom.GetIdx()]))
-        atom.SetIsotope(1 + ids.setdefault(key, len(ids)))
-    return labelled
-
-
 def _matches(graph: Chem.Mol, max_matches: int) -> np.ndarray:
     """The automorphisms of graph, (n_maps, n_atoms), the identity first."""
     n = graph.GetNumAtoms()

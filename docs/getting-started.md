@@ -41,8 +41,10 @@ pip install "racerts[yaml]"  # optional: pipeline settings as YAML files
 ```python
 import racerts
 
-# example.xyz is a single-geometry TS structure; reacting atoms are 0-based indices
-ensemble = racerts.generate_ts("example.xyz", reacting_atoms=[2, 3, 4], charge=0)
+# ts.xyz (in examples/) is one TS geometry; the reacting atoms are 0-based indices
+ensemble = racerts.generate_ts(
+    "ts.xyz", reacting_atoms=[7, 8, 22], smiles="C/[NH+]=C(OC)/c1ccccc1.COS(=O)(=O)[O-]"
+)
 ensemble.write_xyz("ensemble.xyz")
 print(ensemble.summary())
 ```
@@ -60,15 +62,15 @@ The legacy racerts API still works and gives the ensembles of legacy racerts (as
 from racerts import ConformerGenerator
 
 cg = ConformerGenerator()
-mol = cg.generate_conformers(file_name="example.xyz", charge=0, reacting_atoms=[2,3,4])
+mol = cg.generate_conformers(file_name="ts.xyz", charge=0, reacting_atoms=[7, 8, 22])
 cg.write_xyz("ensemble.xyz")
 ```
 
 ## Quickstart (CLI)
 
 ```bash
-racerts ts example.xyz --reacting-atoms 2 3 4 --charge 0
-racerts example.xyz --charge 0 --reacting_atoms 2 3 4   # legacy racerts form and settings (as racerts ts --legacy)
+racerts ts ts.xyz --reacting-atoms 7 8 22 --smiles "C/[NH+]=C(OC)/c1ccccc1.COS(=O)(=O)[O-]"
+racerts ts.xyz --charge 0 --reacting_atoms 7 8 22   # legacy racerts form and settings (as racerts ts --legacy)
 ```
 
 This will generate a pruned ensemble and write `conformer_ensemble.xyz` in the current directory by default.

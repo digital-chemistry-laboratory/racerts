@@ -156,13 +156,13 @@ where the `filename.xyz` is the path to an .xyz file (or .sdf/.mol with bonds) c
 ### Common recipes
 Basic run
 ```bash
-$ racerts example.xyz --charge 0 --reacting_atoms 2 3 4
+$ racerts ts.xyz --charge 0 --reacting_atoms 7 8 22
 ```
 
 Use SMILES-defined topology (one SMILES per fragment of the TS, here benzene and water)
 and coordinate-map embedding
 ```bash
-$ racerts example.xyz --charge 0 \
+$ racerts ts.xyz --charge 0 \
   --reacting_atoms 2 3 4 \
   --input_smiles "C1=CC=CC=C1" "O" \
   --mol smiles --embed cmap --ff mmff --out_energies
@@ -170,9 +170,9 @@ $ racerts example.xyz --charge 0 \
 
 Increase diversity by allowing more initial conformers
 ```bash
-$ racerts example.xyz --charge 0 --reacting_atoms 2 3 4 --conf_factor 120
+$ racerts ts.xyz --charge 0 --reacting_atoms 7 8 22 --conf_factor 120
 ```
 More threads for the embedding
 ```bash
-$ racerts example.xyz --charge 0 --reacting_atoms 2 3 4 --num_threads 4
+$ racerts ts.xyz --charge 0 --reacting_atoms 7 8 22 --num_threads 4
 ```

@@ -53,7 +53,8 @@ def _free_energy(energies):
     return -RT * math.log(np.exp(-energies / RT).sum())
 
 
-def test_merged_runs_keep_the_lowest_copy_and_who_found_it(runs):
+def test_merging_and_comparing_runs(runs):
+    # -- merged runs keep the lowest copy and who found it
     merged = merge_runs(runs, labels=[11, 12, 13])
     assert merged.energies().tolist() == [0.0, 0.45, 1.0]  # by energy
     provenance = [merged.provenance(i) for i in merged.conf_ids]
@@ -67,8 +68,7 @@ def test_merged_runs_keep_the_lowest_copy_and_who_found_it(runs):
     with pytest.raises(ValueError, match="labels"):
         merge_runs(runs, labels=[1, 2])
 
-
-def test_compare_runs(runs):
+    # -- compare runs
     report = compare_runs(runs, labels=[11, 12, 13])
     union = _free_energy([0.0, 0.45, 1.0])
     assert report.labels == [11, 12, 13] and report.conformers == [2, 2, 3]
@@ -104,8 +104,7 @@ def test_compare_runs(runs):
     assert "3 runs" in text and "found again" in text and "11 -> 12" in text
     assert report.to_dict()["labels"] == [11, 12, 13]
 
-
-def test_compare_runs_checks_its_input(runs):
+    # -- compare runs checks its input
     with pytest.raises(ValueError, match="at least two runs"):
         compare_runs(runs[:1])
     no_energy = runs[1].copy()
@@ -122,7 +121,11 @@ def test_compare_runs_checks_its_input(runs):
         compare_runs([runs[0], held])
 
 
-def test_generate_runs():
+def test_generate_runs_and_what_it_refuses(sn2_ts):
+    from racerts.embed import default_embedder
+    from racerts.system import build_mol
+
+    # -- generate runs
     mol = Chem.AddHs(Chem.MolFromSmiles("CCCCCCO"))
     config = PipelineConfig.from_dict({"embed": {"n_conformers": 20}})
     result = racerts.generate_runs(mol, GroundState(), seeds=[1, 2, 3], config=config)
@@ -146,10 +149,8 @@ def test_generate_runs():
     with pytest.raises(ValueError, match="different seeds"):
         racerts.generate_runs(mol, GroundState(), seeds=[1, 1], config=config)
 
-
-def test_runs_that_ignore_the_seed_are_refused():
+    # -- runs that ignore the seed are refused
     # A component with its own seed gives every run the same conformers.
-    from racerts.embed import default_embedder
 
     mol = Chem.AddHs(Chem.MolFromSmiles("CCCCCCO"))
     embed = racerts.Embed(default_embedder(GroundState(), 7), n_conformers=5)
@@ -157,11 +158,9 @@ def test_runs_that_ignore_the_seed_are_refused():
     with pytest.raises(ValueError, match="same conformers.*seed"):
         racerts.generate_runs(mol, GroundState(), seeds=[1, 2], pipeline=fixed)
 
-
-def test_a_fully_frozen_ts_gives_the_same_conformer_for_every_seed(sn2_ts):
+    # -- a fully frozen ts gives the same conformer for every seed
     # Nothing is free to sample: the runs agree because the task leaves no choice, not
     # because the pipeline ignores the seed.
-    from racerts.system import build_mol
 
     mol = build_mol(sn2_ts, -1, [0, 1, 2], input_smiles=["CCl", "[Cl-]"])
     task = racerts.TransitionState([0, 1, 2])

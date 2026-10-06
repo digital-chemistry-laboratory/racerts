@@ -27,7 +27,8 @@ def _swapped(positions, i, j):
     return swapped
 
 
-def test_rotations_and_mirror_images():
+def test_the_rmsd_superposition_selection_and_checks():
+    # -- rotations and mirror images
     rng = np.random.default_rng(3)
     a = rng.normal(size=(6, 3))
     moved = a @ _rotation(0.7).T + [1, 2, 3]
@@ -35,33 +36,19 @@ def test_rotations_and_mirror_images():
     mirror = a * [-1, 1, 1]
     assert rmsd(a, mirror) > 0.1  # proper rotations only
 
-
-def test_without_superposition_the_frame_counts():
+    # -- without superposition the frame counts
     a = np.random.default_rng(4).normal(size=(5, 3))
     assert rmsd(a, a + [1, 0, 0], align=False) == pytest.approx(1.0)
     assert rmsd(a, a + [1, 0, 0]) == pytest.approx(0, abs=1e-10)
 
-
-def test_atom_selection_controls_alignment_and_measurement():
+    # -- atom selection controls alignment and measurement
     a = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [5, 5, 5]], float)
     b = a.copy()
     b[3] = [-5, -5, -5]  # only the last atom differs
     assert rmsd(a, b, [0, 1, 2]) == pytest.approx(0, abs=1e-10)
     assert rmsd(a, b) > 0.5
 
-
-@pytest.mark.parametrize(
-    "indices, error",
-    [([], ValueError), ([0, 0], ValueError), ([0, 9], IndexError),
-     ([0.0, 1.0], TypeError), ([True, 1], TypeError)],
-)  # fmt: skip
-def test_the_selection_is_checked(indices, error):
-    a = np.zeros((3, 3))
-    with pytest.raises(error):
-        rmsd(a, a, indices)
-
-
-def test_the_coordinates_and_maps_are_checked():
+    # -- the coordinates and maps are checked
     a = np.zeros((3, 3))
     b = a.copy()
     b[0, 0] = np.nan
@@ -76,10 +63,20 @@ def test_the_coordinates_and_maps_are_checked():
     with pytest.raises(TypeError):
         rmsd(a, a, maps=[[0.0, 1.0, 2.0]])
 
-
-def test_heavy_atoms():
+    # -- heavy atoms
     assert heavy_atoms(Chem.AddHs(Chem.MolFromSmiles("CO"))) == [0, 1]
     assert heavy_atoms(Chem.MolFromSmiles("[H][H]")) == [0, 1]
+
+
+@pytest.mark.parametrize(
+    "indices, error",
+    [([], ValueError), ([0, 0], ValueError), ([0, 9], IndexError),
+     ([0.0, 1.0], TypeError), ([True, 1], TypeError)],
+)  # fmt: skip
+def test_the_selection_is_checked(indices, error):
+    a = np.zeros((3, 3))
+    with pytest.raises(error):
+        rmsd(a, a, indices)
 
 
 @pytest.mark.parametrize(
@@ -101,15 +98,15 @@ def test_the_symmetry_maps_find_equivalent_atoms(smiles, i, j, n_maps):
     assert rmsd(a, b, symmetry.atoms, symmetry.maps) == pytest.approx(0, abs=1e-10)
 
 
-def test_the_symmetry_maps_keep_the_atoms_that_remove_hs_keeps():
+def test_symmetry_maps_and_within(monkeypatch):
+    # -- the symmetry maps keep the atoms that remove hs keeps
     # As legacy racerts: Chem.RemoveHs keeps e.g. deuterium (and hydrogens bonded to
     # two atoms), so the RMSD compares them too.
     mol = _embedded("[2H]C(C)O")
     assert symmetry_maps(mol).atoms == [0, 1, 2, 3]
     assert symmetry_maps(mol, include_hs=True).atoms == list(range(mol.GetNumAtoms()))
 
-
-def test_the_rmsd_is_rdkits_best_rms():
+    # -- the rmsd is rdkits best rms
     mol = _embedded("CC(C)(C)CC(=O)[O-]", n=6)
     symmetry = symmetry_maps(mol)
     heavy = Chem.RemoveHs(mol)
@@ -121,8 +118,7 @@ def test_the_rmsd_is_rdkits_best_rms():
             best, abs=1e-6
         )
 
-
-def test_within_agrees_with_the_rmsd():
+    # -- within agrees with the rmsd
     mol = _embedded("CC(C)(C)CC(=O)[O-]")
     symmetry = symmetry_maps(mol)
     a = mol.GetConformer().GetPositions()
@@ -136,8 +132,7 @@ def test_within_agrees_with_the_rmsd():
                     a, b, 0.125, symmetry.atoms, symmetry.maps, align=align
                 ) == (value <= 0.125)
 
-
-def test_within_tries_the_identity_first(monkeypatch):
+    # -- within tries the identity first
     mol = _embedded("CC(C)(C)CC(=O)[O-]")  # 12 maps
     symmetry = symmetry_maps(mol)
     a = mol.GetConformer().GetPositions()

@@ -24,22 +24,23 @@ def ethanol():
     return ConformerEnsemble(mol)
 
 
-def test_energies_and_best(ethanol):
+def test_energies_records_and_copies(ethanol):
+    import pickle
+
+    # -- energies and best
     energies = ethanol.energies()
 
     assert energies[0] == 2.0 and math.isnan(energies[1]) and energies[2] == 1.0
     assert ethanol.best() == 2
 
-
-def test_best_needs_an_energy():
+    # -- best needs an energy
     mol = Chem.AddHs(Chem.MolFromSmiles("C"))
     AllChem.EmbedMolecule(mol, randomSeed=1)
 
     with pytest.raises(ValueError, match="No conformer has an energy"):
         ConformerEnsemble(mol).best()
 
-
-def test_records_view_the_conformer_properties(ethanol):
+    # -- records view the conformer properties
     ethanol.add_provenance(embedder="CmapEmbedder", seed=12)  # all conformers
     ethanol.add_provenance(2, batch=0)
     records = ethanol.records
@@ -51,8 +52,38 @@ def test_records_view_the_conformer_properties(ethanol):
     # One store: the provenance is an RDKit property of the conformer.
     assert ethanol.mol.GetConformer(2).HasProp("provenance")
 
+    # -- summary
+    assert ethanol.summary() == (
+        "3 conformers; energies (MMFFOptimizer): lowest 1.0000 kcal/mol "
+        "(conformer 2), window 1.00 kcal/mol"
+    )
 
-def test_filter_keeps_ids_and_data(ethanol):
+    # -- pickle keeps the conformer data
+    ethanol.add_provenance(2, seed=12)
+    ethanol.mol.SetIntProp("charge", -1)
+    copy = pickle.loads(pickle.dumps(ethanol))
+
+    assert copy.records == ethanol.records
+    assert copy.mol.GetIntProp("charge") == -1
+
+    # -- copy is independent
+    copy = ethanol.copy()
+    copy.mol.GetConformer(0).SetDoubleProp("energy", 5.0)
+
+    assert ethanol.energy(0) == 2.0
+
+    # -- energies in other units
+    energies = ethanol.energies(unit="eV")
+    assert energies[0] == pytest.approx(2.0 / 23.06054783061903)
+    assert math.isnan(energies[1])
+    assert ethanol.energies("hartree")[2] == pytest.approx(1.0 / 627.5094740629)
+    assert ethanol.energies("kJ/mol")[2] == pytest.approx(4.184)
+    with pytest.raises(ValueError, match="unit"):
+        ethanol.energies("kcal")
+
+
+def test_filter_and_merge(ethanol):
+    # -- filter keeps ids and data
     ethanol.add_provenance(2, seed=12)
     subset = ethanol.filter([0, 2])
 
@@ -61,8 +92,7 @@ def test_filter_keeps_ids_and_data(ethanol):
     with pytest.raises(ValueError, match="No conformers with ids"):
         ethanol.filter([5])
 
-
-def test_merge_renumbers_the_added_conformers(ethanol):
+    # -- merge renumbers the added conformers
     merged = ethanol.merge(ethanol.filter([2]))
 
     assert merged.conf_ids == [0, 1, 2, 3]
@@ -72,63 +102,14 @@ def test_merge_renumbers_the_added_conformers(ethanol):
         ethanol.mol.GetConformer(2).GetPositions(),
     )
 
-
-def test_merge_needs_the_same_graph(ethanol):
+    # -- merge needs the same graph
     other = Chem.AddHs(Chem.MolFromSmiles("OCC"))  # same atoms, other order
     AllChem.EmbedMolecule(other, randomSeed=1)
 
     with pytest.raises(ValueError, match="same molecular graph"):
         ethanol.merge(ConformerEnsemble(other))
 
-
-def test_write_xyz_is_the_io_writer(ethanol, tmp_path):
-    ethanol.write_xyz(str(tmp_path / "a.xyz"))
-    write_xyz(ethanol.mol, str(tmp_path / "b.xyz"))
-
-    assert (tmp_path / "a.xyz").read_text() == (tmp_path / "b.xyz").read_text()
-
-
-def test_write_xyz_quotes_values_with_spaces(ethanol, tmp_path):
-    ethanol.mol.SetProp("energy_method", "GFN2 xTB")
-    ethanol.write_xyz(str(tmp_path / "a.xyz"))
-    comment = (tmp_path / "a.xyz").read_text().splitlines()[1]
-    fields = dict(field.split("=", 1) for field in shlex.split(comment))
-    assert fields["energy_method"] == "GFN2 xTB"
-
-
-def test_write_xyz_warns_about_missing_energies_only_among_others(
-    ethanol, tmp_path, caplog
-):
-    with caplog.at_level(logging.WARNING):
-        ethanol.write_xyz(str(tmp_path / "a.xyz"))  # conformer 1 has no energy
-    assert "Conformers [1] have no energy" in caplog.text
-    caplog.clear()
-    for conf in ethanol.mol.GetConformers():
-        conf.ClearProp("energy")
-    with caplog.at_level(logging.WARNING):
-        ethanol.write_xyz(str(tmp_path / "b.xyz"))  # e.g. embedded only: expected
-    assert "no energy" not in caplog.text
-
-
-def test_summary(ethanol):
-    assert ethanol.summary() == (
-        "3 conformers; energies (MMFFOptimizer): lowest 1.0000 kcal/mol "
-        "(conformer 2), window 1.00 kcal/mol"
-    )
-
-
-def test_pickle_keeps_the_conformer_data(ethanol):
-    import pickle
-
-    ethanol.add_provenance(2, seed=12)
-    ethanol.mol.SetIntProp("charge", -1)
-    copy = pickle.loads(pickle.dumps(ethanol))
-
-    assert copy.records == ethanol.records
-    assert copy.mol.GetIntProp("charge") == -1
-
-
-def test_merge_keeps_one_energy_method(ethanol):
+    # -- merge keeps one energy method
     embedded = ethanol.filter([1])  # no energy
     embedded.mol.ClearProp("energy_method")
 
@@ -139,11 +120,48 @@ def test_merge_keeps_one_energy_method(ethanol):
         ethanol.merge(other)
 
 
-def test_copy_is_independent(ethanol):
-    copy = ethanol.copy()
-    copy.mol.GetConformer(0).SetDoubleProp("energy", 5.0)
+def test_writing_an_ensemble(ethanol, tmp_path, caplog):
+    # -- write xyz is the io writer
+    ethanol.write_xyz(str(tmp_path / "a.xyz"))
+    write_xyz(ethanol.mol, str(tmp_path / "b.xyz"))
 
-    assert ethanol.energy(0) == 2.0
+    assert (tmp_path / "a.xyz").read_text() == (tmp_path / "b.xyz").read_text()
+
+    # -- write sdf
+    ethanol.add_provenance(0, seed=12)
+    path = str(tmp_path / "ensemble.sdf")
+    ethanol.write_sdf(path)
+    records = list(Chem.SDMolSupplier(path, removeHs=False))
+    assert [r.GetIntProp("conf_id") for r in records] == ethanol.conf_ids
+    assert records[0].GetDoubleProp("energy") == 2.0 and not records[1].HasProp(
+        "energy"
+    )
+    assert records[0].GetProp("energy_method") == "MMFFOptimizer"
+    assert records[0].GetProp("provenance") == '{"seed": 12}'
+    assert np.allclose(
+        records[2].GetConformer().GetPositions(),
+        ethanol.mol.GetConformer(2).GetPositions(),
+        atol=1e-4,
+    )
+
+    # -- write xyz quotes values with spaces
+    ethanol.mol.SetProp("energy_method", "GFN2 xTB")
+    ethanol.write_xyz(str(tmp_path / "a.xyz"))
+    comment = (tmp_path / "a.xyz").read_text().splitlines()[1]
+    fields = dict(field.split("=", 1) for field in shlex.split(comment))
+    assert fields["energy_method"] == "GFN2 xTB"
+
+    # -- write xyz warns about missing energies only among others
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        ethanol.write_xyz(str(tmp_path / "a.xyz"))  # conformer 1 has no energy
+    assert "Conformers [1] have no energy" in caplog.text
+    caplog.clear()
+    for conf in ethanol.mol.GetConformers():
+        conf.ClearProp("energy")
+    with caplog.at_level(logging.WARNING):
+        ethanol.write_xyz(str(tmp_path / "b.xyz"))  # e.g. embedded only: expected
+    assert "no energy" not in caplog.text
 
 
 @pytest.mark.parametrize("renumber", [False, True])
@@ -213,17 +231,13 @@ def test_merge_by_elements_ignores_the_representation(first, second):
         a.merge(b, identity="smiles")
 
 
-def test_energies_in_other_units(ethanol):
-    energies = ethanol.energies(unit="eV")
-    assert energies[0] == pytest.approx(2.0 / 23.06054783061903)
-    assert math.isnan(energies[1])
-    assert ethanol.energies("hartree")[2] == pytest.approx(1.0 / 627.5094740629)
-    assert ethanol.energies("kJ/mol")[2] == pytest.approx(4.184)
-    with pytest.raises(ValueError, match="unit"):
-        ethanol.energies("kcal")
+def test_ensembles_from_frames():
+    from ase.constraints import FixAtoms
 
+    import racerts
+    from racerts.validate import IdentityFilter
 
-def test_from_frames_takes_positions_not_results():
+    # -- from frames takes positions not results
     template = Chem.AddHs(Chem.MolFromSmiles("[2H]O"))  # D-O-H
     template.GetAtomWithIdx(0).SetAtomMapNum(7)
     template.SetProp("_thermo", "stale")
@@ -247,10 +261,8 @@ def test_from_frames_takes_positions_not_results():
     assert not ensemble.mol.HasProp("_thermo") and ensemble.mol.HasProp("charge")
     assert template.GetNumConformers() == 1  # unchanged
 
-
-def test_from_frames_with_ase_atoms():
+    # -- from frames with ase atoms
     ase = pytest.importorskip("ase")
-    from ase.constraints import FixAtoms
 
     template = Chem.MolFromSmiles("[H][H]")
     atoms = ase.Atoms("H2", positions=[[0, 0, 0], [0, 0, 0.74]])
@@ -275,11 +287,7 @@ def test_from_frames_with_ase_atoms():
         with pytest.raises(ValueError, match="real atoms"):
             ConformerEnsemble.from_frames(Chem.MolFromSmiles(smiles), [])
 
-
-def test_imported_mirror_images_are_caught_by_validation():
-    import racerts
-    from racerts.validate import IdentityFilter
-
+    # -- imported mirror images are caught by validation
     template = Chem.MolFromSmiles("F[C@](Cl)(Br)I")
     xyz = np.array([[1, 1, 1], [0, 0, 0], [1, -1, -1], [-1, 1, -1], [-1, -1, 1]], float)
     xyz *= np.array([1.35, 0, 1.77, 1.94, 2.14])[:, None] / np.sqrt(3)
@@ -291,21 +299,3 @@ def test_imported_mirror_images_are_caught_by_validation():
     mirror = 1 - kept.conf_ids[0]
     with pytest.raises(RuntimeError, match="No conformer passed"):
         IdentityFilter().run(ctx, ensemble.filter([mirror]))
-
-
-def test_write_sdf(ethanol, tmp_path):
-    ethanol.add_provenance(0, seed=12)
-    path = str(tmp_path / "ensemble.sdf")
-    ethanol.write_sdf(path)
-    records = list(Chem.SDMolSupplier(path, removeHs=False))
-    assert [r.GetIntProp("conf_id") for r in records] == ethanol.conf_ids
-    assert records[0].GetDoubleProp("energy") == 2.0 and not records[1].HasProp(
-        "energy"
-    )
-    assert records[0].GetProp("energy_method") == "MMFFOptimizer"
-    assert records[0].GetProp("provenance") == '{"seed": 12}'
-    assert np.allclose(
-        records[2].GetConformer().GetPositions(),
-        ethanol.mol.GetConformer(2).GetPositions(),
-        atol=1e-4,
-    )

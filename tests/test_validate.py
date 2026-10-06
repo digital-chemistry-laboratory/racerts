@@ -71,7 +71,8 @@ def test_connectivity_finds_a_broken_bond(ts_ensemble):
     assert reasons[conf_id].endswith("missing")
 
 
-def test_connectivity_checks_the_specified_stereo():
+def test_stereo_checks():
+    # -- connectivity checks the specified stereo
     ensemble, ctx = _gs("C[C@H](O)CC")
     _mirror(ensemble, 1)
     assert Connectivity().validate(ctx, ensemble) == {1: "stereo of atom 1 inverted"}
@@ -82,14 +83,39 @@ def test_connectivity_checks_the_specified_stereo():
     _mirror(ensemble, 1)
     assert Connectivity().validate(ctx, ensemble) == {}
 
-
-def test_connectivity_checks_double_bonds():
+    # -- connectivity checks double bonds
     ensemble, ctx = _gs("C/C=C/C", n=1)
     z = Chem.AddHs(Chem.MolFromSmiles("C/C=C\\C"))  # the same atom order
     AllChem.EmbedMolecule(z, randomSeed=3)
     ensemble.mol.AddConformer(z.GetConformer(), assignId=True)
     reasons = Connectivity().validate(ctx, ensemble)
     assert list(reasons) == [1] and "bond 1" in reasons[1]
+
+    # -- stereo only check
+    ensemble, ctx = _gs("C[C@H](O)CC")
+    _move(ensemble, 1, 4, (10.0, 0.0, 0.0))  # a broken bond ...
+    _mirror(ensemble, 2)  # ... and a mirror image
+    reasons = Connectivity(bonds=False).validate(ctx, ensemble)
+    assert reasons == {2: "stereo of atom 1 inverted"}
+    assert Connectivity(bonds=False).name == "stereo"
+    with pytest.raises(ValueError, match="bonds or stereo"):
+        Connectivity(bonds=False, stereo=False)
+
+    # -- ring stereo without cip labels
+    # cis/trans on a ring: chiral tags but no CIP labels.
+    trans = Chem.AddHs(Chem.MolFromSmiles("C[C@H]1CC[C@@H](C)CC1"))
+    AllChem.EmbedMultipleConfs(trans, 2, randomSeed=3)
+    cis = Chem.AddHs(Chem.MolFromSmiles("C[C@H]1CC[C@H](C)CC1"))  # same atom order
+    AllChem.EmbedMolecule(cis, randomSeed=3)
+    trans.AddConformer(cis.GetConformer(), assignId=True)
+    ctx = racerts.Context.create(trans, racerts.GroundState())
+    reasons = Connectivity().validate(ctx, racerts.ConformerEnsemble(trans))
+    assert list(reasons) == [2] and "inverted" in reasons[2]
+
+    config = racerts.PipelineConfig.from_dict(
+        {"embed": {"n_conformers": 4}, "prune": {"check_stereo": True}}
+    )
+    assert len(racerts.generate_gs("C[C@H]1CC[C@@H](C)CC1", config=config)) >= 1
 
 
 def test_frozen_core(ts_ensemble):
@@ -101,7 +127,8 @@ def test_frozen_core(ts_ensemble):
     assert list(reasons) == [conf_id] and "moved by up to 0.1" in reasons[conf_id]
 
 
-def test_validate_drops_or_flags(ts_ensemble, caplog):
+def test_the_validate_stage(ts_ensemble, caplog):
+    # -- validate drops or flags
     ensemble, ctx = ts_ensemble
     bad = ensemble.conf_ids[0]
 
@@ -122,8 +149,8 @@ def test_validate_drops_or_flags(ts_ensemble, caplog):
     assert bad not in dropped.conf_ids and len(dropped) == len(ensemble) - 1
     assert "1 of 4 conformers failed validation" in caplog.text
 
-
-def test_validate_raises_if_none_passes(ts_ensemble, caplog):
+    # -- validate raises if none passes
+    caplog.clear()
     ensemble, ctx = ts_ensemble
     always = validator(lambda mol, conf_id: "no", name="never")
     with pytest.raises(RuntimeError, match="No conformer passed validation.*never: no"):
@@ -150,8 +177,7 @@ def test_validate_raises_if_none_passes(ts_ensemble, caplog):
     with pytest.raises(ValueError, match="at least one"):
         Validate()
 
-
-def test_validators_of_one_stage_need_distinct_names(ts_ensemble):
+    # -- validators of one stage need distinct names
     # Results are recorded by name: a second "ok" would replace the first failure.
     with pytest.raises(ValueError, match="Repeated validator names.*connectivity"):
         Validate(Connectivity(), Connectivity(exempt=[3]))
@@ -165,7 +191,10 @@ def test_validators_of_one_stage_need_distinct_names(ts_ensemble):
     }
 
 
-def test_identity_filter_in_a_pipeline(hept_1_ene_ts):
+def test_identity_and_stereo_checks_in_a_pipeline(hept_1_ene_ts):
+    from racerts import PipelineConfig
+
+    # -- identity filter in a pipeline
     pipeline = racerts.Pipeline(
         [racerts.Embed(n_conformers=5), racerts.Refine(), IdentityFilter()]
     )
@@ -177,6 +206,25 @@ def test_identity_filter_in_a_pipeline(hept_1_ene_ts):
         ensemble.provenance(i)["validation"] == {"connectivity": "ok"}
         for i in ensemble.conf_ids
     )
+
+    # -- check stereo setting adds a stereo check
+    legacy = PipelineConfig.legacy().build(TransitionState([3])).stages
+    assert "validate" not in [s.name for s in legacy]
+    default = PipelineConfig().build(TransitionState([3])).stages
+    assert [s.name for s in default][:3] == ["embed", "refine", "validate"]
+    config = PipelineConfig.from_dict(
+        {"embed": {"n_conformers": 4}, "prune": {"check_stereo": True}}
+    )
+    stages = config.build(TransitionState([3, 4, 5])).stages
+    assert [s.name for s in stages][:3] == ["embed", "refine", "validate"]
+    check = stages[2].validators[0]
+    assert (check.bonds, check.exempt) == (False, None)  # None: the task's core atoms
+    ensemble = racerts.generate(
+        hept_1_ene_ts, TransitionState([3, 4, 5]), config=config
+    )
+    assert {
+        ensemble.provenance(i)["validation"]["stereo"] for i in ensemble.conf_ids
+    } == {"ok"}
 
 
 class Spring:
@@ -329,9 +377,10 @@ def test_a_hessian_from_outside_replaces_the_finite_differences():
         ImaginaryModes(Springs(springs).calculator, hessian=analytical)
 
 
-def test_converged_reads_the_record_of_the_optimizer():
+def test_converged_and_what_the_mode_checks_need():
     from racerts.validate import Converged
 
+    # -- converged reads the record of the optimizer
     ctx, ensemble = _two_pairs()
     (conf_id,) = ensemble.conf_ids
     assert Converged().validate(ctx, ensemble) == {}  # no optimization on record
@@ -342,8 +391,7 @@ def test_converged_reads_the_record_of_the_optimizer():
         conf_id: "the optimization did not converge (300 steps)"
     }
 
-
-def test_imaginary_modes_needs_a_calculator():
+    # -- imaginary modes needs a calculator
     with pytest.raises(ValueError, match="calculator"):
         ImaginaryModes(None)
     with pytest.raises(ValueError, match="calculator"):
@@ -397,56 +445,6 @@ def test_the_rotation_ts_of_ethane_has_one_imaginary_mode():
     assert (staggered < -50).sum() == 0
     assert (eclipsed < -50).sum() == 1
     assert -400 < eclipsed.min() < -150  # the methyl torsion
-
-
-def test_stereo_only_check():
-    ensemble, ctx = _gs("C[C@H](O)CC")
-    _move(ensemble, 1, 4, (10.0, 0.0, 0.0))  # a broken bond ...
-    _mirror(ensemble, 2)  # ... and a mirror image
-    reasons = Connectivity(bonds=False).validate(ctx, ensemble)
-    assert reasons == {2: "stereo of atom 1 inverted"}
-    assert Connectivity(bonds=False).name == "stereo"
-    with pytest.raises(ValueError, match="bonds or stereo"):
-        Connectivity(bonds=False, stereo=False)
-
-
-def test_check_stereo_setting_adds_a_stereo_check(hept_1_ene_ts):
-    from racerts import PipelineConfig
-
-    legacy = PipelineConfig.legacy().build(TransitionState([3])).stages
-    assert "validate" not in [s.name for s in legacy]
-    default = PipelineConfig().build(TransitionState([3])).stages
-    assert [s.name for s in default][:3] == ["embed", "refine", "validate"]
-    config = PipelineConfig.from_dict(
-        {"embed": {"n_conformers": 4}, "prune": {"check_stereo": True}}
-    )
-    stages = config.build(TransitionState([3, 4, 5])).stages
-    assert [s.name for s in stages][:3] == ["embed", "refine", "validate"]
-    check = stages[2].validators[0]
-    assert (check.bonds, check.exempt) == (False, None)  # None: the task's core atoms
-    ensemble = racerts.generate(
-        hept_1_ene_ts, TransitionState([3, 4, 5]), config=config
-    )
-    assert {
-        ensemble.provenance(i)["validation"]["stereo"] for i in ensemble.conf_ids
-    } == {"ok"}
-
-
-def test_ring_stereo_without_cip_labels():
-    # cis/trans on a ring: chiral tags but no CIP labels.
-    trans = Chem.AddHs(Chem.MolFromSmiles("C[C@H]1CC[C@@H](C)CC1"))
-    AllChem.EmbedMultipleConfs(trans, 2, randomSeed=3)
-    cis = Chem.AddHs(Chem.MolFromSmiles("C[C@H]1CC[C@H](C)CC1"))  # same atom order
-    AllChem.EmbedMolecule(cis, randomSeed=3)
-    trans.AddConformer(cis.GetConformer(), assignId=True)
-    ctx = racerts.Context.create(trans, racerts.GroundState())
-    reasons = Connectivity().validate(ctx, racerts.ConformerEnsemble(trans))
-    assert list(reasons) == [2] and "inverted" in reasons[2]
-
-    config = racerts.PipelineConfig.from_dict(
-        {"embed": {"n_conformers": 4}, "prune": {"check_stereo": True}}
-    )
-    assert len(racerts.generate_gs("C[C@H]1CC[C@@H](C)CC1", config=config)) >= 1
 
 
 @pytest.mark.parametrize(

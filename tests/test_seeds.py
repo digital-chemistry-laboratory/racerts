@@ -13,7 +13,8 @@ from racerts.embed.stage import _batch_embedder
 from racerts.utils import seeds
 
 
-def test_a_derived_seed_is_a_fixed_function_of_the_seed_and_its_use():
+def test_derived_seeds_and_streams():
+    # -- a derived seed is a fixed function of the seed and its use
     # A hash: no library version changes it. These values are fixed for good.
     assert seeds.derive(12) == 1051840539
     assert seeds.derive(12, "batch", 1) == 192700149
@@ -28,8 +29,7 @@ def test_a_derived_seed_is_a_fixed_function_of_the_seed_and_its_use():
     with pytest.raises(TypeError, match="integer"):
         seeds.derive(1.5)
 
-
-def test_the_streams_of_different_seeds_and_uses_do_not_fall_together():
+    # -- the streams of different seeds and uses do not fall together
     # seed + 7919 k made batch 1 of seed 12 the batch 0 of seed 7931.
     assert seeds.derive(12, "batch", 1) != seeds.derive(7931, "batch", 0)
     assert seeds.derive(12, "batch", 1) != seeds.derive(7931)
@@ -38,8 +38,7 @@ def test_the_streams_of_different_seeds_and_uses_do_not_fall_together():
     values = sorted(seeds.derive(s, "batch", k) for s in range(100) for k in range(10))
     assert min(b - a for a, b in zip(values, values[1:])) > 10000
 
-
-def test_a_stream_draws_the_same_numbers_for_the_same_seed_and_use():
+    # -- a stream draws the same numbers for the same seed and use
     first, again = seeds.Stream(12, "exploit"), seeds.Stream(12, "exploit")
     drawn = [first.random() for _ in range(3)]
     # Python's random.Random.random(), whose sequence is fixed across versions.
@@ -50,8 +49,7 @@ def test_a_stream_draws_the_same_numbers_for_the_same_seed_and_use():
     # A negative seed: not reproducible.
     assert seeds.Stream(-1, "exploit").random() != seeds.Stream(-1, "exploit").random()
 
-
-def test_the_draws_of_a_stream():
+    # -- the draws of a stream
     stream = seeds.Stream(3, "test")
     assert all(0.0 <= stream.random() < 1.0 for _ in range(200))
     assert all(-2.0 <= stream.uniform(-2.0, 5.0) < 5.0 for _ in range(200))
@@ -70,8 +68,7 @@ def test_the_draws_of_a_stream():
         seeds.Stream(3, "n").normal(size=3), seeds.Stream(3, "n").normal(size=3)
     )
 
-
-def test_a_batch_embeds_with_the_derived_seed_of_its_number():
+    # -- a batch embeds with the derived seed of its number
     embedder = racerts.embed.CmapEmbedder(randomSeed=12)
     assert _batch_embedder(embedder, 0) is embedder
     for k in (1, 2, 7):

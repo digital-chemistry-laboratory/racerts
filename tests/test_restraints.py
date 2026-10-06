@@ -45,7 +45,8 @@ def _sn2_water(path):
 # ---- model ----
 
 
-def test_a_restraint_is_a_window():
+def test_the_restraint_model():
+    # -- a restraint is a window
     r = DistanceRestraint.around(7, 2, 2.2)
     assert (r.first, r.second) == (2, 7)
     assert (r.lower, r.upper) == pytest.approx((1.95, 2.45))
@@ -57,25 +58,7 @@ def test_a_restraint_is_a_window():
     assert r.violation(positions) == pytest.approx(0.55)
     assert DistanceRestraint.around(0, 1, 0.1).lower == 0.0
 
-
-@pytest.mark.parametrize(
-    "args, error",
-    [
-        ((0, 0, 1.0, 2.0), ValueError),
-        ((0, 1, 2.0, 1.0), ValueError),
-        ((0, 1, -1.0, 1.0), ValueError),
-        ((0, 1.5, 1.0, 2.0), TypeError),
-        ((True, 1, 1.0, 2.0), TypeError),
-    ],
-)
-def test_invalid_restraints_raise(args, error):
-    with pytest.raises(error):
-        DistanceRestraint(*args)
-    with pytest.raises(ValueError, match="stage"):
-        DistanceRestraint(0, 1, 1.0, 2.0, stage="late")
-
-
-def test_restraint_sets():
+    # -- restraint sets
     a = DistanceRestraint.around(0, 1, 2.0)
     b = DistanceRestraint.around(1, 0, 3.0, stage="embed", source="hbond")
     with pytest.raises(ValueError, match="Conflicting restraints for atom pair"):
@@ -95,17 +78,34 @@ def test_restraint_sets():
     assert 0.85 < np.mean(sampled) / 2 < 0.95
 
 
+@pytest.mark.parametrize(
+    "args, error",
+    [
+        ((0, 0, 1.0, 2.0), ValueError),
+        ((0, 1, 2.0, 1.0), ValueError),
+        ((0, 1, -1.0, 1.0), ValueError),
+        ((0, 1.5, 1.0, 2.0), TypeError),
+        ((True, 1, 1.0, 2.0), TypeError),
+    ],
+)
+def test_invalid_restraints_raise(args, error):
+    with pytest.raises(error):
+        DistanceRestraint(*args)
+    with pytest.raises(ValueError, match="stage"):
+        DistanceRestraint(0, 1, 1.0, 2.0, stage="late")
+
+
 # ---- sources ----
 
 
-def test_hydrogen_bonds_of_the_seed_become_two_windows(sn2_ts_water):
+def test_restraints_from_the_reference_geometry(sn2_ts_water, sn2_ts_two_waters):
+    # -- hydrogen bonds of the seed become two windows
     mol = _sn2_water(sn2_ts_water)
     triplets = sources.hydrogen_bonds(mol)
     assert [(i, j) for i, j, _ in triplets] == [(7, 2), (6, 2)]
     assert [round(d, 2) for _, _, d in triplets] == [2.2, 3.16]
 
-
-def test_contacts_include_the_neighbours_for_orientation(sn2_ts_water):
+    # -- contacts include the neighbours for orientation
     mol = _sn2_water(sn2_ts_water)
     pairs = [(i, j) for i, j, _ in sources.contacts(mol, [(2, 6)])]
     assert sorted(pairs) == [(2, 6), (2, 7), (2, 8)]
@@ -113,15 +113,17 @@ def test_contacts_include_the_neighbours_for_orientation(sn2_ts_water):
         with pytest.raises(ValueError, match="bonded or share a neighbour"):
             sources.contacts(mol, [pair])
 
-
-def test_fragments_keep_their_closest_contact(sn2_ts_water, sn2_ts_two_waters):
+    # -- fragments keep their closest contact
     assert sources.fragment_contacts(_sn2_water(sn2_ts_water), REACTING) == [(2, 7)]
     two = build_mol(sn2_ts_two_waters, -1, REACTING, input_smiles=SN2_SMILES + ["O"])
     # The second water is attached to the first one, not to the nucleophile.
     assert sources.fragment_contacts(two, REACTING) == [(2, 7), (6, 10)]
 
 
-def test_build_restraints_precedence(sn2_ts_water, caplog):
+def test_build_restraints_and_what_wins(sn2_ts_water, caplog):
+    from racerts.restraints.build import consistent_restraints
+
+    # -- build restraints precedence
     mol = _sn2_water(sn2_ts_water)
     frozen = TransitionState(REACTING).frozen_atoms(mol)
     with caplog.at_level(logging.WARNING):
@@ -139,8 +141,8 @@ def test_build_restraints_precedence(sn2_ts_water, caplog):
     with pytest.raises(ValueError, match="outside the 9-atom molecule"):
         build_restraints(mol, frozen, user=[(2, 70, 2.5)])
 
-
-def test_a_user_window_decides_what_fits_with_it(sn2_ts_water, caplog):
+    # -- a user window decides what fits with it
+    caplog.clear()
     # The seed has Cl2...H7 at 2.2 A. With the user's window at 4.8 A, the hydrogen
     # bond's second window (Cl2...O6 at 3.2 A) does not fit and is left out; the
     # generated window on the user's pair is not part of the check.
@@ -154,16 +156,54 @@ def test_a_user_window_decides_what_fits_with_it(sn2_ts_water, caplog):
     kept = build_restraints(mol, frozen, user=[(2, 7, 2.5)], hbonds=True)
     assert sorted(r.label for r in kept) == ["hbond:2-6", "user:2-7"]
 
-
-def test_a_user_restraint_between_frozen_atoms_does_not_hide_the_others(
-    sn2_ts_water, caplog
-):
+    # -- a user restraint between frozen atoms does not hide the others
+    caplog.clear()
     mol = _sn2_water(sn2_ts_water)
     frozen = TransitionState(REACTING).frozen_atoms(mol)
     with caplog.at_level(logging.WARNING):
         restraints = build_restraints(mol, frozen, user=[(0, 1, 5.0)], hbonds=True)
     assert sorted(r.label for r in restraints) == ["hbond:2-6", "hbond:2-7"]
     assert "[(0, 1)] are ignored: both atoms are frozen" in caplog.text
+
+    # -- generated windows that do not fit are left out
+    caplog.clear()
+    # Cl2...O6 at 3.75 A does not fit with Cl2...H7 at 2.2 A (O6-H7 is a bond): from
+    # the user it raises (test_inconsistent_windows_raise); generated, it is left out.
+
+    mol = _sn2_water(sn2_ts_water)
+    frozen = TransitionState(REACTING).frozen_atoms(mol)
+    user = RestraintSet([DistanceRestraint.around(2, 7, 2.2)])
+    generated = RestraintSet(
+        [
+            DistanceRestraint.around(2, 6, 3.75, source="contact"),
+            DistanceRestraint.around(0, 6, 5.66, source="contact"),
+        ]
+    )
+    with caplog.at_level(logging.WARNING):
+        kept = consistent_restraints(mol, frozen, user, generated)
+    assert [r.pair for r in kept] == [(0, 6)]
+    assert "contact:2-6" in caplog.text and "left out" in caplog.text
+
+    # -- user triplets become windows and flat bottom terms
+    mol = Chem.AddHs(Chem.MolFromSmiles("CCCC"))
+    (r,) = build_restraints(mol, user=[(0, 3, 2.8)])
+    assert (r.pair, r.force_constant) == ((0, 3), 20.0)
+    assert (r.lower, r.upper) == pytest.approx((2.55, 3.05))
+    assert len(build_restraints(Chem.AddHs(Chem.MolFromSmiles("CC")))) == 0
+
+    config = PipelineConfig.from_dict(
+        {"embed": {"n_conformers": 3}, "restraints": {"user": [[0, 3, 2.8]]}}
+    )
+    ensemble = racerts.generate_gs("CCCC", config=config)
+    for conf in ensemble.mol.GetConformers():
+        assert r.violation(conf.GetPositions()) < 0.1
+
+    # -- a user contact between fragments is the carrier
+    mol = Chem.AddHs(Chem.MolFromSmiles("C.C"))
+    restraints = build_restraints(mol, user=[(0, 1, 2.0)], link_fragments=True)
+    (r,) = restraints
+    assert r.pair == (0, 1) and r.source == "user"  # the user window wins
+    assert (r.lower, r.upper) == pytest.approx((1.75, 2.25))
 
 
 # ---- embedding ----
@@ -188,7 +228,13 @@ def test_embedding_places_conformers_in_the_windows(sn2_ts_water, mode):
     assert embedded.provenance(0)["restraints"] == ["user:2-7", "user:2-6"]
 
 
-def test_embedding_keeps_the_frozen_atoms_with_restraints(hept_1_ene_ts):
+def test_embedders_and_force_fields_with_restraints(
+    hept_1_ene_ts, sn2_ts_water, caplog, monkeypatch
+):
+    from racerts.embedder import CmapEmbedder as LegacyCmap
+    from racerts.optimizer import MMFFOptimizer as LegacyMMFF
+
+    # -- embedding keeps the frozen atoms with restraints
     task = TransitionState([3, 4, 5])
     seed = hept_1_ene_ts.GetConformer().GetPositions()
     target = float(np.linalg.norm(seed[0] - seed[6]))
@@ -205,6 +251,40 @@ def test_embedding_keeps_the_frozen_atoms_with_restraints(hept_1_ene_ts):
     # holds them).
     assert _in_windows(embedded.mol, [(0, 6, target)]) >= 0.8
 
+    # -- legacy embedders cannot take restraints
+    mol = _sn2_water(sn2_ts_water)
+    ctx = racerts.Context.create(
+        mol,
+        TransitionState(REACTING),
+        restraints=RestraintSet(DistanceRestraint.around(*t) for t in CONTACT),
+    )
+    with pytest.raises(ValueError, match="takes no restraints"):
+        racerts.Embed(LegacyCmap(), n_conformers=3).run(ctx)
+
+    # -- legacy force fields say that they drop restraints
+    caplog.clear()
+    mol = _sn2_water(sn2_ts_water)
+    ctx = racerts.Context.create(
+        mol,
+        TransitionState(REACTING),
+        restraints=RestraintSet(DistanceRestraint.around(*t) for t in CONTACT),
+    )
+    ensemble = racerts.Embed(n_conformers=2).run(ctx)
+    with caplog.at_level(logging.WARNING):
+        racerts.Refine(LegacyMMFF()).run(ctx, ensemble)
+    assert "refines without the 2 distance restraints" in caplog.text
+    assert "racerts.refine" in caplog.text
+
+    # -- without restraints the cmap embedder uses no bounds matrix
+    def no_bounds(*args, **kwargs):
+        raise AssertionError("bounds matrix built without restraints")
+
+    monkeypatch.setattr(dg, "smoothed_bounds", no_bounds)
+    monkeypatch.setattr(dg, "widened_bounds", no_bounds)
+    mol = _sn2_water(sn2_ts_water)
+    config = PipelineConfig(embed=EmbedConfig(n_conformers=5))
+    assert len(racerts.generate(mol, TransitionState(REACTING), config=config)) > 0
+
 
 @pytest.mark.parametrize("cl_o", [5.0, 3.75])
 def test_inconsistent_windows_raise(sn2_ts_water, cl_o):
@@ -217,48 +297,6 @@ def test_inconsistent_windows_raise(sn2_ts_water, cl_o):
     )
     with pytest.raises(ValueError, match="restraints are inconsistent"):
         racerts.generate(mol, TransitionState(REACTING), config=config)
-
-
-def test_without_restraints_the_cmap_embedder_uses_no_bounds_matrix(
-    sn2_ts_water, monkeypatch
-):
-    def no_bounds(*args, **kwargs):
-        raise AssertionError("bounds matrix built without restraints")
-
-    monkeypatch.setattr(dg, "smoothed_bounds", no_bounds)
-    monkeypatch.setattr(dg, "widened_bounds", no_bounds)
-    mol = _sn2_water(sn2_ts_water)
-    config = PipelineConfig(embed=EmbedConfig(n_conformers=5))
-    assert len(racerts.generate(mol, TransitionState(REACTING), config=config)) > 0
-
-
-def test_legacy_embedders_cannot_take_restraints(sn2_ts_water):
-    from racerts.embedder import CmapEmbedder as LegacyCmap
-
-    mol = _sn2_water(sn2_ts_water)
-    ctx = racerts.Context.create(
-        mol,
-        TransitionState(REACTING),
-        restraints=RestraintSet(DistanceRestraint.around(*t) for t in CONTACT),
-    )
-    with pytest.raises(ValueError, match="takes no restraints"):
-        racerts.Embed(LegacyCmap(), n_conformers=3).run(ctx)
-
-
-def test_legacy_force_fields_say_that_they_drop_restraints(sn2_ts_water, caplog):
-    from racerts.optimizer import MMFFOptimizer as LegacyMMFF
-
-    mol = _sn2_water(sn2_ts_water)
-    ctx = racerts.Context.create(
-        mol,
-        TransitionState(REACTING),
-        restraints=RestraintSet(DistanceRestraint.around(*t) for t in CONTACT),
-    )
-    ensemble = racerts.Embed(n_conformers=2).run(ctx)
-    with caplog.at_level(logging.WARNING):
-        racerts.Refine(LegacyMMFF()).run(ctx, ensemble)
-    assert "refines without the 2 distance restraints" in caplog.text
-    assert "racerts.refine" in caplog.text
 
 
 # ---- refinement ----
@@ -286,7 +324,8 @@ def test_flat_bottom_terms_pull_conformers_into_the_window(optimizer_cls):
     assert np.mean(np.array(refined(RestraintSet())) < 0.1) < 0.5
 
 
-def test_reported_energies_leave_out_the_restraints():
+def test_restraints_through_the_default_pipeline(sn2_ts_water, sn2_ts, caplog):
+    # -- reported energies leave out the restraints
     mol = _butanediol(5)
     racerts.refine.MMFFOptimizer().refine(
         mol, restraints=[DistanceRestraint(0, 5, 2.6, 3.0, force_constant=100.0)]
@@ -296,6 +335,48 @@ def test_reported_energies_leave_out_the_restraints():
         ff = AllChem.MMFFGetMoleculeForceField(
             mol, props, confId=conf.GetId(), ignoreInterfragInteractions=False
         )
+        assert conf.GetDoubleProp("energy") == pytest.approx(ff.CalcEnergy(), abs=1e-8)
+
+    # -- generate ts keeps the restrained contact
+    config = PipelineConfig.from_dict(
+        {
+            "embed": {"n_conformers": 20},
+            "restraints": {"user": [list(t) for t in CONTACT]},
+        }
+    )
+    ensemble = racerts.generate_ts(
+        sn2_ts_water, REACTING, charge=-1, smiles=SN2_SMILES, config=config
+    )
+    assert len(ensemble) > 0
+    assert _in_windows(ensemble.mol, CONTACT) == 1.0
+    assert PipelineConfig.from_dict(config.to_dict()) == config
+
+    # -- restraints between frozen atoms are dropped
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        ensemble = racerts.generate_ts(
+            sn2_ts,
+            REACTING,
+            charge=-1,
+            smiles="CCl.[Cl-]",
+            config=PipelineConfig(embed=EmbedConfig(n_conformers=3)),
+            restraints=RestraintSet([DistanceRestraint.around(0, 1, 2.0)]),
+        )
+    assert len(ensemble) > 0 and "both atoms are frozen" in caplog.text
+
+    # -- parallel restrained refinement reports physical energies
+    mol = Chem.AddHs(Chem.MolFromSmiles("CCCC"))
+    ids = list(AllChem.EmbedMultipleConfs(mol, numConfs=3, randomSeed=61453))
+    restraint = DistanceRestraint(0, 3, 2.7, 2.9, force_constant=1000.0)
+    racerts.refine.MMFFOptimizer(num_threads=2, converge=True).refine(
+        mol, restraints=[restraint]
+    )
+    props = AllChem.MMFFGetMoleculeProperties(mol)
+    for conf_id in ids:
+        conf = mol.GetConformer(conf_id)
+        p = conf.GetPositions()
+        assert np.linalg.norm(p[0] - p[3]) < 2.93
+        ff = AllChem.MMFFGetMoleculeForceField(mol, props, confId=conf_id)
         assert conf.GetDoubleProp("energy") == pytest.approx(ff.CalcEnergy(), abs=1e-8)
 
 
@@ -318,21 +399,6 @@ def test_ase_refinement_takes_the_restraints(caplog):
 # ---- the pipeline ----
 
 
-def test_generate_ts_keeps_the_restrained_contact(sn2_ts_water):
-    config = PipelineConfig.from_dict(
-        {
-            "embed": {"n_conformers": 20},
-            "restraints": {"user": [list(t) for t in CONTACT]},
-        }
-    )
-    ensemble = racerts.generate_ts(
-        sn2_ts_water, REACTING, charge=-1, smiles=SN2_SMILES, config=config
-    )
-    assert len(ensemble) > 0
-    assert _in_windows(ensemble.mol, CONTACT) == 1.0
-    assert PipelineConfig.from_dict(config.to_dict()) == config
-
-
 @pytest.mark.parametrize("setting", ["hbonds", "keep_fragments"])
 def test_seed_contacts_are_kept(sn2_ts_water, setting):
     config = PipelineConfig.from_dict(
@@ -344,23 +410,11 @@ def test_seed_contacts_are_kept(sn2_ts_water, setting):
     assert _in_windows(ensemble.mol, [(2, 7, 2.20)]) == 1.0
 
 
-def test_restraints_between_frozen_atoms_are_dropped(sn2_ts, caplog):
-    with caplog.at_level(logging.WARNING):
-        ensemble = racerts.generate_ts(
-            sn2_ts,
-            REACTING,
-            charge=-1,
-            smiles="CCl.[Cl-]",
-            config=PipelineConfig(embed=EmbedConfig(n_conformers=3)),
-            restraints=RestraintSet([DistanceRestraint.around(0, 1, 2.0)]),
-        )
-    assert len(ensemble) > 0 and "both atoms are frozen" in caplog.text
-
-
 # ---- fragment links ----
 
 
-def test_fragment_links_join_every_fragment():
+def test_fragment_links():
+    # -- fragment links join every fragment
     # Acetate, ammonium and a water: the charged pair first, then the water.
     mol = Chem.AddHs(Chem.MolFromSmiles("CC(=O)[O-].[NH4+].O"))
     links = sources.carrier_links(mol, sources.fallback_links(mol))
@@ -379,14 +433,12 @@ def test_fragment_links_join_every_fragment():
     with pytest.raises(ValueError, match="do not join every fragment"):
         sources.carrier_links(mol, [links[0]])
 
-
-def test_fragment_links_are_between_fragments():
+    # -- fragment links are between fragments
     mol = Chem.AddHs(Chem.MolFromSmiles("CCCC.O"))
     with pytest.raises(ValueError, match=r"Fragment link \(0, 1\) .* one fragment"):
         build_restraints(mol, fragment_links=[(0, 1)])
 
-
-def test_link_windows_widen_once_and_keep_their_order():
+    # -- link windows widen once and keep their order
     # A user window that the contact window [1.0, 1.3] x vdW cannot join: 0.8 x vdW.
     mol = Chem.AddHs(Chem.MolFromSmiles("O.[Cl-]"))
     (tight,) = build_restraints(mol, fragment_links=[(0, 1)])
@@ -401,8 +453,7 @@ def test_link_windows_widen_once_and_keep_their_order():
     labels = [r.label for r in build_restraints(waters, fragment_links=links)]
     assert labels == ["link:0-9", "link:0-3", "link:0-6"]
 
-
-def test_ground_state_complexes_are_embedded_together():
+    # -- ground state complexes are embedded together
     config = PipelineConfig.from_dict(
         {"embed": {"n_conformers": 10}, "restraints": {"link_fragments": True}}
     )
@@ -440,7 +491,8 @@ def test_graph_hints(smiles, expected):
         assert sources.graph_hints(mol, charged=True)
 
 
-def test_hint_batches_and_their_provenance():
+def test_hint_batches(sn2_ts_water):
+    # -- hint batches and their provenance
     config = PipelineConfig.from_dict(
         {"seed": 3, "embed": {"n_conformers": 20}, "restraints": {"hints": True}}
     )
@@ -466,6 +518,45 @@ def test_hint_batches_and_their_provenance():
     ]
     assert np.mean(inside) >= 0.8
     assert "restraints" not in ensemble.provenance(ensemble.conf_ids[0])
+
+    # -- hints are released in refinement
+    restraints = build_restraints(
+        Chem.AddHs(Chem.MolFromSmiles("OCCCCCCCO")), hints=True
+    )
+    assert {r.stage for r in restraints} == {"embed"}
+    assert RestraintSet(restraints).for_stage("refine") == []
+
+    # -- the combined hint batch is checked with the frozen atoms
+    # Each hint fits alone with the frozen core; together they fit only without it.
+    mol = _sn2_water(sn2_ts_water)
+    hints = RestraintSet(
+        DistanceRestraint(i, j, 1.9, 2.3, stage="embed", source="hint")
+        for i, j in ((2, 6), (1, 6))
+    )
+    config = PipelineConfig(embed=EmbedConfig(n_conformers=12))
+    ensemble = racerts.generate(
+        mol, TransitionState(REACTING), config=config, restraints=hints
+    )
+    active = {
+        tuple(ensemble.provenance(i)["active_restraints"]) for i in ensemble.conf_ids
+    }
+    assert ("hint:2-6", "hint:1-6") not in active  # no combined batch
+
+    # -- hint batches with small budgets and extreme seeds
+    def run(n, share, seed=3):
+        config = PipelineConfig.from_dict(
+            {"seed": seed, "restraints": {"hints": True, "hint_share": share}}
+        )
+        pipeline = racerts.Pipeline([racerts.Embed(n_conformers=n, hint_share=share)])
+        return racerts.generate_gs("OCCCCCCCO", config=config, pipeline=pipeline)
+
+    none = run(10, 0.0)
+    assert {tuple(none.provenance(i)["active_restraints"]) for i in none.conf_ids} == {
+        ()
+    }
+    assert len(run(1, 0.3)) == 1  # one conformer: no hint batch
+    assert len(run(2, 1.0)) == 2  # two hint batches of one, no more
+    assert len(run(10, 0.3, seed=2**31 - 1)) == 10  # batch seeds stay in range
 
 
 def _hinted(smiles, n=10, **embed):
@@ -523,74 +614,7 @@ def test_a_hint_that_embeds_is_not_touched_by_the_limit(smiles):
         )
 
 
-def test_hints_are_released_in_refinement():
-    restraints = build_restraints(
-        Chem.AddHs(Chem.MolFromSmiles("OCCCCCCCO")), hints=True
-    )
-    assert {r.stage for r in restraints} == {"embed"}
-    assert RestraintSet(restraints).for_stage("refine") == []
-
-
-def test_generated_windows_that_do_not_fit_are_left_out(sn2_ts_water, caplog):
-    # Cl2...O6 at 3.75 A does not fit with Cl2...H7 at 2.2 A (O6-H7 is a bond): from
-    # the user it raises (test_inconsistent_windows_raise); generated, it is left out.
-    from racerts.restraints.build import consistent_restraints
-
-    mol = _sn2_water(sn2_ts_water)
-    frozen = TransitionState(REACTING).frozen_atoms(mol)
-    user = RestraintSet([DistanceRestraint.around(2, 7, 2.2)])
-    generated = RestraintSet(
-        [
-            DistanceRestraint.around(2, 6, 3.75, source="contact"),
-            DistanceRestraint.around(0, 6, 5.66, source="contact"),
-        ]
-    )
-    with caplog.at_level(logging.WARNING):
-        kept = consistent_restraints(mol, frozen, user, generated)
-    assert [r.pair for r in kept] == [(0, 6)]
-    assert "contact:2-6" in caplog.text and "left out" in caplog.text
-
-
 # ---- windows in embedding: complexes of several fragments ----
-
-
-def test_user_triplets_become_windows_and_flat_bottom_terms():
-    mol = Chem.AddHs(Chem.MolFromSmiles("CCCC"))
-    (r,) = build_restraints(mol, user=[(0, 3, 2.8)])
-    assert (r.pair, r.force_constant) == ((0, 3), 20.0)
-    assert (r.lower, r.upper) == pytest.approx((2.55, 3.05))
-    assert len(build_restraints(Chem.AddHs(Chem.MolFromSmiles("CC")))) == 0
-
-    config = PipelineConfig.from_dict(
-        {"embed": {"n_conformers": 3}, "restraints": {"user": [[0, 3, 2.8]]}}
-    )
-    ensemble = racerts.generate_gs("CCCC", config=config)
-    for conf in ensemble.mol.GetConformers():
-        assert r.violation(conf.GetPositions()) < 0.1
-
-
-def test_a_user_contact_between_fragments_is_the_carrier():
-    mol = Chem.AddHs(Chem.MolFromSmiles("C.C"))
-    restraints = build_restraints(mol, user=[(0, 1, 2.0)], link_fragments=True)
-    (r,) = restraints
-    assert r.pair == (0, 1) and r.source == "user"  # the user window wins
-    assert (r.lower, r.upper) == pytest.approx((1.75, 2.25))
-
-
-def test_parallel_restrained_refinement_reports_physical_energies():
-    mol = Chem.AddHs(Chem.MolFromSmiles("CCCC"))
-    ids = list(AllChem.EmbedMultipleConfs(mol, numConfs=3, randomSeed=61453))
-    restraint = DistanceRestraint(0, 3, 2.7, 2.9, force_constant=1000.0)
-    racerts.refine.MMFFOptimizer(num_threads=2, converge=True).refine(
-        mol, restraints=[restraint]
-    )
-    props = AllChem.MMFFGetMoleculeProperties(mol)
-    for conf_id in ids:
-        conf = mol.GetConformer(conf_id)
-        p = conf.GetPositions()
-        assert np.linalg.norm(p[0] - p[3]) < 2.93
-        ff = AllChem.MMFFGetMoleculeForceField(mol, props, confId=conf_id)
-        assert conf.GetDoubleProp("energy") == pytest.approx(ff.CalcEnergy(), abs=1e-8)
 
 
 @pytest.mark.parametrize(
@@ -607,37 +631,3 @@ def test_invalid_user_restraints_fail_early(user, error):
 
 
 # ---- regression tests ----
-
-
-def test_the_combined_hint_batch_is_checked_with_the_frozen_atoms(sn2_ts_water):
-    # Each hint fits alone with the frozen core; together they fit only without it.
-    mol = _sn2_water(sn2_ts_water)
-    hints = RestraintSet(
-        DistanceRestraint(i, j, 1.9, 2.3, stage="embed", source="hint")
-        for i, j in ((2, 6), (1, 6))
-    )
-    config = PipelineConfig(embed=EmbedConfig(n_conformers=12))
-    ensemble = racerts.generate(
-        mol, TransitionState(REACTING), config=config, restraints=hints
-    )
-    active = {
-        tuple(ensemble.provenance(i)["active_restraints"]) for i in ensemble.conf_ids
-    }
-    assert ("hint:2-6", "hint:1-6") not in active  # no combined batch
-
-
-def test_hint_batches_with_small_budgets_and_extreme_seeds():
-    def run(n, share, seed=3):
-        config = PipelineConfig.from_dict(
-            {"seed": seed, "restraints": {"hints": True, "hint_share": share}}
-        )
-        pipeline = racerts.Pipeline([racerts.Embed(n_conformers=n, hint_share=share)])
-        return racerts.generate_gs("OCCCCCCCO", config=config, pipeline=pipeline)
-
-    none = run(10, 0.0)
-    assert {tuple(none.provenance(i)["active_restraints"]) for i in none.conf_ids} == {
-        ()
-    }
-    assert len(run(1, 0.3)) == 1  # one conformer: no hint batch
-    assert len(run(2, 1.0)) == 2  # two hint batches of one, no more
-    assert len(run(10, 0.3, seed=2**31 - 1)) == 10  # batch seeds stay in range

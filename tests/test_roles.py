@@ -40,26 +40,24 @@ def _roles(ctx):
     return {f.atoms: (f.role, f.anchors) for f in ctx.fragments}
 
 
-def test_without_restraints_the_waters_are_free(two_waters):
+def test_fragment_roles(two_waters):
+    # -- without restraints the waters are free
     roles = _roles(_ctx(two_waters))
     assert roles[WATER_1] == (FREE, ()) and roles[WATER_2] == (FREE, ())
     assert roles[(2,)][0] == REACTIVE  # the nucleophile holds reacting atoms
 
-
-def test_anchored_through_a_chain(two_waters):
+    # -- anchored through a chain
     # water 1 donates to the nucleophile (H7...Cl2); water 2 donates to water 1.
     held = [DistanceRestraint(2, 7, 2.0, 2.4), DistanceRestraint(6, 10, 1.8, 2.2)]
     roles = _roles(_ctx(two_waters, held))
     assert roles[WATER_1] == (ANCHORED, (7,))
     assert roles[WATER_2] == (ANCHORED, (10,))
 
-
-def test_embedding_only_hints_do_not_anchor(two_waters):
+    # -- embedding only hints do not anchor
     hint = DistanceRestraint(2, 7, 2.0, 2.4, stage="embed", source="hint")
     assert _roles(_ctx(two_waters, [hint]))[WATER_1] == (FREE, ())
 
-
-def test_containment(two_waters):
+    # -- containment
     ctx = _ctx(two_waters)
     restraints = containment(ctx.mol, ctx.frozen, 6.0)
     assert len(restraints) == 2
@@ -69,14 +67,12 @@ def test_containment(two_waters):
     roles = _roles(_ctx(two_waters, restraints))
     assert roles[WATER_1][0] == CONTAINED and roles[WATER_2][0] == CONTAINED
 
-
-def test_an_anchored_fragment_needs_no_containment(two_waters):
+    # -- an anchored fragment needs no containment
     ctx = _ctx(two_waters, [DistanceRestraint(2, 7, 2.0, 2.4)])
     contained = containment(ctx.mol, ctx.frozen, 6.0, ctx.restraints)
     assert len(contained) == 1 and set(next(iter(contained)).pair) & set(WATER_2)
 
-
-def test_override(two_waters):
+    # -- override
     held = [DistanceRestraint(2, 7, 2.0, 2.4)]
     roles = _roles(_ctx(two_waters, held, roles={8: FREE, 9: CONTAINED}))
     assert roles[WATER_1][0] == FREE and roles[WATER_2][0] == CONTAINED
@@ -89,14 +85,16 @@ def test_override(two_waters):
     with pytest.raises(ValueError, match="not in the molecule"):
         _ctx(two_waters, roles={99: FREE})
 
-
-def test_ground_states_take_the_largest_fragment_as_core():
+    # -- ground states take the largest fragment as core
     mol = Chem.AddHs(Chem.MolFromSmiles("CCCO.O"))
     roles = fragment_roles(mol, racerts.FrozenSet())
     assert [f.role for f in roles] == [REACTIVE, FREE]
 
 
-def test_moves_follow_the_roles(two_waters):
+def test_what_follows_the_roles(two_waters, sn2_ts_two_waters, caplog):
+    from racerts.embed.stage import conformer_count
+
+    # -- moves follow the roles
     held = [DistanceRestraint(2, 7, 2.0, 2.4)]
     ctx = _ctx(two_waters, held, roles={9: CONTAINED})
     frozen = {*ctx.frozen.hard, *ctx.frozen.core}
@@ -111,10 +109,7 @@ def test_moves_follow_the_roles(two_waters):
     moves[WATER_1].apply(moved, rng)
     assert np.abs(moved[7] - positions[7]).max() < 1e-12  # turned about H7
 
-
-def test_the_fragment_count_follows_the_roles(two_waters):
-    from racerts.embed.stage import conformer_count
-
+    # -- the fragment count follows the roles
     free = _ctx(two_waters)
     held = _ctx(two_waters, [DistanceRestraint(2, 7, 2.0, 2.4)])
     counts = [
@@ -123,8 +118,8 @@ def test_the_fragment_count_follows_the_roles(two_waters):
     ]
     assert counts[0] - counts[1] == 3  # an anchored water only turns
 
-
-def test_config_contain_and_roles(sn2_ts_two_waters, caplog):
+    # -- config contain and roles
+    caplog.clear()
     config = racerts.PipelineConfig.from_dict(
         {
             "embed": {"n_conformers": 6},

@@ -23,7 +23,8 @@ class KeepLowest:
         return ensemble.filter(order[: self.n])
 
 
-def test_custom_stages_slot_in(hept_1_ene_ts, caplog):
+def test_stages_ensembles_and_the_context(hept_1_ene_ts, caplog):
+    # -- custom stages slot in
     ctx = Context.create(hept_1_ene_ts, TransitionState([3, 4, 5]))
     pipeline = Pipeline(
         [racerts.Embed(n_conformers=10), racerts.Refine(), KeepLowest(3)]
@@ -44,8 +45,7 @@ def test_custom_stages_slot_in(hept_1_ene_ts, caplog):
         "keep_lowest",
     ]
 
-
-def test_a_stage_must_return_the_ensemble(hept_1_ene_ts):
+    # -- a stage must return the ensemble
     class Forgetful:
         name = "forgetful"
 
@@ -56,8 +56,7 @@ def test_a_stage_must_return_the_ensemble(hept_1_ene_ts):
     with pytest.raises(TypeError, match="Stage 'forgetful' returned NoneType"):
         Pipeline([racerts.Embed(n_conformers=2), Forgetful()]).run(ctx)
 
-
-def test_a_pipeline_does_not_change_the_ensemble_it_gets(hept_1_ene_ts):
+    # -- a pipeline does not change the ensemble it gets
     ctx = Context.create(hept_1_ene_ts, TransitionState([3, 4, 5]))
     embedded = Pipeline([racerts.Embed(n_conformers=4)]).run(ctx)
     before = [conf.GetPositions() for conf in embedded.mol.GetConformers()]
@@ -71,8 +70,7 @@ def test_a_pipeline_does_not_change_the_ensemble_it_gets(hept_1_ene_ts):
     )
     assert refined is not embedded and not np.isnan(refined.energies()).any()
 
-
-def test_embed_starts_an_ensemble(hept_1_ene_ts):
+    # -- embed starts an ensemble
     # A second Embed would draw the same random numbers again (same seed): exact
     # copies of the first conformers. Ensembles of two runs are merged explicitly.
     ctx = Context.create(hept_1_ene_ts, TransitionState([3, 4, 5]))
@@ -83,8 +81,7 @@ def test_embed_starts_an_ensemble(hept_1_ene_ts):
     with pytest.raises(ValueError, match="no stages"):
         Pipeline([]).run(ctx)
 
-
-def test_context_works_on_a_copy(hept_1_ene_ts):
+    # -- context works on a copy
     ctx = Context.create(hept_1_ene_ts, TransitionState([3, 4, 5]), seed=5, charge=0)
 
     assert ctx.mol is not hept_1_ene_ts and not hept_1_ene_ts.HasProp("multiplicity")
@@ -93,8 +90,7 @@ def test_context_works_on_a_copy(hept_1_ene_ts):
     graph = ctx.graph()
     assert graph.GetNumConformers() == 0 and graph.GetIntProp("multiplicity") == 1
 
-
-def test_tasks_with_a_reference_need_a_geometry():
+    # -- tasks with a reference need a geometry
     graph = Chem.AddHs(Chem.MolFromSmiles("CCCCCC=C"))
 
     with pytest.raises(ValueError, match="needs a reference geometry"):

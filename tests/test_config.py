@@ -17,7 +17,11 @@ from racerts.embed import BoundsMatrixEmbedder, CmapEmbedder
 from racerts.refine import UFFOptimizer
 
 
-def test_the_default_pipeline():
+def test_the_default_pipeline_and_its_task_dependent_defaults():
+    import racerts
+    import racerts.prune
+
+    # -- the default pipeline
     embed, refine, check, prune_energy, prune_rmsd = (
         PipelineConfig().build(TransitionState([0])).stages
     )
@@ -67,8 +71,7 @@ def test_the_default_pipeline():
     assert optimizer.energies_without_anchors is True
     assert optimizer.converge is False
 
-
-def test_the_defaults_of_the_embedder_follow_the_task():
+    # -- the defaults of the embedder follow the task
     def embedder(task, **embed):
         config = PipelineConfig(embed=EmbedConfig(**embed))
         return config.build(task).stages[0].embedder
@@ -83,8 +86,26 @@ def test_the_defaults_of_the_embedder_follow_the_task():
         assert (made.etkdg, made.chirality_fallback) == (etkdg, fallback)
     assert embedder(TransitionState([0]), etkdg=True).etkdg is True
 
+    # -- the sections and stages of the default pipeline are exported
+    for name in ("EmbedConfig", "RefineConfig", "PruneConfig", "RestraintConfig"):
+        assert name in racerts.__all__ and hasattr(racerts, name)
+    for name in ("Embed", "Refine", "PruneEnergy", "PruneRMSD", "PruneCluster"):
+        assert name in racerts.__all__ and hasattr(racerts, name)
+    assert set(racerts.__all__) <= set(dir(racerts))
+
+    # -- extended hueckel energies are no setting of the pipeline
+    # They belong to legacy racerts (racerts.compat.EnergyPruner); a pipeline ranks by
+    # another level with the Rescore stage.
+
+    with pytest.raises(ValueError, match="eht_energies"):
+        PipelineConfig.from_dict({"prune": {"eht_energies": True}})
+    with pytest.raises(TypeError, match="YAeHMOP_energies"):
+        racerts.prune.EnergyPruner(YAeHMOP_energies=True)
+    assert not hasattr(racerts.prune.EnergyPruner, "set_QM_energies")
+
 
 def test_settings_reach_the_components():
+    # -- settings reach the components
     config = PipelineConfig.from_dict(
         {
             "seed": 3,
@@ -102,146 +123,7 @@ def test_settings_reach_the_components():
     assert type(refine.optimizer) is UFFOptimizer and refine.fallback is False
     assert (prune_rmsd.pruner.threshold, prune_rmsd.pruner.hydrogens) == (0.3, "all")
 
-
-@pytest.mark.parametrize("suffix", [".json", ".yaml"])
-def test_file_round_trip(tmp_path, suffix):
-    if suffix == ".yaml":
-        pytest.importorskip("yaml")
-    config = PipelineConfig.from_dict({"seed": 7, "embed": {"n_conformers": 40}})
-    path = str(tmp_path / f"config{suffix}")
-    config.to_file(path)
-
-    assert PipelineConfig.from_file(path) == config
-    if suffix == ".json":
-        assert json.load(open(path))["embed"]["n_conformers"] == 40
-
-
-@pytest.mark.parametrize(
-    "data, message",
-    [
-        ({"seeds": 1}, "Unknown keys in config"),
-        ({"embed": {"n": 1}}, "Unknown keys in embed"),
-        ({"embed": {"mode": "dm"}}, "embed.mode"),
-        ({"refine": {"backend": "xtb"}}, "refine.backend"),
-        ({"prune": 0.3}, "prune must be a mapping"),
-    ],
-)
-def test_invalid_settings_raise(data, message):
-    with pytest.raises(ValueError, match=message):
-        PipelineConfig.from_dict(data)
-
-
-def test_yaml_numbers_without_a_decimal_point(tmp_path):
-    # YAML 1.1 (PyYAML's default) reads 1e6 as a string; racerts reads it as YAML 1.2.
-    pytest.importorskip("yaml")
-    path = tmp_path / "settings.yaml"
-    path.write_text("refine:\n  force_constant: 1e6\nprune:\n  energy_threshold: 1e1\n")
-    config = PipelineConfig.from_file(str(path))
-
-    assert config.refine.force_constant == 1e6 and config.prune.energy_threshold == 10.0
-
-
-@pytest.mark.parametrize(
-    "data, message",
-    [
-        ({"prune": {"hydrogens": 1}}, "prune.hydrogens must be a string"),
-        ({"prune": {"hydrogens": "some"}}, "prune.hydrogens must be one of"),
-        (
-            {"prune": {"hydrogens": "polar", "filter_energies": True}},
-            "needs prune.filter_energies",
-        ),
-        ({"refine": {"fallback": 1}}, "refine.fallback must be true or false"),
-        ({"embed": {"n_conformers": "50"}}, "embed.n_conformers must be an integer"),
-        ({"embed": {"n_conformers": 0}}, "-1 .default count. or > 0"),
-        ({"seed": True}, "seed must be an integer"),
-        ({"refine": {"force_constant": "1e6"}}, "refine.force_constant must be a"),
-        ({"prune": {"rmsd_threshold": -0.1}}, "must not be negative"),
-    ],
-)
-def test_values_of_the_wrong_type_raise(data, message):
-    with pytest.raises(ValueError, match=message):
-        PipelineConfig.from_dict(data)
-
-
-def test_numpy_numbers_are_taken_as_python_numbers():
-    # e.g. a seed from numpy.random, a threshold from an array
-    config = PipelineConfig.from_dict(
-        {
-            "seed": np.int64(3),
-            "embed": {"n_conformers": np.int32(40), "sequential_seeds": np.True_},
-            "prune": {
-                "rmsd_threshold": np.float32(0.25),
-                "energy_threshold": np.int64(5),
-            },
-            "refine": {"force_constant": np.float64(1e5)},
-        }
-    )
-    assert (config.seed, type(config.seed)) == (3, int)
-    assert type(config.embed.n_conformers) is int and config.embed.n_conformers == 40
-    assert config.embed.sequential_seeds is True
-    assert type(config.prune.rmsd_threshold) is float
-    assert config.prune.rmsd_threshold == pytest.approx(0.25)
-    assert (config.prune.energy_threshold, config.refine.force_constant) == (5.0, 1e5)
-    assert type(config.prune.energy_threshold) is float
-    assert PipelineConfig(seed=np.int64(7)).seed == 7
-    # The kinds stay apart: no number for a switch, no fraction for a count.
-    for data, message in (
-        ({"embed": {"sequential_seeds": np.int64(1)}}, "true or false"),
-        ({"seed": np.float64(3.0)}, "seed must be an integer"),
-        ({"seed": np.True_}, "seed must be an integer"),
-    ):
-        with pytest.raises(ValueError, match=message):
-            PipelineConfig.from_dict(data)
-
-
-def test_sections_can_be_given_as_mappings():
-    config = PipelineConfig(embed={"mode": "bounds"}, refine={"backend": "uff"})
-
-    assert config.embed.mode == "bounds" and config.refine.backend == "uff"
-
-
-def test_a_failed_yaml_write_leaves_the_file_alone(tmp_path, monkeypatch):
-    import racerts.config
-
-    def no_yaml(module, extra):
-        raise ImportError(f"{module} is not installed")
-
-    path = tmp_path / "settings.yaml"
-    path.write_text("seed: 7\n")
-    monkeypatch.setattr(racerts.config, "require", no_yaml)
-
-    with pytest.raises(ImportError):
-        PipelineConfig().to_file(str(path))
-    assert path.read_text() == "seed: 7\n"
-
-
-def test_the_legacy_preset(tmp_path):
-    legacy = PipelineConfig.legacy()
-    assert legacy.embed.count_policy == "legacy"
-    assert legacy.embed.sequential_seeds is False
-    assert legacy.embed.chirality_fallback == "legacy"
-    assert legacy.refine.converge is False
-    assert legacy.refine.energies_without_anchors is False
-    assert legacy.prune.check_stereo is False
-
-    # Settings given update the legacy ones, as dicts or as sections.
-    config = PipelineConfig.legacy(seed=3, embed={"n_conformers": 5})
-    assert (config.seed, config.embed.n_conformers) == (3, 5)
-    assert config.embed.sequential_seeds is False
-    # A section object is used as it is.
-    config = PipelineConfig.legacy(refine=RefineConfig(backend="uff", converge=True))
-    assert config.refine.backend == "uff" and config.refine.converge is True
-    assert config.embed.sequential_seeds is False  # the others stay legacy
-
-    # A config file with legacy=True: what the file leaves out is legacy.
-    path = tmp_path / "config.json"
-    path.write_text('{"embed": {"n_conformers": 5}, "refine": {"converge": true}}')
-    config = PipelineConfig.from_file(str(path), legacy=True)
-    assert config.embed.n_conformers == 5 and config.refine.converge is True
-    assert config.embed.sequential_seeds is False
-
-
-def test_new_settings_reach_the_components():
+    # -- new settings reach the components
     config = PipelineConfig.from_dict(
         {
             "embed": {
@@ -272,6 +154,174 @@ def test_new_settings_reach_the_components():
     unlimited = PipelineConfig.from_dict({"restraints": {"hint_attempts": 0}})
     assert unlimited.build(TransitionState([0])).stages[0].hint_attempts == 0
 
+    # -- cluster pruning setting
+    stages = (
+        PipelineConfig.from_dict(
+            {
+                "prune": {
+                    "method": "cluster",
+                    "cluster_method": "leader",
+                    "cluster_threshold": 0.8,
+                }
+            }
+        )
+        .build(TransitionState([0]))
+        .stages
+    )
+    assert stages[-1].name == "prune_cluster"
+    pruner = stages[-1].pruner
+    assert (pruner.method, pruner.threshold) == ("leader", 0.8)
+    assert PipelineConfig().build(TransitionState([0])).stages[-1].name == "prune_rmsd"
+    with pytest.raises(ValueError, match="prune.method"):
+        PipelineConfig.from_dict({"prune": {"method": "kmeans"}})
+    with pytest.raises(ValueError, match="prune.cluster_method"):
+        PipelineConfig.from_dict({"prune": {"cluster_method": "kmeans"}})
+
+    # -- sections can be given as mappings
+    config = PipelineConfig(embed={"mode": "bounds"}, refine={"backend": "uff"})
+
+    assert config.embed.mode == "bounds" and config.refine.backend == "uff"
+
+    # -- numpy numbers are taken as python numbers
+    # e.g. a seed from numpy.random, a threshold from an array
+    config = PipelineConfig.from_dict(
+        {
+            "seed": np.int64(3),
+            "embed": {"n_conformers": np.int32(40), "sequential_seeds": np.True_},
+            "prune": {
+                "rmsd_threshold": np.float32(0.25),
+                "energy_threshold": np.int64(5),
+            },
+            "refine": {"force_constant": np.float64(1e5)},
+        }
+    )
+    assert (config.seed, type(config.seed)) == (3, int)
+    assert type(config.embed.n_conformers) is int and config.embed.n_conformers == 40
+    assert config.embed.sequential_seeds is True
+    assert type(config.prune.rmsd_threshold) is float
+    assert config.prune.rmsd_threshold == pytest.approx(0.25)
+    assert (config.prune.energy_threshold, config.refine.force_constant) == (5.0, 1e5)
+    assert type(config.prune.energy_threshold) is float
+    assert PipelineConfig(seed=np.int64(7)).seed == 7
+    # The kinds stay apart: no number for a switch, no fraction for a count.
+    for data, message in (
+        ({"embed": {"sequential_seeds": np.int64(1)}}, "true or false"),
+        ({"seed": np.float64(3.0)}, "seed must be an integer"),
+        ({"seed": np.True_}, "seed must be an integer"),
+    ):
+        with pytest.raises(ValueError, match=message):
+            PipelineConfig.from_dict(data)
+
+
+@pytest.mark.parametrize("suffix", [".json", ".yaml"])
+def test_file_round_trip(tmp_path, suffix):
+    if suffix == ".yaml":
+        pytest.importorskip("yaml")
+    config = PipelineConfig.from_dict({"seed": 7, "embed": {"n_conformers": 40}})
+    path = str(tmp_path / f"config{suffix}")
+    config.to_file(path)
+
+    assert PipelineConfig.from_file(path) == config
+    if suffix == ".json":
+        assert json.load(open(path))["embed"]["n_conformers"] == 40
+
+
+@pytest.mark.parametrize(
+    "data, message",
+    [
+        ({"seeds": 1}, "Unknown keys in config"),
+        ({"embed": {"n": 1}}, "Unknown keys in embed"),
+        ({"embed": {"mode": "dm"}}, "embed.mode"),
+        ({"refine": {"backend": "xtb"}}, "refine.backend"),
+        ({"prune": 0.3}, "prune must be a mapping"),
+    ],
+)
+def test_invalid_settings_raise(data, message):
+    with pytest.raises(ValueError, match=message):
+        PipelineConfig.from_dict(data)
+
+
+def test_config_files_and_the_legacy_preset(tmp_path, monkeypatch):
+    import racerts.config
+
+    # -- yaml numbers without a decimal point
+    # YAML 1.1 (PyYAML's default) reads 1e6 as a string; racerts reads it as YAML 1.2.
+    pytest.importorskip("yaml")
+    path = tmp_path / "settings.yaml"
+    path.write_text("refine:\n  force_constant: 1e6\nprune:\n  energy_threshold: 1e1\n")
+    config = PipelineConfig.from_file(str(path))
+
+    assert config.refine.force_constant == 1e6 and config.prune.energy_threshold == 10.0
+
+    # -- the legacy preset
+    legacy = PipelineConfig.legacy()
+    assert legacy.embed.count_policy == "legacy"
+    assert legacy.embed.sequential_seeds is False
+    assert legacy.embed.chirality_fallback == "legacy"
+    assert legacy.refine.converge is False
+    assert legacy.refine.energies_without_anchors is False
+    assert legacy.prune.check_stereo is False
+
+    # Settings given update the legacy ones, as dicts or as sections.
+    config = PipelineConfig.legacy(seed=3, embed={"n_conformers": 5})
+    assert (config.seed, config.embed.n_conformers) == (3, 5)
+    assert config.embed.sequential_seeds is False
+    # A section object is used as it is.
+    config = PipelineConfig.legacy(refine=RefineConfig(backend="uff", converge=True))
+    assert config.refine.backend == "uff" and config.refine.converge is True
+    assert config.embed.sequential_seeds is False  # the others stay legacy
+
+    # A config file with legacy=True: what the file leaves out is legacy.
+    path = tmp_path / "config.json"
+    path.write_text('{"embed": {"n_conformers": 5}, "refine": {"converge": true}}')
+    config = PipelineConfig.from_file(str(path), legacy=True)
+    assert config.embed.n_conformers == 5 and config.refine.converge is True
+    assert config.embed.sequential_seeds is False
+
+    # -- a config file holds a mapping
+    path = tmp_path / "config.json"
+    for text in ("0", "[]"):
+        path.write_text(text)
+        with pytest.raises(ValueError, match="mapping"):
+            PipelineConfig.from_file(str(path))
+    empty = tmp_path / "empty.yaml"
+    empty.write_text("")
+    assert PipelineConfig.from_file(str(empty)) == PipelineConfig()
+
+    # -- a failed yaml write leaves the file alone
+    def no_yaml(module, extra):
+        raise ImportError(f"{module} is not installed")
+
+    path = tmp_path / "settings.yaml"
+    path.write_text("seed: 7\n")
+    monkeypatch.setattr(racerts.config, "require", no_yaml)
+
+    with pytest.raises(ImportError):
+        PipelineConfig().to_file(str(path))
+    assert path.read_text() == "seed: 7\n"
+
+
+@pytest.mark.parametrize(
+    "data, message",
+    [
+        ({"prune": {"hydrogens": 1}}, "prune.hydrogens must be a string"),
+        ({"prune": {"hydrogens": "some"}}, "prune.hydrogens must be one of"),
+        (
+            {"prune": {"hydrogens": "polar", "filter_energies": True}},
+            "needs prune.filter_energies",
+        ),
+        ({"refine": {"fallback": 1}}, "refine.fallback must be true or false"),
+        ({"embed": {"n_conformers": "50"}}, "embed.n_conformers must be an integer"),
+        ({"embed": {"n_conformers": 0}}, "-1 .default count. or > 0"),
+        ({"seed": True}, "seed must be an integer"),
+        ({"refine": {"force_constant": "1e6"}}, "refine.force_constant must be a"),
+        ({"prune": {"rmsd_threshold": -0.1}}, "must not be negative"),
+    ],
+)
+def test_values_of_the_wrong_type_raise(data, message):
+    with pytest.raises(ValueError, match=message):
+        PipelineConfig.from_dict(data)
+
 
 @pytest.mark.parametrize(
     "section, settings, message",
@@ -300,60 +350,3 @@ def test_new_settings_are_checked(section, settings, message):
 def test_restraint_items_are_checked_when_the_config_is_made(restraints, message):
     with pytest.raises(ValueError, match=message):
         PipelineConfig.from_dict({"restraints": restraints})
-
-
-def test_a_config_file_holds_a_mapping(tmp_path):
-    path = tmp_path / "config.json"
-    for text in ("0", "[]"):
-        path.write_text(text)
-        with pytest.raises(ValueError, match="mapping"):
-            PipelineConfig.from_file(str(path))
-    empty = tmp_path / "empty.yaml"
-    empty.write_text("")
-    assert PipelineConfig.from_file(str(empty)) == PipelineConfig()
-
-
-def test_extended_hueckel_energies_are_no_setting_of_the_pipeline():
-    # They belong to legacy racerts (racerts.compat.EnergyPruner); a pipeline ranks by
-    # another level with the Rescore stage.
-    import racerts.prune
-
-    with pytest.raises(ValueError, match="eht_energies"):
-        PipelineConfig.from_dict({"prune": {"eht_energies": True}})
-    with pytest.raises(TypeError, match="YAeHMOP_energies"):
-        racerts.prune.EnergyPruner(YAeHMOP_energies=True)
-    assert not hasattr(racerts.prune.EnergyPruner, "set_QM_energies")
-
-
-def test_the_sections_and_stages_of_the_default_pipeline_are_exported():
-    import racerts
-
-    for name in ("EmbedConfig", "RefineConfig", "PruneConfig", "RestraintConfig"):
-        assert name in racerts.__all__ and hasattr(racerts, name)
-    for name in ("Embed", "Refine", "PruneEnergy", "PruneRMSD", "PruneCluster"):
-        assert name in racerts.__all__ and hasattr(racerts, name)
-    assert set(racerts.__all__) <= set(dir(racerts))
-
-
-def test_cluster_pruning_setting():
-    stages = (
-        PipelineConfig.from_dict(
-            {
-                "prune": {
-                    "method": "cluster",
-                    "cluster_method": "leader",
-                    "cluster_threshold": 0.8,
-                }
-            }
-        )
-        .build(TransitionState([0]))
-        .stages
-    )
-    assert stages[-1].name == "prune_cluster"
-    pruner = stages[-1].pruner
-    assert (pruner.method, pruner.threshold) == ("leader", 0.8)
-    assert PipelineConfig().build(TransitionState([0])).stages[-1].name == "prune_rmsd"
-    with pytest.raises(ValueError, match="prune.method"):
-        PipelineConfig.from_dict({"prune": {"method": "kmeans"}})
-    with pytest.raises(ValueError, match="prune.cluster_method"):
-        PipelineConfig.from_dict({"prune": {"cluster_method": "kmeans"}})

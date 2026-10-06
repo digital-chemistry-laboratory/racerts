@@ -54,7 +54,8 @@ def _described(pipeline):
     return described
 
 
-def test_one_optimizer_is_the_usual_two_levels():
+def test_the_levels_of_the_staged_recipe(hept_1_ene_ts):
+    # -- one optimizer is the usual two levels
     pipeline = staged(LJ)
     assert [s.name for s in pipeline.stages] == STEPS
     assert _thresholds(pipeline) == [25.0, 8.0, 6.0]
@@ -67,6 +68,111 @@ def test_one_optimizer_is_the_usual_two_levels():
     assert exploit.refine is expensive  # the search refines as its level does
     written_out = staged([Level(window=25.0), Level(LJ, exploit={})])
     assert _described(written_out) == _described(pipeline)
+
+    # -- a level passes its settings on
+    own = racerts.Exploit(LJ, batch=3)
+    rescore = Rescore(LennardJones(), method="lj-sp")
+    pipeline = staged(
+        [
+            Level(window=25),
+            Level(MIDDLE, 12, exploit={"batch": 4, "max_optimizations": 9}),
+            Level(Refine(LJ, anchors=False), rank=RANK, exploit={}),
+            Level(LJ, exploit=own),
+        ],
+        final_window=5,
+        rescore=rescore,
+        clash_filter=None,
+    )
+    names = [s.name for s in pipeline.stages]
+    assert names[1] == "refine" and names[-1] == "rescore"  # no clash filter
+    assert pipeline.stages[-1] is rescore and _thresholds(pipeline)[-1] == 5
+    refines = [s for s in pipeline.stages if s.name == "refine"]
+    searches = [s for s in pipeline.stages if s.name == "exploit"]
+    # A search refines and ranks as its level does, with the settings given.
+    assert searches[0].refine is refines[1] and searches[0].rank is None
+    assert (searches[0].batch, searches[0].max_optimizations) == (4, 9)
+    assert searches[1].refine is refines[2] and searches[1].rank is RANK
+    assert refines[2].anchors is False  # a Refine stage is taken as it is
+    assert searches[2] is own  # and so is an Exploit stage
+    # The search accepts what the window of its level keeps, unless told otherwise.
+    assert (searches[0].energy_window, searches[1].energy_window) == (12, 8.0)
+    told = staged([Level(LJ, 3, exploit={"energy_window": 5.0})]).stages[-3]
+    assert told.name == "exploit" and told.energy_window == 5.0
+
+    # -- levels and windows are checked
+    with pytest.raises(ValueError, match="at least one level"):
+        staged([])
+    with pytest.raises(ValueError, match="window"):
+        Level(LJ, window=0)
+    with pytest.raises(ValueError, match="pool_by"):
+        Level(LJ, pool=3, pool_by="random")
+    with pytest.raises(ValueError, match="final_window"):
+        staged(LJ, final_window=-1)
+
+    # -- embedding and first level follow the config
+    ctx = racerts.Context.create(hept_1_ene_ts, TransitionState([3, 4, 5]), seed=5)
+
+    def embedded(config):
+        settings = {"embed": {"n_conformers": 6}}
+        pipeline = staged(LJ, config=config(**settings))
+        ensemble = pipeline.stages[0].run(ctx, None)
+        positions = [
+            ensemble.mol.GetConformer(i).GetPositions() for i in ensemble.conf_ids
+        ]
+        copies = sum(
+            np.allclose(a, b) for k, a in enumerate(positions) for b in positions[:k]
+        )
+        return pipeline, ensemble, copies
+
+    # The defaults: a seed per conformer, from the seed of the context.
+    pipeline, ensemble, copies = embedded(racerts.PipelineConfig)
+    assert len(ensemble) == 6 and copies == 0
+    assert ensemble.provenance(ensemble.conf_ids[0])["seed"] != 12
+    # Legacy settings: the first three conformers are embedded twice.
+    pipeline, ensemble, copies = embedded(racerts.PipelineConfig.legacy)
+    assert len(ensemble) == 6 and copies == 3
+    cheap = pipeline.stages[2]
+    assert not cheap.optimizer.energies_without_anchors and not cheap.stereo_anchors
+    with pytest.raises(ValueError, match="config"):  # nothing left for it to set
+        staged(
+            [Level(MMFFOptimizer(), 25), LJ],
+            embed=racerts.Embed(),
+            config=racerts.PipelineConfig(),
+        )
+
+    # -- the pool limits the refinements of its level
+    class Counting(ASEOptimizer):
+        def __init__(self):
+            super().__init__(LennardJones(), method="counting")
+            self.calls = 0
+
+        def _refine(self, mol, reference, anchors, restraints=()):
+            for conf in mol.GetConformers():
+                self.calls += 1
+                conf.SetDoubleProp("energy", 0.0)
+            return 0
+
+    counting = Counting()
+    config = racerts.PipelineConfig(embed={"n_conformers": 20})
+    pipeline = staged([Level(window=25), Level(counting, pool=4)], config=config)
+    ensemble = racerts.generate_gs("CCCCCCO", pipeline=pipeline)
+    assert counting.calls == 4 and len(ensemble) >= 1
+
+    # -- the clash filter drops overlaps not contacts within rdkits bounds
+    # Distance geometry may place atoms four bonds apart down to about 0.55 times their
+    # vdW sum (RDKit's lower bounds), and refinement relaxes such contacts: only
+    # overlaps are dropped.
+    ctx, mol = _diol([0.65, 0.45, 1.0])
+
+    def kept(pipeline):
+        return pipeline.stages[1].run(ctx, racerts.ConformerEnsemble(Chem.Mol(mol)))
+
+    assert kept(staged(LJ)).conf_ids == [0, 2]
+    assert kept(staged(LJ, clash_filter=0.7)).conf_ids == [2]
+    assert "validate" not in [s.name for s in staged(LJ, clash_filter=None).stages[:2]]
+    for bad, error in [(True, TypeError), (0.0, ValueError), (1.5, ValueError)]:
+        with pytest.raises(error, match="clash_filter"):
+            staged(LJ, clash_filter=bad)
 
 
 MIDDLE = ASEOptimizer(LennardJones(), method="middle")
@@ -103,99 +209,6 @@ LEVELS = {
 @pytest.mark.parametrize("levels, stages", LEVELS.values(), ids=list(LEVELS))
 def test_the_stages_of_the_levels(levels, stages):
     assert _described(staged(levels)) == stages
-
-
-def test_a_level_passes_its_settings_on():
-    own = racerts.Exploit(LJ, batch=3)
-    rescore = Rescore(LennardJones(), method="lj-sp")
-    pipeline = staged(
-        [
-            Level(window=25),
-            Level(MIDDLE, 12, exploit={"batch": 4, "max_optimizations": 9}),
-            Level(Refine(LJ, anchors=False), rank=RANK, exploit={}),
-            Level(LJ, exploit=own),
-        ],
-        final_window=5,
-        rescore=rescore,
-        clash_filter=None,
-    )
-    names = [s.name for s in pipeline.stages]
-    assert names[1] == "refine" and names[-1] == "rescore"  # no clash filter
-    assert pipeline.stages[-1] is rescore and _thresholds(pipeline)[-1] == 5
-    refines = [s for s in pipeline.stages if s.name == "refine"]
-    searches = [s for s in pipeline.stages if s.name == "exploit"]
-    # A search refines and ranks as its level does, with the settings given.
-    assert searches[0].refine is refines[1] and searches[0].rank is None
-    assert (searches[0].batch, searches[0].max_optimizations) == (4, 9)
-    assert searches[1].refine is refines[2] and searches[1].rank is RANK
-    assert refines[2].anchors is False  # a Refine stage is taken as it is
-    assert searches[2] is own  # and so is an Exploit stage
-    # The search accepts what the window of its level keeps, unless told otherwise.
-    assert (searches[0].energy_window, searches[1].energy_window) == (12, 8.0)
-    told = staged([Level(LJ, 3, exploit={"energy_window": 5.0})]).stages[-3]
-    assert told.name == "exploit" and told.energy_window == 5.0
-
-
-def test_levels_and_windows_are_checked():
-    with pytest.raises(ValueError, match="at least one level"):
-        staged([])
-    with pytest.raises(ValueError, match="window"):
-        Level(LJ, window=0)
-    with pytest.raises(ValueError, match="pool_by"):
-        Level(LJ, pool=3, pool_by="random")
-    with pytest.raises(ValueError, match="final_window"):
-        staged(LJ, final_window=-1)
-
-
-def test_embedding_and_first_level_follow_the_config(hept_1_ene_ts):
-    ctx = racerts.Context.create(hept_1_ene_ts, TransitionState([3, 4, 5]), seed=5)
-
-    def embedded(config):
-        settings = {"embed": {"n_conformers": 6}}
-        pipeline = staged(LJ, config=config(**settings))
-        ensemble = pipeline.stages[0].run(ctx, None)
-        positions = [
-            ensemble.mol.GetConformer(i).GetPositions() for i in ensemble.conf_ids
-        ]
-        copies = sum(
-            np.allclose(a, b) for k, a in enumerate(positions) for b in positions[:k]
-        )
-        return pipeline, ensemble, copies
-
-    # The defaults: a seed per conformer, from the seed of the context.
-    pipeline, ensemble, copies = embedded(racerts.PipelineConfig)
-    assert len(ensemble) == 6 and copies == 0
-    assert ensemble.provenance(ensemble.conf_ids[0])["seed"] != 12
-    # Legacy settings: the first three conformers are embedded twice.
-    pipeline, ensemble, copies = embedded(racerts.PipelineConfig.legacy)
-    assert len(ensemble) == 6 and copies == 3
-    cheap = pipeline.stages[2]
-    assert not cheap.optimizer.energies_without_anchors and not cheap.stereo_anchors
-    with pytest.raises(ValueError, match="config"):  # nothing left for it to set
-        staged(
-            [Level(MMFFOptimizer(), 25), LJ],
-            embed=racerts.Embed(),
-            config=racerts.PipelineConfig(),
-        )
-
-
-def test_the_pool_limits_the_refinements_of_its_level():
-    class Counting(ASEOptimizer):
-        def __init__(self):
-            super().__init__(LennardJones(), method="counting")
-            self.calls = 0
-
-        def _refine(self, mol, reference, anchors, restraints=()):
-            for conf in mol.GetConformers():
-                self.calls += 1
-                conf.SetDoubleProp("energy", 0.0)
-            return 0
-
-    counting = Counting()
-    config = racerts.PipelineConfig(embed={"n_conformers": 20})
-    pipeline = staged([Level(window=25), Level(counting, pool=4)], config=config)
-    ensemble = racerts.generate_gs("CCCCCCO", pipeline=pipeline)
-    assert counting.calls == 4 and len(ensemble) >= 1
 
 
 class _FailsWhenMarked(LennardJones):
@@ -239,10 +252,17 @@ def test_a_failed_optimization_costs_one_conformer(rank):
     assert all(ensemble.energy(i) is not None for i in ensemble.conf_ids)
 
 
-def test_the_saddle_recipe():
+def test_the_saddle_recipe_with_a_hessian_and_further_checks():
     from racerts.recipes import saddles
-    from racerts.validate import Connectivity, Converged, ReactionCore, ReactionMode
+    from racerts.validate import (
+        Connectivity,
+        Converged,
+        ReactionCore,
+        ReactionMode,
+        validator,
+    )
 
+    # -- the saddle recipe
     pipeline = saddles(LJ)
     assert [s.name for s in pipeline.stages] == ["refine", "validate", "prune_rmsd"]
     search, checks, _ = pipeline.stages
@@ -259,12 +279,9 @@ def test_the_saddle_recipe():
     with pytest.raises(ValueError, match="anchors=False"):
         saddles(Refine(LJ))  # a search with the frozen atoms held is no free search
 
-
-def test_the_saddle_recipe_takes_a_hessian_and_further_checks():
+    # -- the saddle recipe takes a hessian and further checks
     # The two openings for code from outside: the Hessian of the mode check, and
     # checks after the built-in ones (e.g. one that follows the mode downhill).
-    from racerts.recipes import saddles
-    from racerts.validate import validator
 
     def hessian(atoms):
         return np.zeros((3 * len(atoms), 3 * len(atoms)))
@@ -307,23 +324,6 @@ def _diol(factors):
     graph = Chem.Mol(mol)
     graph.RemoveAllConformers()  # no reference geometry, whose contacts Clash allows
     return racerts.Context.create(graph, racerts.GroundState()), mol
-
-
-def test_the_clash_filter_drops_overlaps_not_contacts_within_rdkits_bounds():
-    # Distance geometry may place atoms four bonds apart down to about 0.55 times their
-    # vdW sum (RDKit's lower bounds), and refinement relaxes such contacts: only
-    # overlaps are dropped.
-    ctx, mol = _diol([0.65, 0.45, 1.0])
-
-    def kept(pipeline):
-        return pipeline.stages[1].run(ctx, racerts.ConformerEnsemble(Chem.Mol(mol)))
-
-    assert kept(staged(LJ)).conf_ids == [0, 2]
-    assert kept(staged(LJ, clash_filter=0.7)).conf_ids == [2]
-    assert "validate" not in [s.name for s in staged(LJ, clash_filter=None).stages[:2]]
-    for bad, error in [(True, TypeError), (0.0, ValueError), (1.5, ValueError)]:
-        with pytest.raises(error, match="clash_filter"):
-            staged(LJ, clash_filter=bad)
 
 
 def _passes_the_gate(ensemble, task, reference=None):

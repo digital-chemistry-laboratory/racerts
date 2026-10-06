@@ -43,13 +43,13 @@ def _length(ensemble, conf_id, pair=CC):
     return float(np.linalg.norm(p[pair[0]] - p[pair[1]]))
 
 
-def test_the_legacy_ts_has_no_windows(aldol):
+def test_windows_and_their_targets(aldol, caplog):
+    # -- the legacy ts has no windows
     legacy = TransitionState(REACTING)
     assert not legacy.windowed and len(legacy.restraints(aldol)) == 0
     assert legacy.frozen_atoms(aldol).core == tuple(REACTING)
 
-
-def test_active_bonds_are_the_forming_bonds(aldol):
+    # -- active bonds are the forming bonds
     task = TransitionState(REACTING, active_window=0.25)
     assert task.active_pairs(aldol) == [CC, (11, 19)]  # C-C, and H...O of the transfer
     frozen = task.frozen_atoms(aldol)
@@ -57,8 +57,8 @@ def test_active_bonds_are_the_forming_bonds(aldol):
     sources = collections.Counter(r.source for r in task.restraints(aldol))
     assert sources["active"] == 2 and sources["neighbor"] == 8 and sources["core"] > 0
 
-
-def test_a_window_is_sampled_at_five_targets_by_default(aldol, caplog):
+    # -- a window is sampled at five targets by default
+    caplog.clear()
     assert TransitionState(REACTING).stratify == 0  # no window, no targets
     task = TransitionState(REACTING, active_bonds=[CC], active_window=0.25)
     assert task.stratify == 5
@@ -87,8 +87,7 @@ def test_a_window_is_sampled_at_five_targets_by_default(aldol, caplog):
         .stratify_given
     )
 
-
-def test_unstratified_window(aldol):
+    # -- unstratified window
     ensemble, ctx = _run(
         aldol, TransitionState(REACTING, active_window=0.25, stratify=0)
     )
@@ -117,8 +116,7 @@ def test_unstratified_window(aldol):
     )
     assert worst < 0.02
 
-
-def test_stratified_targets(aldol):
+    # -- stratified targets
     task = TransitionState(
         REACTING, active_bonds=[CC], active_window=(2.0, 2.9), stratify=5
     )
@@ -149,8 +147,7 @@ def test_stratified_targets(aldol):
         lengths and float(lengths[1]) < 2.2 and float(lengths[2]) > 2.7
     )  # all targets
 
-
-def test_targets_are_the_midpoints_of_equal_parts(aldol):
+    # -- targets are the midpoints of equal parts
     def lengths(task, count=None):
         return [round(t[CC], 4) for t in task.targets(aldol, count)]
 
@@ -228,7 +225,8 @@ def test_several_bonds_take_their_targets_as_a_latin_hypercube(aldol):
             assert abs(_length(ensemble, conf_id, pair) - target) < 0.05
 
 
-def test_attack_face_filter(aldol):
+def test_the_attack_face_filter(aldol, sn2_ts):
+    # -- attack face filter
     ensemble, ctx = _run(aldol, TransitionState(REACTING, active_window=0.25), n=4)
     assert AttackFace().validate(ctx, ensemble) == {}
     # Mirror C10 through the plane of C12's neighbours: the other face.
@@ -257,6 +255,51 @@ def test_attack_face_filter(aldol):
     no_filter = TransitionState(REACTING, active_window=0.2, stereo_filter=False)
     assert filters(no_filter) == []
 
+    # -- attack face with an atom in two active bonds
+    # SN2: C0 forms a bond to Cl2 and breaks the one to Cl1.
+    mol = build_mol(sn2_ts, -1, [0, 1, 2], input_smiles=["CCl", "[Cl-]"])
+    task = TransitionState([0, 1, 2], active_bonds=[(0, 1), (0, 2)], active_window=0.2)
+    ctx = racerts.Context.create(mol, task)
+    seed_copy = racerts.ConformerEnsemble(racerts.Context.create(mol, task).mol)
+    assert AttackFace().validate(ctx, seed_copy) == {}
+
+    # -- attack face compares with the reference of each conformer
+    # Two references, the second the mirror image of the first: each is attacked
+    # from its own face.
+    mol = Chem.Mol(aldol)
+    mirrored = Chem.Conformer(mol.GetConformer())
+    for i, (x, y, z) in enumerate(mol.GetConformer().GetPositions()):
+        mirrored.SetAtomPosition(i, Point3D(-x, y, z))
+    ref_id = mol.AddConformer(mirrored, assignId=True)
+    ctx = racerts.Context.create(mol, TransitionState(REACTING, active_window=0.25))
+    ensemble = racerts.ConformerEnsemble(Chem.Mol(ctx.mol))  # the references themselves
+    ensemble.add_provenance(ref_id, reference=ref_id)
+    assert AttackFace().validate(ctx, ensemble) == {}
+    # Compared with the first reference, the mirror image is attacked from the other face.
+    ensemble.add_provenance(ref_id, reference=0)
+    assert list(AttackFace().validate(ctx, ensemble)) == [ref_id]
+
+    # -- attack face needs a clear height
+    ensemble, ctx = _run(aldol, TransitionState(REACTING, active_window=0.25), n=2)
+    conf_id = ensemble.conf_ids[0]
+    conf = ensemble.mol.GetConformer(conf_id)
+    p = conf.GetPositions()
+    a, b, c = (p[i] for i in (11, 13, 32))  # the plane of C12's other neighbours
+    normal = np.cross(b - a, c - a)
+    normal /= np.linalg.norm(normal)
+    height = np.dot(p[10] - p[12], normal)
+    # C10 just across the plane (0.1 A): no clear face, not flagged ...
+    conf.SetAtomPosition(
+        10, (p[10] - (height + 0.1 * np.sign(height)) * normal).tolist()
+    )
+    assert AttackFace().validate(ctx, ensemble) == {}
+    # ... 0.5 A across: flagged.
+    conf.SetAtomPosition(
+        10, (p[10] - (height + 0.5 * np.sign(height)) * normal).tolist()
+    )
+    assert "10 on 12" in AttackFace().validate(ctx, ensemble)[conf_id]
+    assert AttackFace(min_height=0.6).validate(ctx, ensemble) == {}
+
 
 @pytest.mark.parametrize(
     "settings, message",
@@ -278,9 +321,10 @@ def test_invalid_window_settings(settings, message):
         TransitionState(REACTING, **settings)
 
 
-def test_cli_writes_active_bonds(tmp_path):
+def test_the_active_bonds_file(tmp_path, aldol):
     from racerts.cli import run_subcommand
 
+    # -- cli writes active bonds
     out = tmp_path / "ts.xyz"
     run_subcommand(
         ["ts", ALDOL, "-r", *map(str, REACTING), "-s", *SMILES, "-n", "10",
@@ -293,8 +337,7 @@ def test_cli_writes_active_bonds(tmp_path):
     assert {line.split(",")[2] for line in lines[1:]} == {"2.2250", "2.6750"}
     assert not (tmp_path / "active_bonds.csv").exists()
 
-
-def test_the_ensemble_writes_its_active_bonds(aldol, tmp_path):
+    # -- the ensemble writes its active bonds
     ctx, ensemble = _two_targets(aldol, ENERGIES)
     path = tmp_path / "bonds.csv"
     ensemble.write_active_bonds(str(path))
@@ -350,7 +393,10 @@ def _two_targets(aldol, energies):
 ENERGIES = [137.7, 158.9, 160.7, 82.8, 72.0, 94.9]  # the short target, then the long
 
 
-def test_counts_and_families_are_chosen_per_target(aldol):
+def test_pruning_and_refinement_with_windows(aldol):
+    from types import SimpleNamespace
+
+    # -- counts and families are chosen per target
     # Energies at different held lengths do not compare: the best of every target
     # first, then the second best, ...
     ctx, ensemble = _two_targets(aldol, ENERGIES)
@@ -371,8 +417,7 @@ def test_counts_and_families_are_chosen_per_target(aldol):
     families = FamilySelector(2).run(ctx, ensemble.copy())
     assert sorted(families.conf_ids) == sorted([first[0], second[1]])
 
-
-def test_a_free_refinement_releases_the_windows_of_the_task(aldol):
+    # -- a free refinement releases the windows of the task
     ctx, ensemble = _two_targets(aldol, ENERGIES)
     held = _Recording()
     racerts.Refine(held, fallback=False).run(ctx, ensemble.copy())
@@ -395,11 +440,7 @@ def test_a_free_refinement_releases_the_windows_of_the_task(aldol):
         released.mol.GetConformer(conf_id).SetDoubleProp("energy", energy)
     assert racerts.PruneCount(2).run(ctx, released).energies().tolist() == [72.0, 82.8]
 
-
-# ---- regression tests ----
-
-
-def test_unstratified_windows_are_pruned_per_length(aldol):
+    # -- unstratified windows are pruned per length
     # With one energy window over all lengths, only the long end survived.
     config = PipelineConfig.from_dict({"embed": {"n_conformers": 40}})
     ensemble = racerts.generate_ts(
@@ -409,12 +450,7 @@ def test_unstratified_windows_are_pruned_per_length(aldol):
     lengths = [_length(ensemble, i) for i in ensemble.conf_ids]
     assert min(lengths) < 2.3 and max(lengths) > 2.6
 
-
-def test_the_fifths_of_a_window_include_both_ends():
-    from types import SimpleNamespace
-
-    from racerts.prune.targets import window_bins
-
+    # -- the fifths of a window include both ends
     targets = dict(enumerate([2.0, 2.19, 2.25, 2.99, 3.0]))
     task = SimpleNamespace(
         windowed=True, stratify=0, active_windows=lambda mol: {(0, 1): (2.0, 3.0)}
@@ -426,10 +462,151 @@ def test_the_fifths_of_a_window_include_both_ends():
     bins = window_bins(SimpleNamespace(task=task, mol=None), ensemble)
     assert [bins[i] for i in targets] == [(("0-1", k),) for k in (0, 0, 1, 4, 4)]
 
+    # -- windowed refinement needs restraints
+    task = TransitionState(REACTING, active_window=0.25)
+    ctx = racerts.Context.create(aldol, task)
+    ensemble = racerts.Embed(n_conformers=2).run(ctx)
+    plain = _NoRestraints()
+    with pytest.raises(ValueError, match="anchors=False"):
+        racerts.Refine(plain).run(ctx, ensemble.copy())
+    racerts.Refine(plain, anchors=False).run(ctx, ensemble.copy())  # a free search
 
-def test_task_windows_win_over_generated_restraints(aldol, sn2_ts_water, caplog):
+
+# ---- regression tests ----
+
+
+@pytest.mark.ase
+class _NoRestraints(racerts.refine.BaseOptimizer):
+    """An optimizer that takes no restraints; it leaves the conformers as they are."""
+
+    def _refine(self, mol, reference, anchors):
+        for conf in mol.GetConformers():
+            conf.SetDoubleProp("energy", 0.0)
+        return 0
+
+
+@pytest.mark.parametrize(
+    "bonds, error",
+    [([(10, 99)], ValueError), ([(1, 8)], ValueError), ([(10, 10)], ValueError)],
+)
+def test_active_bonds_are_checked(aldol, bonds, error):
+    with pytest.raises(error):
+        TransitionState(REACTING, active_bonds=bonds, active_window=0.2).active_pairs(
+            aldol
+        )
+
+
+def test_which_pairs_are_forming_bonds():
+    from rdkit import Chem
+    from rdkit.Chem import AllChem, rdMolTransforms
+    from rdkit.Geometry import Point3D
+
+    # -- ring 13 pairs are not forming bonds
+    # SNAr and cyclization TSs: reacting ring atoms 1,3 apart (2.4 A) were taken for
+    # forming bonds, and their in-plane "faces" flipped at random.
+
+    mol = Chem.AddHs(Chem.MolFromSmiles("C1CCC1"))  # 1,3 C...C about 2.2 A
+    AllChem.EmbedMolecule(mol, randomSeed=1)
+    assert TransitionState([0, 1, 2], active_window=0.3).active_pairs(mol) == []
+    explicit = TransitionState([0, 1, 2], active_bonds=[(0, 2)], active_window=0.3)
+    assert explicit.active_pairs(mol) == [(0, 2)]
+
+    # -- a 13 pair is a forming bond below 80 degrees
+    # Propane with all three carbons reacting: its ends are a forming bond where the
+    # angle at the middle carbon is narrow (a three-membered TS), not where it is
+    # open (the angle then sets their distance). The limit is MIN_OPEN_ANGLE.
+
+    mol = Chem.AddHs(Chem.MolFromSmiles("CCC"))
+    AllChem.EmbedMolecule(mol, randomSeed=1)
+    task = TransitionState([0, 1, 2], active_window=0.3)
+    for angle, pairs in [(75.0, [(0, 2)]), (85.0, [])]:
+        rdMolTransforms.SetAngleDeg(mol.GetConformer(), 0, 1, 2, angle)
+        assert task.active_pairs(mol) == pairs
+
+    # -- three membered forming bonds stay active
+    # A reductive-elimination TS C-Pd-C: C...C 1.88 A at a 56 degree angle forms a
+    # bond although the two carbons share Pd.
+
+    mol = Chem.RWMol(Chem.MolFromSmiles("C[Pd]C"))
+    conf = Chem.Conformer(3)
+    half = np.radians(28)
+    for i, (x, y) in enumerate(
+        [(np.cos(half), np.sin(half)), (0, 0), (np.cos(half), -np.sin(half))]
+    ):
+        conf.SetAtomPosition(i, Point3D(2.0 * x, 2.0 * y, 0.0))
+    mol.AddConformer(conf)
+    assert TransitionState([0, 1, 2], active_window=0.3).active_pairs(mol) == [(0, 2)]
+
+
+@pytest.mark.parametrize("stratify", [0, 5])
+def test_a_window_out_of_reach_is_reported(aldol, caplog, stratify):
+    # The frozen atoms let the C-C distance reach about 3.9 A.
+    far = TransitionState(
+        REACTING, active_bonds=[CC], active_window=(4.5, 5.5), stratify=stratify
+    )
+    with pytest.raises(ValueError, match="narrower active_window"):
+        racerts.Embed(n_conformers=6).run(racerts.Context.create(aldol, far))
+    # Partly in reach: the conformers embedded outside are named, with targets too.
+    partly = TransitionState(
+        REACTING, active_bonds=[CC], active_window=(3.5, 4.5), stratify=stratify
+    )
+    with caplog.at_level("WARNING"):
+        ensemble = racerts.Embed(n_conformers=12).run(
+            racerts.Context.create(aldol, partly)
+        )
+    assert len(ensemble) == 12
+    assert re.search(r"\d+ of 12 conformers .* outside its window", caplog.text)
+    held = "to their targets" if stratify else "at the edge of the window"
+    assert held in caplog.text
+
+
+def test_window_problems_are_reported(
+    aldol, caplog, sn2_ts, hept_1_ene_ts, sn2_ts_water
+):
     import logging
 
+    # -- windows take one reference
+    mol = Chem.Mol(aldol)
+    mol.AddConformer(Chem.Conformer(mol.GetConformer()), assignId=True)
+    ctx = racerts.Context.create(mol, TransitionState(REACTING, active_window=0.25))
+    with pytest.raises(ValueError, match="one reference"):
+        racerts.Embed(n_conformers=4, references="all").run(ctx)
+
+    # -- fewer conformers than targets is reported
+    caplog.clear()
+    task = TransitionState(
+        REACTING, active_bonds=[CC], active_window=(2.0, 2.9), stratify=5
+    )
+    with caplog.at_level("WARNING"):
+        ensemble = racerts.Embed(n_conformers=3).run(
+            racerts.Context.create(aldol, task)
+        )
+    assert len(ensemble) == 3
+    assert "3 conformers for 5 targets" in caplog.text
+    # They spread over the window: three parts, one conformer in the middle of each.
+    targets = [
+        ensemble.provenance(i)["active_bond_targets"]["10-12"]
+        for i in ensemble.conf_ids
+    ]
+    assert targets == pytest.approx([2.15, 2.45, 2.75])
+
+    # -- window problems are explained
+    caplog.clear()
+    mol = build_mol(sn2_ts, -1, [0, 1, 2], input_smiles=["CCl", "[Cl-]"])
+    with caplog.at_level("WARNING"):  # a C-Cl window down to 0.5 A
+        TransitionState(
+            [0, 1, 2], active_bonds=[(0, 2)], active_window=(0.5, 0.8)
+        ).restraints(mol)
+    assert "below 0.9 times its covalent length" in caplog.text
+
+    # C3...C5 of the ring-forming TS cannot be 3.5-4.0 A apart with its neighbours.
+    task = TransitionState([3, 4, 5], active_bonds=[(3, 5)], active_window=(3.5, 4.0))
+    ctx = racerts.Context.create(hept_1_ene_ts, task)
+    with pytest.raises(ValueError, match="narrower active_window"):
+        racerts.Embed(n_conformers=2).run(ctx)
+
+    # -- task windows win over generated restraints
+    caplog.clear()
     # A graph hint on the proton transfer H19...O11, an active bond: left out.
     config = PipelineConfig.from_dict(
         {"embed": {"n_conformers": 12}, "restraints": {"hints": True}}
@@ -462,190 +639,3 @@ def test_task_windows_win_over_generated_restraints(aldol, sn2_ts_water, caplog)
             TransitionState(REACTING, active_window=0.25),
             restraints=RestraintSet([DistanceRestraint.around(10, 12, 2.5)]),
         )
-
-
-@pytest.mark.ase
-class _NoRestraints(racerts.refine.BaseOptimizer):
-    """An optimizer that takes no restraints; it leaves the conformers as they are."""
-
-    def _refine(self, mol, reference, anchors):
-        for conf in mol.GetConformers():
-            conf.SetDoubleProp("energy", 0.0)
-        return 0
-
-
-def test_windowed_refinement_needs_restraints(aldol):
-    task = TransitionState(REACTING, active_window=0.25)
-    ctx = racerts.Context.create(aldol, task)
-    ensemble = racerts.Embed(n_conformers=2).run(ctx)
-    plain = _NoRestraints()
-    with pytest.raises(ValueError, match="anchors=False"):
-        racerts.Refine(plain).run(ctx, ensemble.copy())
-    racerts.Refine(plain, anchors=False).run(ctx, ensemble.copy())  # a free search
-
-
-def test_attack_face_with_an_atom_in_two_active_bonds(sn2_ts):
-    # SN2: C0 forms a bond to Cl2 and breaks the one to Cl1.
-    mol = build_mol(sn2_ts, -1, [0, 1, 2], input_smiles=["CCl", "[Cl-]"])
-    task = TransitionState([0, 1, 2], active_bonds=[(0, 1), (0, 2)], active_window=0.2)
-    ctx = racerts.Context.create(mol, task)
-    seed_copy = racerts.ConformerEnsemble(racerts.Context.create(mol, task).mol)
-    assert AttackFace().validate(ctx, seed_copy) == {}
-
-
-def test_attack_face_compares_with_the_reference_of_each_conformer(aldol):
-    # Two references, the second the mirror image of the first: each is attacked
-    # from its own face.
-    mol = Chem.Mol(aldol)
-    mirrored = Chem.Conformer(mol.GetConformer())
-    for i, (x, y, z) in enumerate(mol.GetConformer().GetPositions()):
-        mirrored.SetAtomPosition(i, Point3D(-x, y, z))
-    ref_id = mol.AddConformer(mirrored, assignId=True)
-    ctx = racerts.Context.create(mol, TransitionState(REACTING, active_window=0.25))
-    ensemble = racerts.ConformerEnsemble(Chem.Mol(ctx.mol))  # the references themselves
-    ensemble.add_provenance(ref_id, reference=ref_id)
-    assert AttackFace().validate(ctx, ensemble) == {}
-    # Compared with the first reference, the mirror image is attacked from the other face.
-    ensemble.add_provenance(ref_id, reference=0)
-    assert list(AttackFace().validate(ctx, ensemble)) == [ref_id]
-
-
-@pytest.mark.parametrize(
-    "bonds, error",
-    [([(10, 99)], ValueError), ([(1, 8)], ValueError), ([(10, 10)], ValueError)],
-)
-def test_active_bonds_are_checked(aldol, bonds, error):
-    with pytest.raises(error):
-        TransitionState(REACTING, active_bonds=bonds, active_window=0.2).active_pairs(
-            aldol
-        )
-
-
-def test_ring_13_pairs_are_not_forming_bonds():
-    # SNAr and cyclization TSs: reacting ring atoms 1,3 apart (2.4 A) were taken for
-    # forming bonds, and their in-plane "faces" flipped at random.
-    from rdkit import Chem
-    from rdkit.Chem import AllChem
-
-    mol = Chem.AddHs(Chem.MolFromSmiles("C1CCC1"))  # 1,3 C...C about 2.2 A
-    AllChem.EmbedMolecule(mol, randomSeed=1)
-    assert TransitionState([0, 1, 2], active_window=0.3).active_pairs(mol) == []
-    explicit = TransitionState([0, 1, 2], active_bonds=[(0, 2)], active_window=0.3)
-    assert explicit.active_pairs(mol) == [(0, 2)]
-
-
-def test_a_13_pair_is_a_forming_bond_below_80_degrees():
-    # Propane with all three carbons reacting: its ends are a forming bond where the
-    # angle at the middle carbon is narrow (a three-membered TS), not where it is
-    # open (the angle then sets their distance). The limit is MIN_OPEN_ANGLE.
-    from rdkit import Chem
-    from rdkit.Chem import AllChem, rdMolTransforms
-
-    mol = Chem.AddHs(Chem.MolFromSmiles("CCC"))
-    AllChem.EmbedMolecule(mol, randomSeed=1)
-    task = TransitionState([0, 1, 2], active_window=0.3)
-    for angle, pairs in [(75.0, [(0, 2)]), (85.0, [])]:
-        rdMolTransforms.SetAngleDeg(mol.GetConformer(), 0, 1, 2, angle)
-        assert task.active_pairs(mol) == pairs
-
-
-def test_three_membered_forming_bonds_stay_active():
-    # A reductive-elimination TS C-Pd-C: C...C 1.88 A at a 56 degree angle forms a
-    # bond although the two carbons share Pd.
-    from rdkit import Chem
-    from rdkit.Geometry import Point3D
-
-    mol = Chem.RWMol(Chem.MolFromSmiles("C[Pd]C"))
-    conf = Chem.Conformer(3)
-    half = np.radians(28)
-    for i, (x, y) in enumerate(
-        [(np.cos(half), np.sin(half)), (0, 0), (np.cos(half), -np.sin(half))]
-    ):
-        conf.SetAtomPosition(i, Point3D(2.0 * x, 2.0 * y, 0.0))
-    mol.AddConformer(conf)
-    assert TransitionState([0, 1, 2], active_window=0.3).active_pairs(mol) == [(0, 2)]
-
-
-def test_attack_face_needs_a_clear_height(aldol):
-    ensemble, ctx = _run(aldol, TransitionState(REACTING, active_window=0.25), n=2)
-    conf_id = ensemble.conf_ids[0]
-    conf = ensemble.mol.GetConformer(conf_id)
-    p = conf.GetPositions()
-    a, b, c = (p[i] for i in (11, 13, 32))  # the plane of C12's other neighbours
-    normal = np.cross(b - a, c - a)
-    normal /= np.linalg.norm(normal)
-    height = np.dot(p[10] - p[12], normal)
-    # C10 just across the plane (0.1 A): no clear face, not flagged ...
-    conf.SetAtomPosition(
-        10, (p[10] - (height + 0.1 * np.sign(height)) * normal).tolist()
-    )
-    assert AttackFace().validate(ctx, ensemble) == {}
-    # ... 0.5 A across: flagged.
-    conf.SetAtomPosition(
-        10, (p[10] - (height + 0.5 * np.sign(height)) * normal).tolist()
-    )
-    assert "10 on 12" in AttackFace().validate(ctx, ensemble)[conf_id]
-    assert AttackFace(min_height=0.6).validate(ctx, ensemble) == {}
-
-
-@pytest.mark.parametrize("stratify", [0, 5])
-def test_a_window_out_of_reach_is_reported(aldol, caplog, stratify):
-    # The frozen atoms let the C-C distance reach about 3.9 A.
-    far = TransitionState(
-        REACTING, active_bonds=[CC], active_window=(4.5, 5.5), stratify=stratify
-    )
-    with pytest.raises(ValueError, match="narrower active_window"):
-        racerts.Embed(n_conformers=6).run(racerts.Context.create(aldol, far))
-    # Partly in reach: the conformers embedded outside are named, with targets too.
-    partly = TransitionState(
-        REACTING, active_bonds=[CC], active_window=(3.5, 4.5), stratify=stratify
-    )
-    with caplog.at_level("WARNING"):
-        ensemble = racerts.Embed(n_conformers=12).run(
-            racerts.Context.create(aldol, partly)
-        )
-    assert len(ensemble) == 12
-    assert re.search(r"\d+ of 12 conformers .* outside its window", caplog.text)
-    held = "to their targets" if stratify else "at the edge of the window"
-    assert held in caplog.text
-
-
-def test_windows_take_one_reference(aldol):
-    mol = Chem.Mol(aldol)
-    mol.AddConformer(Chem.Conformer(mol.GetConformer()), assignId=True)
-    ctx = racerts.Context.create(mol, TransitionState(REACTING, active_window=0.25))
-    with pytest.raises(ValueError, match="one reference"):
-        racerts.Embed(n_conformers=4, references="all").run(ctx)
-
-
-def test_fewer_conformers_than_targets_is_reported(aldol, caplog):
-    task = TransitionState(
-        REACTING, active_bonds=[CC], active_window=(2.0, 2.9), stratify=5
-    )
-    with caplog.at_level("WARNING"):
-        ensemble = racerts.Embed(n_conformers=3).run(
-            racerts.Context.create(aldol, task)
-        )
-    assert len(ensemble) == 3
-    assert "3 conformers for 5 targets" in caplog.text
-    # They spread over the window: three parts, one conformer in the middle of each.
-    targets = [
-        ensemble.provenance(i)["active_bond_targets"]["10-12"]
-        for i in ensemble.conf_ids
-    ]
-    assert targets == pytest.approx([2.15, 2.45, 2.75])
-
-
-def test_window_problems_are_explained(sn2_ts, hept_1_ene_ts, caplog):
-    mol = build_mol(sn2_ts, -1, [0, 1, 2], input_smiles=["CCl", "[Cl-]"])
-    with caplog.at_level("WARNING"):  # a C-Cl window down to 0.5 A
-        TransitionState(
-            [0, 1, 2], active_bonds=[(0, 2)], active_window=(0.5, 0.8)
-        ).restraints(mol)
-    assert "below 0.9 times its covalent length" in caplog.text
-
-    # C3...C5 of the ring-forming TS cannot be 3.5-4.0 A apart with its neighbours.
-    task = TransitionState([3, 4, 5], active_bonds=[(3, 5)], active_window=(3.5, 4.0))
-    ctx = racerts.Context.create(hept_1_ene_ts, task)
-    with pytest.raises(ValueError, match="narrower active_window"):
-        racerts.Embed(n_conformers=2).run(ctx)

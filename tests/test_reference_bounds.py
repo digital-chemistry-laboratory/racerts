@@ -49,14 +49,17 @@ def _positions(ensemble):
     return [ensemble.mol.GetConformer(i).GetPositions() for i in ensemble.conf_ids]
 
 
-def test_rdkit_alone_cannot_embed_the_tilted_core():
+def test_bounds_are_widened_to_the_reference(caplog, tmp_path):
+    from racerts.cli import main
+
+    # -- rdkit alone cannot embed the tilted core
     with pytest.raises(RuntimeError, match="no conformers"):
         racerts.Embed(CmapEmbedder(reference_bounds="never"), n_conformers=5).run(
             _ctx(70)
         )
 
-
-def test_the_bounds_are_widened_to_the_reference_when_rdkit_cannot(caplog):
+    # -- the bounds are widened to the reference when rdkit cannot
+    caplog.clear()
     ctx = _ctx(70)
     embedder = CmapEmbedder()  # reference_bounds="fallback"
     with caplog.at_level(logging.WARNING, logger="racerts"):
@@ -75,8 +78,7 @@ def test_the_bounds_are_widened_to_the_reference_when_rdkit_cannot(caplog):
         assert 1.3 < min(ring) and max(ring) < 1.5
         assert ensemble.provenance(conf_id)["widened_bounds"] > 0
 
-
-def test_cores_that_rdkit_embeds_are_embedded_as_before():
+    # -- cores that rdkit embeds are embedded as before
     ctx = _ctx(50)
     before = racerts.Embed(CmapEmbedder(reference_bounds="never"), n_conformers=5)
     now = racerts.Embed(n_conformers=5).run(ctx)
@@ -84,15 +86,13 @@ def test_cores_that_rdkit_embeds_are_embedded_as_before():
         assert np.array_equal(a, b)
     assert "widened_bounds" not in now.provenance(now.conf_ids[0])
 
-
-def test_always_widens_wherever_the_reference_breaks_a_bound():
+    # -- always widens wherever the reference breaks a bound
     # RDKit embeds the core at 50 degrees, but some of its bounds exclude the reference.
     embedder = CmapEmbedder(reference_bounds="always")
     ensemble = racerts.Embed(embedder, n_conformers=5).run(_ctx(50))
     assert ensemble.provenance(ensemble.conf_ids[0])["widened_bounds"] > 0
 
-
-def test_bounds_matrices_are_widened_beyond_their_tolerance():
+    # -- bounds matrices are widened beyond their tolerance
     # The bounds mode and distance windows smooth with a growing tolerance (up to 0.4;
     # the core at 70 degrees needs 0.08), and are widened only beyond it.
     ctx = _ctx(70)
@@ -111,8 +111,7 @@ def test_bounds_matrices_are_widened_beyond_their_tolerance():
     assert np.allclose(bounds[tuple(np.array(pairs).T)], d[tuple(np.array(pairs).T)])
     assert len(racerts.Embed(BoundsMatrixEmbedder(), n_conformers=3).run(ctx)) == 3
 
-
-def test_the_setting():
+    # -- the setting
     config = racerts.PipelineConfig.from_dict({"embed": {"reference_bounds": "never"}})
     embed = config.build(TransitionState([0, 1])).stages[0]
     assert embed.embedder.reference_bounds == "never"
@@ -122,10 +121,7 @@ def test_the_setting():
     with pytest.raises(ValueError, match="reference_bounds"):
         CmapEmbedder(reference_bounds="sometimes")
 
-
-def test_the_command_line(tmp_path):
-    from racerts.cli import main
-
+    # -- the command line
     xyz = str(tmp_path / "tilted.xyz")
     Chem.MolToXYZFile(_tilted_toluene(70), xyz)
     out = str(tmp_path / "out.xyz")

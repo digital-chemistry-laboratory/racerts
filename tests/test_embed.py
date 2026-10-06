@@ -18,22 +18,20 @@ from racerts.utils import seeds
 SMALL = PipelineConfig(embed=EmbedConfig(n_conformers=4))
 
 
-def test_an_embedder_implements_embed():
+def test_embedders_their_settings_and_conformer_counts(hept_1_ene_ts):
+    from rdkit.Chem import Descriptors
+
+    from racerts.embed import conformer_count
+    from racerts.task import FrozenSet
+
+    # -- an embedder implements embed
     class Empty(racerts.embed.BaseEmbedder):
         pass
 
     with pytest.raises(TypeError):
         Empty()
 
-
-def _counts(**failures):
-    counts = [0] * 12
-    for name, value in failures.items():
-        counts[getattr(EmbedFailureCauses, name)] = value
-    return tuple(counts)
-
-
-def test_the_legacy_chirality_rule():
+    # -- the legacy chirality rule
     rule = dg.needed_fallback
     assert rule(0, _counts(FIRST_MINIMIZATION=3), 3, 0) == "strip_tags"
     assert rule(1, _counts(FINAL_CHIRAL_BOUNDS=1), 3, 0) == "no_enforce"
@@ -44,8 +42,7 @@ def test_the_legacy_chirality_rule():
     assert rule(0, _counts(FIRST_MINIMIZATION=15), 3, 10) is None
     assert rule(0, _counts(FIRST_MINIMIZATION=16), 3, 10) == "strip_tags"
 
-
-def test_embedders_do_not_swallow_unknown_settings(hept_1_ene_ts):
+    # -- embedders do not swallow unknown settings
     with pytest.raises(TypeError, match="sequential_seed"):
         racerts.embed.CmapEmbedder(sequential_seed=True)  # misspelt
     task = racerts.TransitionState([3, 4, 5])
@@ -55,8 +52,56 @@ def test_embedders_do_not_swallow_unknown_settings(hept_1_ene_ts):
         racerts.embed.default_embedder(task, 12, mode="dm")
     assert racerts.embed.default_embedder(task, 12, num_threads=2).num_threads == 2
 
+    # -- distance matrix row by row is identical
+    coordinates = np.random.default_rng(1).normal(size=(40, 3)) * 5
 
-def test_seed_zero_gives_identical_conformers_and_a_warning(hept_1_ene_ts, caplog):
+    assert np.array_equal(
+        distance_matrix(coordinates), distance_matrix(coordinates, max_elements=0)
+    )
+
+    # -- embed needs named references
+    ctx = racerts.Context.create(hept_1_ene_ts, racerts.TransitionState([3, 4, 5]))
+    with pytest.raises(ValueError, match="at least one"):
+        racerts.Embed(references=[]).run(ctx)
+
+    # -- conformer count policies
+    # Pentane with a water and a chloride that are not reacting. (RDKit counts the
+    # rotatable bonds of pentane with explicit hydrogens as 4 up to 2025.03, 2 since.)
+    mol = Chem.AddHs(Chem.MolFromSmiles("CCCCC.O.[Cl-]"))
+    n_rot = Descriptors.NumRotatableBonds(mol)
+    core = FrozenSet(hard=(0, 1), core=(0,))
+
+    assert conformer_count(mol, 12) == 12
+    assert conformer_count(mol, conf_factor=10) == n_rot * 10 + 30
+    # Water: 6 rigid-body degrees of freedom; chloride: 3.
+    assert conformer_count(mol, conf_factor=10, policy="fragments", frozen=core) == (
+        (n_rot + 6 + 3) * 10 + 30
+    )
+    # Without a core, the largest fragment is the reference.
+    assert conformer_count(mol, conf_factor=10, policy="fragments") == (
+        (n_rot + 6 + 3) * 10 + 30
+    )
+    # With the chloride (atom 6) as the core, pentane and the water move: 6 + 6.
+    chloride = FrozenSet(hard=(6,))
+    assert conformer_count(
+        mol, conf_factor=10, policy="fragments", frozen=chloride
+    ) == ((n_rot + 6 + 6) * 10 + 30)
+    assert conformer_count(mol, policy="per_bond") == max(7, 10 * n_rot)
+    assert conformer_count(Chem.MolFromSmiles("C"), policy="per_bond") == 7
+    assert conformer_count(mol, policy=lambda mol, frozen: 5) == 5
+    with pytest.raises(ValueError, match="policy"):
+        conformer_count(mol, policy="many")
+
+
+def _counts(**failures):
+    counts = [0] * 12
+    for name, value in failures.items():
+        counts[getattr(EmbedFailureCauses, name)] = value
+    return tuple(counts)
+
+
+def test_the_seeds_of_an_embedding(hept_1_ene_ts, caplog):
+    # -- seed zero gives identical conformers and a warning
     # RDKit seeds conformer i with (i + 1) * seed, unless the seeds are sequential.
     legacy = racerts.embed.CmapEmbedder(randomSeed=0, sequential_seeds=False)
     with caplog.at_level(logging.WARNING):
@@ -67,6 +112,101 @@ def test_seed_zero_gives_identical_conformers_and_a_warning(hept_1_ene_ts, caplo
     with caplog.at_level(logging.WARNING):
         assert _duplicates(_embed(sequential, hept_1_ene_ts, 4)) == []
     assert "randomSeed 0" not in caplog.text
+
+    # -- only legacy seeds repeat the first three conformers
+    # A seed per conformer is the default; the legacy seeds are for reproducing legacy
+    # racerts (its embedders, PipelineConfig.legacy()).
+    assert racerts.embed.CmapEmbedder().sequential_seeds is True
+    assert racerts.embedder.CmapEmbedder().sequential_seeds is False
+    assert racerts.PipelineConfig.legacy().embed.sequential_seeds is False
+    assert _duplicates(_embed(racerts.embed.CmapEmbedder(), hept_1_ene_ts, 8)) == []
+    embedded = racerts.Embed(n_conformers=8).run(
+        racerts.Context.create(hept_1_ene_ts, racerts.TransitionState([3, 4, 5]))
+    )
+    assert _duplicates(embedded.mol) == []
+
+    legacy = racerts.embed.CmapEmbedder(sequential_seeds=False)
+    assert _duplicates(_embed(legacy, hept_1_ene_ts, 8)) == [(3, 0), (4, 1), (5, 2)]
+
+    # -- batches never repeat conformers
+    # Legacy racerts has no batches, so there is nothing to reproduce: every batch
+    # embeds with a seed per conformer, whatever the embedder says.
+    mol = Chem.Mol(hept_1_ene_ts)
+    mol.AddConformer(Chem.Conformer(hept_1_ene_ts.GetConformer()), assignId=True)
+    ctx = racerts.Context.create(mol, racerts.TransitionState([3, 4, 5]))
+    legacy = racerts.embed.CmapEmbedder(sequential_seeds=False)
+    embedded = racerts.Embed(legacy, n_conformers=6, references="all").run(ctx)
+    assert len(embedded) == 12 and legacy.sequential_seeds is False
+    by_reference = {}
+    for conf_id in embedded.conf_ids:
+        reference = embedded.provenance(conf_id)["reference"]
+        by_reference.setdefault(reference, []).append(
+            embedded.mol.GetConformer(conf_id).GetPositions()
+        )
+    for positions in by_reference.values():
+        assert not any(
+            np.allclose(a, b) for k, a in enumerate(positions) for b in positions[:k]
+        )
+
+    # -- sequential seeds are one seed stream
+    # Conformer i gets start + i, whether it is embedded in the check of the first
+    # three or with the rest.
+    embedded = _embed(
+        racerts.embed.CmapEmbedder(sequential_seeds=True), hept_1_ene_ts, 8
+    )
+    later = Chem.Mol(hept_1_ene_ts)
+    later.RemoveAllConformers()
+    params = AllChem.EmbedParameters()
+    params.randomSeed = seeds.derive(12) + 3
+    params.enableSequentialRandomSeeds = True
+    params.useRandomCoords = True
+    params.embedFragmentsSeparately = False
+    frozen = racerts.TransitionState([3, 4, 5]).frozen_atoms(hept_1_ene_ts)
+    params.SetCoordMap(
+        {i: hept_1_ene_ts.GetConformer().GetAtomPosition(i) for i in frozen.hard}
+    )
+    AllChem.EmbedMultipleConfs(later, 5, params)
+    assert np.allclose(np.array(_positions(embedded)[3:]), np.array(_positions(later)))
+
+    # -- neighbouring seeds give different streams
+    def run(seed):
+        embedder = racerts.embed.CmapEmbedder(randomSeed=seed, sequential_seeds=True)
+        return _positions(_embed(embedder, hept_1_ene_ts, 6))
+
+    one, two = run(1), run(2)
+    shared = [
+        (i, j)
+        for i, a in enumerate(one)
+        for j, b in enumerate(two)
+        if np.allclose(a, b)
+    ]
+    assert shared == []
+    assert seeds.derive(1) != seeds.derive(2) and seeds.derive(1) >= 0
+    # The stream of a seed is fixed for good: a hash of the seed, which no library
+    # version changes.
+    assert seeds.derive(12) == 1051840539
+    assert seeds.derive(np.int64(12)) == 1051840539
+    assert all(
+        0 <= seeds.derive(seed) < 2**31 - 2**24 for seed in (0, 1, 2**31, 10**12)
+    )
+
+    # -- every reference is embedded with seeds of its own
+    # Two references with the same placed atoms (here: the same conformer twice) gave
+    # the same conformers twice: the batch numbers, and so the seeds, restarted for
+    # every reference.
+    mol = Chem.Mol(hept_1_ene_ts)
+    mol.AddConformer(Chem.Conformer(mol.GetConformer()), assignId=True)
+    ctx = racerts.Context.create(mol, racerts.TransitionState([3, 4, 5]))
+    ensemble = racerts.Embed(n_conformers=6, references="all").run(ctx)
+    groups = {}
+    for conf_id in ensemble.conf_ids:
+        reference = ensemble.provenance(conf_id)["reference"]
+        groups.setdefault(reference, []).append(
+            ensemble.mol.GetConformer(conf_id).GetPositions()
+        )
+    first, second = groups[0], groups[1]
+    assert len(first) == len(second) == 6
+    assert not any(np.allclose(a, b, atol=1e-3) for a in first for b in second)
 
 
 @pytest.mark.parametrize("n", [0, -3, 2.5, True])
@@ -114,14 +254,6 @@ def test_ground_states_never_give_up_stereocentres(butanol, monkeypatch, caplog)
     assert _chiral_tags(ensemble.mol) == _chiral_tags(butanol)
 
 
-def test_distance_matrix_row_by_row_is_identical():
-    coordinates = np.random.default_rng(1).normal(size=(40, 3)) * 5
-
-    assert np.array_equal(
-        distance_matrix(coordinates), distance_matrix(coordinates, max_elements=0)
-    )
-
-
 def _positions(mol):
     return [conf.GetPositions() for conf in mol.GetConformers()]
 
@@ -143,87 +275,6 @@ def _duplicates(mol):
         for j in range(i)
         if np.allclose(positions[i], positions[j])
     ]
-
-
-def test_only_legacy_seeds_repeat_the_first_three_conformers(hept_1_ene_ts):
-    # A seed per conformer is the default; the legacy seeds are for reproducing legacy
-    # racerts (its embedders, PipelineConfig.legacy()).
-    assert racerts.embed.CmapEmbedder().sequential_seeds is True
-    assert racerts.embedder.CmapEmbedder().sequential_seeds is False
-    assert racerts.PipelineConfig.legacy().embed.sequential_seeds is False
-    assert _duplicates(_embed(racerts.embed.CmapEmbedder(), hept_1_ene_ts, 8)) == []
-    embedded = racerts.Embed(n_conformers=8).run(
-        racerts.Context.create(hept_1_ene_ts, racerts.TransitionState([3, 4, 5]))
-    )
-    assert _duplicates(embedded.mol) == []
-
-    legacy = racerts.embed.CmapEmbedder(sequential_seeds=False)
-    assert _duplicates(_embed(legacy, hept_1_ene_ts, 8)) == [(3, 0), (4, 1), (5, 2)]
-
-
-def test_batches_never_repeat_conformers(hept_1_ene_ts):
-    # Legacy racerts has no batches, so there is nothing to reproduce: every batch
-    # embeds with a seed per conformer, whatever the embedder says.
-    mol = Chem.Mol(hept_1_ene_ts)
-    mol.AddConformer(Chem.Conformer(hept_1_ene_ts.GetConformer()), assignId=True)
-    ctx = racerts.Context.create(mol, racerts.TransitionState([3, 4, 5]))
-    legacy = racerts.embed.CmapEmbedder(sequential_seeds=False)
-    embedded = racerts.Embed(legacy, n_conformers=6, references="all").run(ctx)
-    assert len(embedded) == 12 and legacy.sequential_seeds is False
-    by_reference = {}
-    for conf_id in embedded.conf_ids:
-        reference = embedded.provenance(conf_id)["reference"]
-        by_reference.setdefault(reference, []).append(
-            embedded.mol.GetConformer(conf_id).GetPositions()
-        )
-    for positions in by_reference.values():
-        assert not any(
-            np.allclose(a, b) for k, a in enumerate(positions) for b in positions[:k]
-        )
-
-
-def test_sequential_seeds_are_one_seed_stream(hept_1_ene_ts):
-    # Conformer i gets start + i, whether it is embedded in the check of the first
-    # three or with the rest.
-    embedded = _embed(
-        racerts.embed.CmapEmbedder(sequential_seeds=True), hept_1_ene_ts, 8
-    )
-    later = Chem.Mol(hept_1_ene_ts)
-    later.RemoveAllConformers()
-    params = AllChem.EmbedParameters()
-    params.randomSeed = seeds.derive(12) + 3
-    params.enableSequentialRandomSeeds = True
-    params.useRandomCoords = True
-    params.embedFragmentsSeparately = False
-    frozen = racerts.TransitionState([3, 4, 5]).frozen_atoms(hept_1_ene_ts)
-    params.SetCoordMap(
-        {i: hept_1_ene_ts.GetConformer().GetAtomPosition(i) for i in frozen.hard}
-    )
-    AllChem.EmbedMultipleConfs(later, 5, params)
-    assert np.allclose(np.array(_positions(embedded)[3:]), np.array(_positions(later)))
-
-
-def test_neighbouring_seeds_give_different_streams(hept_1_ene_ts):
-    def run(seed):
-        embedder = racerts.embed.CmapEmbedder(randomSeed=seed, sequential_seeds=True)
-        return _positions(_embed(embedder, hept_1_ene_ts, 6))
-
-    one, two = run(1), run(2)
-    shared = [
-        (i, j)
-        for i, a in enumerate(one)
-        for j, b in enumerate(two)
-        if np.allclose(a, b)
-    ]
-    assert shared == []
-    assert seeds.derive(1) != seeds.derive(2) and seeds.derive(1) >= 0
-    # The stream of a seed is fixed for good: a hash of the seed, which no library
-    # version changes.
-    assert seeds.derive(12) == 1051840539
-    assert seeds.derive(np.int64(12)) == 1051840539
-    assert all(
-        0 <= seeds.derive(seed) < 2**31 - 2**24 for seed in (0, 1, 2**31, 10**12)
-    )
 
 
 @pytest.fixture
@@ -255,9 +306,15 @@ def _cip_codes(mol, atom):
     return codes
 
 
-def test_frozen_first_keeps_the_free_stereocentres(
+def test_frozen_first_keeps_free_stereo_and_holds_what_sets_frozen_stereo(
     pentanediol_with_a_wrong_tag, caplog
 ):
+    from racerts.config import PipelineConfig as Config
+    from racerts.refine import MMFFOptimizer
+    from racerts.system.stereo import stereo_anchors
+    from racerts.task import FrozenSet
+
+    # -- frozen first keeps the free stereocentres
     mol, task = pentanediol_with_a_wrong_tag
 
     def run(fallback):
@@ -282,39 +339,79 @@ def test_frozen_first_keeps_the_free_stereocentres(
     assert set(_cip_codes(ensemble.mol, 4)) == {"R"}
     assert set(_cip_codes(ensemble.mol, 1)) == {"R"}
 
-
-def test_conformer_count_policies():
-    from rdkit.Chem import Descriptors
-
-    from racerts.embed import conformer_count
-    from racerts.task import FrozenSet
-
-    # Pentane with a water and a chloride that are not reacting. (RDKit counts the
-    # rotatable bonds of pentane with explicit hydrogens as 4 up to 2025.03, 2 since.)
-    mol = Chem.AddHs(Chem.MolFromSmiles("CCCCC.O.[Cl-]"))
-    n_rot = Descriptors.NumRotatableBonds(mol)
-    core = FrozenSet(hard=(0, 1), core=(0,))
-
-    assert conformer_count(mol, 12) == 12
-    assert conformer_count(mol, conf_factor=10) == n_rot * 10 + 30
-    # Water: 6 rigid-body degrees of freedom; chloride: 3.
-    assert conformer_count(mol, conf_factor=10, policy="fragments", frozen=core) == (
-        (n_rot + 6 + 3) * 10 + 30
+    # -- frozen first keeps the tag of a frozen atom with free neighbours
+    # C4 (atom 4) is held as well, but not its neighbours: the reference does not fix
+    # its configuration, so its tag stays and no conformer comes out inverted.
+    mol, task = pentanediol_with_a_wrong_tag
+    config = PipelineConfig(
+        embed=EmbedConfig(n_conformers=20, chirality_fallback="frozen_first")
     )
-    # Without a core, the largest fragment is the reference.
-    assert conformer_count(mol, conf_factor=10, policy="fragments") == (
-        (n_rot + 6 + 3) * 10 + 30
+    ensemble = racerts.generate(mol, Constrained(hard=[*task.hard, 4]), config=config)
+    assert set(_cip_codes(ensemble.mol, 4)) == {"R"}
+    assert set(_cip_codes(ensemble.mol, 1)) == {"R"}  # held with its neighbours
+
+    # -- frozen first holds substituents that set frozen stereo
+    # A frozen stereocentre whose one free methyl sets its configuration: with
+    # frozen_first, the methyl starts at the reference too (legacy mode is unchanged).
+
+    mol = Chem.AddHs(Chem.MolFromSmiles("C[C@H](O)CC"))
+    AllChem.EmbedMolecule(mol, randomSeed=3)
+    # C1 frozen with O2, C3 and its H: the methyl C0 alone sets its configuration.
+    h1 = next(
+        n.GetIdx()
+        for n in mol.GetAtomWithIdx(1).GetNeighbors()
+        if n.GetAtomicNum() == 1
     )
-    # With the chloride (atom 6) as the core, pentane and the water move: 6 + 6.
-    chloride = FrozenSet(hard=(6,))
-    assert conformer_count(
-        mol, conf_factor=10, policy="fragments", frozen=chloride
-    ) == ((n_rot + 6 + 6) * 10 + 30)
-    assert conformer_count(mol, policy="per_bond") == max(7, 10 * n_rot)
-    assert conformer_count(Chem.MolFromSmiles("C"), policy="per_bond") == 7
-    assert conformer_count(mol, policy=lambda mol, frozen: 5) == 5
-    with pytest.raises(ValueError, match="policy"):
-        conformer_count(mol, policy="many")
+    frozen = FrozenSet(hard=(1, 2, 3, h1))
+    assert stereo_anchors(mol, frozen) == [0]
+    assert stereo_anchors(mol, FrozenSet(hard=(1, 2))) == []  # two free neighbours
+
+    ctx = racerts.Context.create(mol, Constrained(hard=[1, 2, 3, h1]))
+    reference = mol.GetConformer().GetPositions()
+    for fallback, pinned in (("frozen_first", True), ("legacy", False)):
+        embedder = dg.CmapEmbedder(randomSeed=7, chirality_fallback=fallback)
+        ensemble = racerts.Embed(embedder, n_conformers=4).run(ctx)
+        moved = max(
+            np.linalg.norm(
+                ensemble.mol.GetConformer(c).GetPositions()[0] - reference[0]
+            )
+            for c in ensemble.conf_ids
+        )
+        assert (moved < 1e-3) == pinned
+
+    # -- refine holds stereo anchors when asked
+    mol = Chem.AddHs(Chem.MolFromSmiles("C[C@H](O)CC"))
+    AllChem.EmbedMolecule(mol, randomSeed=3)
+    h1 = next(
+        n.GetIdx()
+        for n in mol.GetAtomWithIdx(1).GetNeighbors()
+        if n.GetAtomicNum() == 1
+    )
+    ctx = racerts.Context.create(mol, Constrained(hard=[1, 2, 3, h1]))
+    assert stereo_anchors(ctx.mol, ctx.frozen) == [0]
+    seen = []
+
+    class Spy(MMFFOptimizer):
+        def _refine(self, mol, reference, anchors, restraints=()):
+            seen.append(list(anchors))
+            return super()._refine(mol, reference, anchors, restraints)
+
+    ensemble = racerts.Embed(n_conformers=2).run(ctx)
+    racerts.Refine(Spy(), stereo_anchors=True).run(ctx, ensemble.copy())
+    racerts.Refine(Spy()).run(ctx, ensemble.copy())
+    assert seen == [[1, 2, 3, h1, 0], [1, 2, 3, h1]]
+    # The default pipeline holds them with the frozen_first fallback only.
+
+    def refine_stage(fallback):
+        stages = (
+            Config.from_dict({"embed": {"chirality_fallback": fallback}})
+            .build(Constrained(hard=[1]))
+            .stages
+        )
+        return next(s for s in stages if s.name == "refine")
+
+    assert refine_stage("frozen_first").stereo_anchors
+    assert not refine_stage("legacy").stereo_anchors
 
 
 def test_frozen_first_removes_conformers_with_inverted_stereo(
@@ -371,26 +468,6 @@ def test_frozen_first_takes_frozen_stereo_from_the_reference(
         assert "contradict the reference geometry" in caplog.text
 
 
-def test_frozen_first_keeps_the_tag_of_a_frozen_atom_with_free_neighbours(
-    pentanediol_with_a_wrong_tag,
-):
-    # C4 (atom 4) is held as well, but not its neighbours: the reference does not fix
-    # its configuration, so its tag stays and no conformer comes out inverted.
-    mol, task = pentanediol_with_a_wrong_tag
-    config = PipelineConfig(
-        embed=EmbedConfig(n_conformers=20, chirality_fallback="frozen_first")
-    )
-    ensemble = racerts.generate(mol, Constrained(hard=[*task.hard, 4]), config=config)
-    assert set(_cip_codes(ensemble.mol, 4)) == {"R"}
-    assert set(_cip_codes(ensemble.mol, 1)) == {"R"}  # held with its neighbours
-
-
-def test_embed_needs_named_references(hept_1_ene_ts):
-    ctx = racerts.Context.create(hept_1_ene_ts, racerts.TransitionState([3, 4, 5]))
-    with pytest.raises(ValueError, match="at least one"):
-        racerts.Embed(references=[]).run(ctx)
-
-
 def test_frozen_first_explains_when_every_conformer_is_inverted(
     butanol, monkeypatch, caplog
 ):
@@ -413,96 +490,6 @@ def test_frozen_first_explains_when_every_conformer_is_inverted(
         racerts.generate(butanol, Constrained(hard=[3, 4, 12, 13]), config=config)
     assert re.search(r"All \d+ conformers have inverted stereo", caplog.text)
     assert "chirality_fallback='legacy' keeps them" in caplog.text
-
-
-def test_frozen_first_holds_substituents_that_set_frozen_stereo():
-    # A frozen stereocentre whose one free methyl sets its configuration: with
-    # frozen_first, the methyl starts at the reference too (legacy mode is unchanged).
-    from racerts.system.stereo import stereo_anchors
-    from racerts.task import FrozenSet
-
-    mol = Chem.AddHs(Chem.MolFromSmiles("C[C@H](O)CC"))
-    AllChem.EmbedMolecule(mol, randomSeed=3)
-    # C1 frozen with O2, C3 and its H: the methyl C0 alone sets its configuration.
-    h1 = next(
-        n.GetIdx()
-        for n in mol.GetAtomWithIdx(1).GetNeighbors()
-        if n.GetAtomicNum() == 1
-    )
-    frozen = FrozenSet(hard=(1, 2, 3, h1))
-    assert stereo_anchors(mol, frozen) == [0]
-    assert stereo_anchors(mol, FrozenSet(hard=(1, 2))) == []  # two free neighbours
-
-    ctx = racerts.Context.create(mol, Constrained(hard=[1, 2, 3, h1]))
-    reference = mol.GetConformer().GetPositions()
-    for fallback, pinned in (("frozen_first", True), ("legacy", False)):
-        embedder = dg.CmapEmbedder(randomSeed=7, chirality_fallback=fallback)
-        ensemble = racerts.Embed(embedder, n_conformers=4).run(ctx)
-        moved = max(
-            np.linalg.norm(
-                ensemble.mol.GetConformer(c).GetPositions()[0] - reference[0]
-            )
-            for c in ensemble.conf_ids
-        )
-        assert (moved < 1e-3) == pinned
-
-
-def test_refine_holds_stereo_anchors_when_asked():
-    from racerts.refine import MMFFOptimizer
-    from racerts.system.stereo import stereo_anchors
-
-    mol = Chem.AddHs(Chem.MolFromSmiles("C[C@H](O)CC"))
-    AllChem.EmbedMolecule(mol, randomSeed=3)
-    h1 = next(
-        n.GetIdx()
-        for n in mol.GetAtomWithIdx(1).GetNeighbors()
-        if n.GetAtomicNum() == 1
-    )
-    ctx = racerts.Context.create(mol, Constrained(hard=[1, 2, 3, h1]))
-    assert stereo_anchors(ctx.mol, ctx.frozen) == [0]
-    seen = []
-
-    class Spy(MMFFOptimizer):
-        def _refine(self, mol, reference, anchors, restraints=()):
-            seen.append(list(anchors))
-            return super()._refine(mol, reference, anchors, restraints)
-
-    ensemble = racerts.Embed(n_conformers=2).run(ctx)
-    racerts.Refine(Spy(), stereo_anchors=True).run(ctx, ensemble.copy())
-    racerts.Refine(Spy()).run(ctx, ensemble.copy())
-    assert seen == [[1, 2, 3, h1, 0], [1, 2, 3, h1]]
-    # The default pipeline holds them with the frozen_first fallback only.
-    from racerts.config import PipelineConfig as Config
-
-    def refine_stage(fallback):
-        stages = (
-            Config.from_dict({"embed": {"chirality_fallback": fallback}})
-            .build(Constrained(hard=[1]))
-            .stages
-        )
-        return next(s for s in stages if s.name == "refine")
-
-    assert refine_stage("frozen_first").stereo_anchors
-    assert not refine_stage("legacy").stereo_anchors
-
-
-def test_every_reference_is_embedded_with_seeds_of_its_own(hept_1_ene_ts):
-    # Two references with the same placed atoms (here: the same conformer twice) gave
-    # the same conformers twice: the batch numbers, and so the seeds, restarted for
-    # every reference.
-    mol = Chem.Mol(hept_1_ene_ts)
-    mol.AddConformer(Chem.Conformer(mol.GetConformer()), assignId=True)
-    ctx = racerts.Context.create(mol, racerts.TransitionState([3, 4, 5]))
-    ensemble = racerts.Embed(n_conformers=6, references="all").run(ctx)
-    groups = {}
-    for conf_id in ensemble.conf_ids:
-        reference = ensemble.provenance(conf_id)["reference"]
-        groups.setdefault(reference, []).append(
-            ensemble.mol.GetConformer(conf_id).GetPositions()
-        )
-    first, second = groups[0], groups[1]
-    assert len(first) == len(second) == 6
-    assert not any(np.allclose(a, b, atol=1e-3) for a in first for b in second)
 
 
 def test_a_window_between_two_placed_atoms_is_said_to_wait_for_refinement(caplog):

@@ -37,7 +37,10 @@ def _with_contact(ensemble):
     ]
 
 
-def test_batches_take_the_contact_at_random():
+def test_the_restraint_fraction(sn2_ts_water, tmp_path):
+    from racerts.cli import main
+
+    # -- batches take the contact at random
     ctx = _diol_ctx()
     ensemble = racerts.Embed(n_conformers=60, restraint_fraction=0.5).run(ctx)
     with_contact = _with_contact(ensemble)
@@ -57,8 +60,7 @@ def test_batches_take_the_contact_at_random():
     mostly = racerts.Embed(n_conformers=40, restraint_fraction=0.9).run(ctx)
     assert len(_with_contact(mostly)) / len(mostly) >= 0.7
 
-
-def test_refinement_and_the_gate_follow_the_batches():
+    # -- refinement and the gate follow the batches
     ctx = _diol_ctx()
     ensemble = racerts.Embed(n_conformers=30, restraint_fraction=0.5).run(ctx)
     ensemble = racerts.Refine(racerts.refine.MMFFOptimizer(converge=True)).run(
@@ -72,8 +74,7 @@ def test_refinement_and_the_gate_follow_the_batches():
     inside = [_o_o(ensemble, i) < WINDOW[1] + 0.3 for i in held]
     assert np.mean(inside) > 0.7
 
-
-def test_applying():
+    # -- applying
     contact = DistanceRestraint(0, 7, *WINDOW, source="contact")
     user = DistanceRestraint(1, 6, 3.0, 4.0)
     assert applying([contact, user], {}) == [contact, user]
@@ -83,8 +84,7 @@ def test_applying():
         user,
     ]
 
-
-def test_without_a_fraction_nothing_changes():
+    # -- without a fraction nothing changes
     ctx = _diol_ctx()
     ensemble = racerts.Embed(n_conformers=10).run(ctx)
     assert all(
@@ -93,8 +93,7 @@ def test_without_a_fraction_nothing_changes():
     with pytest.raises(ValueError, match="restraint_fraction"):
         racerts.Embed(restraint_fraction=0.0)
 
-
-def test_targets_and_hints_combine(sn2_ts_water):
+    # -- targets and hints combine
     # A water H...Cl hint next to stratified windows on the C-Cl bonds (graph hints
     # leave out charged partners, so it is given here).
     mol = build_mol(sn2_ts_water, -1, [0, 1, 2], input_smiles=["CCl", "[Cl-]", "O"])
@@ -109,14 +108,12 @@ def test_targets_and_hints_combine(sn2_ts_water):
     assert len({str(p["active_bond_targets"]) for p in provenance}) == 2
     assert any(p.get("active_restraints") for p in provenance)
 
-
-def test_config_and_cli_take_the_fraction(sn2_ts_water, tmp_path):
+    # -- config and cli take the fraction
     config = racerts.PipelineConfig.from_dict({"restraints": {"fraction": 0.5}})
     assert config.build(TransitionState([0, 1, 2])).stages[0].restraint_fraction == 0.5
     for bad in (0.0, 1.5):
         with pytest.raises(ValueError, match="fraction"):
             racerts.PipelineConfig.from_dict({"restraints": {"fraction": bad}})
-    from racerts.cli import main
 
     out = str(tmp_path / "out.xyz")
     main(

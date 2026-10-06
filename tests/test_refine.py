@@ -17,7 +17,8 @@ from .conftest import DATA
 BORONIC_ACID = os.path.join(DATA, "baseline", "boronic_acid.xyz")
 
 
-def test_an_optimizer_implements_refine():
+def test_force_field_refinement(hept_1_ene_ts):
+    # -- an optimizer implements refine
     class Empty(BaseOptimizer):
         pass
 
@@ -32,8 +33,7 @@ def test_an_optimizer_implements_refine():
     with pytest.raises(ValueError, match="reference"):
         Zero().refine(mol, anchors=[0])
 
-
-def test_refine_falls_back_to_uff():
+    # -- refine falls back to uff
     # MMFF has no boron parameters.
     def run(fallback):
         pipeline = racerts.Pipeline(
@@ -45,8 +45,7 @@ def test_refine_falls_back_to_uff():
     with pytest.raises(ValueError, match="MMFF"):
         run(False)
 
-
-def test_a_pipeline_can_be_reused_for_another_reference(hept_1_ene_ts):
+    # -- a pipeline can be reused for another reference
     mol = hept_1_ene_ts
     task = TransitionState([3, 4, 5])
     pipeline = PipelineConfig(embed=EmbedConfig(n_conformers=5)).build(task)
@@ -58,6 +57,78 @@ def test_a_pipeline_can_be_reused_for_another_reference(hept_1_ene_ts):
     second = racerts.generate(other, task, pipeline=pipeline)
 
     assert second.energies() == pytest.approx(first.energies())
+
+    # -- converged refinement reaches the minimum
+    # Legacy racerts stops the minimization next to the stiff anchors early: a second
+    # pass still lowers the energies by kcal/mol.
+    legacy, ctx = _refined(MMFFOptimizer(energies_without_anchors=True), hept_1_ene_ts)
+    assert np.max(_gain_of_a_second_pass(legacy, ctx)) > 1.0
+
+    converged, ctx = _refined(
+        MMFFOptimizer(converge=True, energies_without_anchors=True), hept_1_ene_ts
+    )
+    assert np.max(np.abs(_gain_of_a_second_pass(converged, ctx))) < 1e-2
+    # The frozen atoms stay at the reference.
+    frozen = list(ctx.frozen.hard)
+    reference = ctx.reference.GetConformer().GetPositions()[frozen]
+    for conf in converged.mol.GetConformers():
+        assert np.abs(conf.GetPositions()[frozen] - reference).max() < 1e-3
+
+    # -- energies without anchors leave out the anchor terms
+    def excess(optimizer):
+        ensemble, _ = _refined(optimizer, hept_1_ene_ts)
+        return [
+            conf.GetDoubleProp("energy") - _mmff_energy(ensemble.mol, conf.GetId())
+            for conf in ensemble.mol.GetConformers()
+        ]
+
+    assert max(excess(MMFFOptimizer())) > 1e-3  # legacy: anchor terms included
+    assert max(np.abs(excess(MMFFOptimizer(energies_without_anchors=True)))) < 1e-8
+
+    # -- mmff dielectric settings
+    # A zwitterion: a distance-dependent dielectric of 4 weakens the salt bridge, so
+    # the energy differs from the default (constant, 1).
+    mol = Chem.AddHs(Chem.MolFromSmiles("[NH3+]CCCCC(=O)[O-]"))
+    AllChem.EmbedMolecule(mol, randomSeed=3)
+
+    def energy(**settings):
+        work = Chem.Mol(mol)
+        MMFFOptimizer(**settings).refine(work)
+        return work.GetConformer().GetDoubleProp("energy")
+
+    assert energy() == pytest.approx(energy(dielectric_constant=1.0))
+    assert energy(dielectric_model="distance", dielectric_constant=4.0) > energy() + 10
+    with pytest.raises(ValueError, match="dielectric_model"):
+        MMFFOptimizer(dielectric_model="water")
+    with pytest.raises(ValueError, match="dielectric_constant"):
+        MMFFOptimizer(dielectric_constant=0)
+
+    # -- the uff fallback keeps the new settings
+    pipeline = racerts.Pipeline(
+        [
+            racerts.Embed(n_conformers=3),
+            racerts.Refine(MMFFOptimizer(converge=True, energies_without_anchors=True)),
+        ]
+    )
+    ensemble = racerts.generate_ts(BORONIC_ACID, [0, 1, 2], pipeline=pipeline)
+    assert ensemble.energy_method == "UFFOptimizer"
+
+    for conf in ensemble.mol.GetConformers():
+        uff = AllChem.UFFGetMoleculeForceField(
+            ensemble.mol, confId=conf.GetId(), ignoreInterfragInteractions=False
+        )
+        assert conf.GetDoubleProp("energy") == pytest.approx(uff.CalcEnergy(), abs=1e-8)
+
+    # -- refine without anchors moves the frozen atoms
+    ensemble, ctx = _embedded(hept_1_ene_ts, n=3)
+    racerts.Refine(anchors=False).run(ctx, ensemble)
+    frozen = list(ctx.frozen.hard)
+    reference = ctx.reference.GetConformer().GetPositions()[frozen]
+    moved = [
+        np.abs(conf.GetPositions()[frozen] - reference).max()
+        for conf in ensemble.mol.GetConformers()
+    ]
+    assert min(moved) > 0.05
 
 
 @pytest.mark.ase
@@ -111,23 +182,6 @@ def _gain_of_a_second_pass(ensemble, ctx):
     return ensemble.energies() - again.energies()
 
 
-def test_converged_refinement_reaches_the_minimum(hept_1_ene_ts):
-    # Legacy racerts stops the minimization next to the stiff anchors early: a second
-    # pass still lowers the energies by kcal/mol.
-    legacy, ctx = _refined(MMFFOptimizer(energies_without_anchors=True), hept_1_ene_ts)
-    assert np.max(_gain_of_a_second_pass(legacy, ctx)) > 1.0
-
-    converged, ctx = _refined(
-        MMFFOptimizer(converge=True, energies_without_anchors=True), hept_1_ene_ts
-    )
-    assert np.max(np.abs(_gain_of_a_second_pass(converged, ctx))) < 1e-2
-    # The frozen atoms stay at the reference.
-    frozen = list(ctx.frozen.hard)
-    reference = ctx.reference.GetConformer().GetPositions()[frozen]
-    for conf in converged.mol.GetConformers():
-        assert np.abs(conf.GetPositions()[frozen] - reference).max() < 1e-3
-
-
 def _mmff_energy(mol, conf_id):
     props = AllChem.MMFFGetMoleculeProperties(mol)
     return AllChem.MMFFGetMoleculeForceField(
@@ -135,67 +189,8 @@ def _mmff_energy(mol, conf_id):
     ).CalcEnergy()
 
 
-def test_energies_without_anchors_leave_out_the_anchor_terms(hept_1_ene_ts):
-    def excess(optimizer):
-        ensemble, _ = _refined(optimizer, hept_1_ene_ts)
-        return [
-            conf.GetDoubleProp("energy") - _mmff_energy(ensemble.mol, conf.GetId())
-            for conf in ensemble.mol.GetConformers()
-        ]
-
-    assert max(excess(MMFFOptimizer())) > 1e-3  # legacy: anchor terms included
-    assert max(np.abs(excess(MMFFOptimizer(energies_without_anchors=True)))) < 1e-8
-
-
-def test_mmff_dielectric_settings():
-    # A zwitterion: a distance-dependent dielectric of 4 weakens the salt bridge, so
-    # the energy differs from the default (constant, 1).
-    mol = Chem.AddHs(Chem.MolFromSmiles("[NH3+]CCCCC(=O)[O-]"))
-    AllChem.EmbedMolecule(mol, randomSeed=3)
-
-    def energy(**settings):
-        work = Chem.Mol(mol)
-        MMFFOptimizer(**settings).refine(work)
-        return work.GetConformer().GetDoubleProp("energy")
-
-    assert energy() == pytest.approx(energy(dielectric_constant=1.0))
-    assert energy(dielectric_model="distance", dielectric_constant=4.0) > energy() + 10
-    with pytest.raises(ValueError, match="dielectric_model"):
-        MMFFOptimizer(dielectric_model="water")
-    with pytest.raises(ValueError, match="dielectric_constant"):
-        MMFFOptimizer(dielectric_constant=0)
-
-
-def test_the_uff_fallback_keeps_the_new_settings():
-    pipeline = racerts.Pipeline(
-        [
-            racerts.Embed(n_conformers=3),
-            racerts.Refine(MMFFOptimizer(converge=True, energies_without_anchors=True)),
-        ]
-    )
-    ensemble = racerts.generate_ts(BORONIC_ACID, [0, 1, 2], pipeline=pipeline)
-    assert ensemble.energy_method == "UFFOptimizer"
-
-    for conf in ensemble.mol.GetConformers():
-        uff = AllChem.UFFGetMoleculeForceField(
-            ensemble.mol, confId=conf.GetId(), ignoreInterfragInteractions=False
-        )
-        assert conf.GetDoubleProp("energy") == pytest.approx(uff.CalcEnergy(), abs=1e-8)
-
-
-def test_refine_without_anchors_moves_the_frozen_atoms(hept_1_ene_ts):
-    ensemble, ctx = _embedded(hept_1_ene_ts, n=3)
-    racerts.Refine(anchors=False).run(ctx, ensemble)
-    frozen = list(ctx.frozen.hard)
-    reference = ctx.reference.GetConformer().GetPositions()[frozen]
-    moved = [
-        np.abs(conf.GetPositions()[frozen] - reference).max()
-        for conf in ensemble.mol.GetConformers()
-    ]
-    assert min(moved) > 0.05
-
-
-def test_worker_processes_give_the_results_of_one_process(hept_1_ene_ts):
+def test_worker_processes_of_the_force_field(hept_1_ene_ts):
+    # -- worker processes give the results of one process
     # RDKit's minimizer holds Python's lock, so threads gain nothing; processes do.
     task = TransitionState([3, 4, 5])
     ctx = racerts.Context.create(hept_1_ene_ts, task, seed=4)
@@ -216,8 +211,7 @@ def test_worker_processes_give_the_results_of_one_process(hept_1_ene_ts):
         serial.conf_ids[0]
     )
 
-
-def test_worker_processes_with_restraints_and_the_uff_fallback(hept_1_ene_ts):
+    # -- worker processes with restraints and the uff fallback
     # Restraints travel to the workers.
     task = TransitionState([3, 4, 5])
     ctx = racerts.Context.create(hept_1_ene_ts, task, seed=4)

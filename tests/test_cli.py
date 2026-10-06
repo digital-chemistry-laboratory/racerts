@@ -18,7 +18,8 @@ def _frames(path):
     return [lines[i : i + n + 2] for i in range(0, len(lines), n + 2)]
 
 
-def test_gs_writes_ground_state_conformers(tmp_path):
+def test_ts_and_gs_from_the_command_line(tmp_path, capsys):
+    # -- gs writes ground state conformers
     out = tmp_path / "gs.xyz"
     main(["gs", "CCO", "-n", "10", "--seed", "3", "-o", str(out)])
     frames = _frames(out)
@@ -26,8 +27,7 @@ def test_gs_writes_ground_state_conformers(tmp_path):
     assert len(frames) >= 1 and int(frames[0][0]) == 9
     assert "charge=0 spin=1 multiplicity=1 energy_method=MMFFOptimizer" in frames[0][1]
 
-
-def test_ts_options_override_the_config_file(tmp_path):
+    # -- ts options override the config file
     config = tmp_path / "config.json"
     PipelineConfig.from_dict({"embed": {"n_conformers": 7}, "seed": 99}).to_file(
         str(config)
@@ -43,8 +43,7 @@ def test_ts_options_override_the_config_file(tmp_path):
     assert len(_frames(out)) == len(ensemble) <= 7
     assert float(_frames(out)[0][1]) < 0.1  # Hartree only, as in CREST files
 
-
-def test_ts_rejects_invalid_settings(tmp_path, capsys):
+    # -- ts rejects invalid settings
     config = tmp_path / "config.json"
     config.write_text('{"embed": {"mode": "dm"}}')
 
@@ -59,8 +58,7 @@ def test_ts_rejects_invalid_settings(tmp_path, capsys):
     with pytest.raises(ValueError, match="embed.mode"):  # -vv: the traceback
         main(["ts", EX, "-r", "3", "4", "5", "--config", str(config), "-vv"])
 
-
-def test_a_config_file_that_cannot_be_read_is_an_error_message(tmp_path, capsys):
+    # -- a config file that cannot be read is an error message
     pytest.importorskip("yaml")
     broken = tmp_path / "config.yaml"
     broken.write_text("embed: {n_conformers: 5\nprune: [")
@@ -68,6 +66,13 @@ def test_a_config_file_that_cannot_be_read_is_an_error_message(tmp_path, capsys)
         main(["ts", EX, "-r", "3", "4", "5", "--config", str(broken)])
     assert exit.value.code == 2
     assert f"racerts: error: {broken}: " in capsys.readouterr().err
+
+    # -- legacy help points to the subcommands
+    with pytest.raises(SystemExit):
+        main(["-h"])
+
+    out = " ".join(capsys.readouterr().out.split())  # the help text is wrapped
+    assert all(f"racerts {name} -h" in out for name in ("ts", "gs", "swap"))
 
 
 @pytest.mark.parametrize(
@@ -88,14 +93,6 @@ def test_options_a_subcommand_cannot_use_are_errors(argv, message, capsys):
     with pytest.raises(SystemExit):
         main(argv)
     assert message in capsys.readouterr().err
-
-
-def test_legacy_help_points_to_the_subcommands(capsys):
-    with pytest.raises(SystemExit):
-        main(["-h"])
-
-    out = " ".join(capsys.readouterr().out.split())  # the help text is wrapped
-    assert all(f"racerts {name} -h" in out for name in ("ts", "gs", "swap"))
 
 
 @pytest.mark.parametrize(
@@ -163,7 +160,8 @@ def _with(settings):
     return expected
 
 
-def test_ts_without_options_runs_the_defaults(call):
+def test_what_the_options_of_ts_and_gs_set(call, capsys, tmp_path):
+    # -- ts without options runs the defaults
     seen = call(*TS)
 
     assert seen.pop("args") == (EX, [3, 4, 5])
@@ -180,6 +178,37 @@ def test_ts_without_options_runs_the_defaults(call):
         stratify=None,
         pipeline=None,
     )
+
+    # -- ts legacy option and wrong values
+    assert call(*TS, "--legacy")["config"] == PipelineConfig.legacy()
+    assert call(*TS, "--legacy", "--converge")["config"].refine.converge is True
+    for options, message in [
+        (["--dielectric", "distance", "four"], "'four' is not a number"),
+        (["--restraint", "a", "6", "4.6"], "--restraint takes two atom indices"),
+        (["--active-window", "1", "2", "3"], "--active-window takes DELTA or LO HI"),
+        (["--stratify", "3"], "need --active-window"),
+        (["--export-to", "x.inp"], "--export-to needs --export-restraints"),
+    ]:
+        with pytest.raises(SystemExit):
+            run_subcommand([*TS, *options])
+        assert message in capsys.readouterr().err
+
+    # -- export options replace the pipeline
+    out = str(tmp_path / "ensemble.xyz")
+    (stage,) = call(*TS, "--export-restraints", "orca", "-o", out)["pipeline"].stages
+    assert (stage.fmt, stage.path) == ("orca", str(tmp_path / "restraints.inp"))
+    (stage,) = call("gs", "CCO", "--export-restraints", "json", "--export-to", out)[
+        "pipeline"
+    ].stages
+    assert (stage.fmt, stage.path) == ("json", out)
+
+    # -- gs options reach generate gs
+    seen = call("gs", "CC(=O)[O-].[NH4+]", "--link-fragments", "--multiplicity", "1")
+
+    assert seen.pop("args") == ("CC(=O)[O-].[NH4+]",)
+    assert seen.pop("config").to_dict() == _with({"restraints.link_fragments": True})
+    assert seen == dict(charge=None, multiplicity=1, pipeline=None)
+    assert call("gs", "CCO", "-c", "0")["charge"] == 0
 
 
 @pytest.mark.parametrize(
@@ -262,41 +291,8 @@ def test_ts_graph_option_chooses_the_first_graph_method(call, name):
     assert type(call(*TS, "--graph", name)["mol_getter"]) is GRAPH_METHODS[name]
 
 
-def test_ts_legacy_option_and_wrong_values(call, capsys):
-    assert call(*TS, "--legacy")["config"] == PipelineConfig.legacy()
-    assert call(*TS, "--legacy", "--converge")["config"].refine.converge is True
-    for options, message in [
-        (["--dielectric", "distance", "four"], "'four' is not a number"),
-        (["--restraint", "a", "6", "4.6"], "--restraint takes two atom indices"),
-        (["--active-window", "1", "2", "3"], "--active-window takes DELTA or LO HI"),
-        (["--stratify", "3"], "need --active-window"),
-        (["--export-to", "x.inp"], "--export-to needs --export-restraints"),
-    ]:
-        with pytest.raises(SystemExit):
-            run_subcommand([*TS, *options])
-        assert message in capsys.readouterr().err
-
-
-def test_export_options_replace_the_pipeline(call, tmp_path):
-    out = str(tmp_path / "ensemble.xyz")
-    (stage,) = call(*TS, "--export-restraints", "orca", "-o", out)["pipeline"].stages
-    assert (stage.fmt, stage.path) == ("orca", str(tmp_path / "restraints.inp"))
-    (stage,) = call("gs", "CCO", "--export-restraints", "json", "--export-to", out)[
-        "pipeline"
-    ].stages
-    assert (stage.fmt, stage.path) == ("json", out)
-
-
-def test_gs_options_reach_generate_gs(call):
-    seen = call("gs", "CC(=O)[O-].[NH4+]", "--link-fragments", "--multiplicity", "1")
-
-    assert seen.pop("args") == ("CC(=O)[O-].[NH4+]",)
-    assert seen.pop("config").to_dict() == _with({"restraints.link_fragments": True})
-    assert seen == dict(charge=None, multiplicity=1, pipeline=None)
-    assert call("gs", "CCO", "-c", "0")["charge"] == 0
-
-
-def test_swap_command(tmp_path, sn2_ts):
+def test_the_swap_command_runs_and_says_what_it_refuses(tmp_path, sn2_ts, capsys):
+    # -- swap command
     # SN2 TS: H3 on the reacting carbon -> ethyl, the TS core held.
     out = tmp_path / "swapped.xyz"
     ensemble = run_subcommand(
@@ -307,6 +303,55 @@ def test_swap_command(tmp_path, sn2_ts):
     assert ensemble.mol.GetNumAtoms() == 6 - 1 + 7  # C2H5 for H
     with open(out) as handle:
         assert handle.readline().strip() == str(ensemble.mol.GetNumAtoms())
+
+    # -- swap command rejects what it does not use
+    with pytest.raises(SystemExit):
+        run_subcommand(
+            ["swap", sn2_ts, "-s", "CCl", "[Cl-]", "-c", "-1", "--new", "[*]C",
+             "--remove", "3", "--keep-hbonds", "--embed", "bounds"]
+        )  # fmt: skip
+    assert "unrecognized arguments: --keep-hbonds --embed" in capsys.readouterr().err
+    with pytest.raises(SystemExit):
+        run_subcommand(
+            ["swap", sn2_ts, "--new", "[*]C", "--remove", "3", "--export-restraints"]
+            + ["xtb"]
+        )
+    assert "unrecognized arguments: --export-restraints" in capsys.readouterr().err
+    with pytest.raises(SystemExit):
+        run_subcommand(["swap", sn2_ts, "--new", "[*]C"])  # no selector
+    with pytest.raises(SystemExit):
+        run_subcommand(
+            ["swap", sn2_ts, "-s", "CCl", "[Cl-]", "-c", "-1", "--new", "[*]C",
+             "--remove", "3", "--mode", "keep"]
+        )  # fmt: skip
+
+    # -- swap command rejects hard with sampling
+    base = [
+        "swap",
+        sn2_ts,
+        "-s",
+        "CCl",
+        "[Cl-]",
+        "-c",
+        "-1",
+        "--new",
+        "[*]C",
+        "--remove",
+        "3",
+    ]
+    with pytest.raises(SystemExit):
+        run_subcommand(base + ["--conserve", "hard", "-n", "5"])
+    assert "--conserve hard samples nothing" in capsys.readouterr().err
+
+    # -- swap command reports config errors
+    config = tmp_path / "config.yaml"
+    config.write_text("restraints:\n  hints: true\n")
+    with pytest.raises(SystemExit):
+        run_subcommand(
+            ["swap", sn2_ts, "-s", "CCl", "[Cl-]", "-c", "-1", "--new", "[*]C",
+             "--remove", "3", "--config", str(config)]
+        )  # fmt: skip
+    assert "config.restraints must be empty" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize(
@@ -358,55 +403,3 @@ def test_swap_options_reach_swap(call, sn2_ts):
     assert seen["config"].to_dict() == _with(
         {"embed.n_conformers": 6, "seed": 3, "embed.reference_bounds": "never"}
     )
-
-
-def test_swap_command_rejects_what_it_does_not_use(tmp_path, sn2_ts, capsys):
-    with pytest.raises(SystemExit):
-        run_subcommand(
-            ["swap", sn2_ts, "-s", "CCl", "[Cl-]", "-c", "-1", "--new", "[*]C",
-             "--remove", "3", "--keep-hbonds", "--embed", "bounds"]
-        )  # fmt: skip
-    assert "unrecognized arguments: --keep-hbonds --embed" in capsys.readouterr().err
-    with pytest.raises(SystemExit):
-        run_subcommand(
-            ["swap", sn2_ts, "--new", "[*]C", "--remove", "3", "--export-restraints"]
-            + ["xtb"]
-        )
-    assert "unrecognized arguments: --export-restraints" in capsys.readouterr().err
-    with pytest.raises(SystemExit):
-        run_subcommand(["swap", sn2_ts, "--new", "[*]C"])  # no selector
-    with pytest.raises(SystemExit):
-        run_subcommand(
-            ["swap", sn2_ts, "-s", "CCl", "[Cl-]", "-c", "-1", "--new", "[*]C",
-             "--remove", "3", "--mode", "keep"]
-        )  # fmt: skip
-
-
-def test_swap_command_rejects_hard_with_sampling(sn2_ts, capsys):
-    base = [
-        "swap",
-        sn2_ts,
-        "-s",
-        "CCl",
-        "[Cl-]",
-        "-c",
-        "-1",
-        "--new",
-        "[*]C",
-        "--remove",
-        "3",
-    ]
-    with pytest.raises(SystemExit):
-        run_subcommand(base + ["--conserve", "hard", "-n", "5"])
-    assert "--conserve hard samples nothing" in capsys.readouterr().err
-
-
-def test_swap_command_reports_config_errors(tmp_path, sn2_ts, capsys):
-    config = tmp_path / "config.yaml"
-    config.write_text("restraints:\n  hints: true\n")
-    with pytest.raises(SystemExit):
-        run_subcommand(
-            ["swap", sn2_ts, "-s", "CCl", "[Cl-]", "-c", "-1", "--new", "[*]C",
-             "--remove", "3", "--config", str(config)]
-        )  # fmt: skip
-    assert "config.restraints must be empty" in capsys.readouterr().err

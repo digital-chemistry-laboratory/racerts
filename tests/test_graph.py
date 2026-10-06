@@ -36,7 +36,10 @@ def test_explicit_h_smiles_keeps_radicals(smiles):
         mol_from_explicit_h_smiles("C(")
 
 
-def test_graph_from_geometry_takes_bond_orders_and_keeps_the_atom_order():
+def test_graphs_from_a_geometry():
+    from racerts.system.match import mapped_atoms
+
+    # -- graph from geometry takes bond orders and keeps the atom order
     geometry = _geometry("C=CC(=O)O")
     smiles = Chem.MolToSmiles(Chem.AddHs(Chem.MolFromSmiles("C=CC(=O)O")))
     mol = mol_from_geometry(geometry, smiles, charge=0, multiplicity=1)
@@ -51,8 +54,7 @@ def test_graph_from_geometry_takes_bond_orders_and_keeps_the_atom_order():
         Chem.MolFromSmiles("C=CC(=O)O")
     )
 
-
-def test_graph_from_geometry_with_a_radical():
+    # -- graph from geometry with a radical
     # The ethyl radical: the CH2 carbon is under-coordinated in the geometry.
     ethane = _geometry("CC")
     rw = Chem.RWMol(ethane)
@@ -67,8 +69,7 @@ def test_graph_from_geometry_with_a_radical():
     ctx = racerts.Context.create(mol, racerts.GroundState())
     assert ctx.mol.GetIntProp("multiplicity") == 2
 
-
-def test_graph_from_geometry_rejects_mismatches():
+    # -- graph from geometry rejects mismatches
     geometry = _geometry("CCO")
     with pytest.raises(ValueError, match="connectivity"):
         mol_from_geometry(geometry, "[H]C([H])([H])OC([H])([H])[H]")  # dimethyl ether
@@ -79,10 +80,7 @@ def test_graph_from_geometry_rejects_mismatches():
     with pytest.raises(ValueError, match="atoms"):
         mol_from_geometry(geometry, "[H]OC([H])([H])[H]")
 
-
-def test_map_numbers_count_the_atoms_of_the_geometry_from_one():
-    from racerts.system.match import mapped_atoms
-
+    # -- map numbers count the atoms of the geometry from one
     geometry = Chem.MolFromSmiles("CCO")
     template = Chem.MolFromSmiles("[CH3:1]C[OH:3]")
     assert mapped_atoms(template, geometry) == {0: 0, 2: 2}  # the last atom included
@@ -94,8 +92,7 @@ def test_map_numbers_count_the_atoms_of_the_geometry_from_one():
         with pytest.raises(ValueError, match=message):
             mapped_atoms(Chem.MolFromSmiles(smiles), geometry)
 
-
-def test_bondless_mol():
+    # -- bondless mol
     mol = bondless_mol(["O", "H", "H"], [[0, 0, 0], [0, 0, 0.96], [0.93, 0, -0.24]])
     assert mol.GetNumBonds() == 0 and mol.GetNumConformers() == 1
     with pytest.raises(ValueError, match="shape"):

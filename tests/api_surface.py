@@ -146,5 +146,5 @@ def incompatibilities(snapshot, allowed=()):
 
 if __name__ == "__main__":
     with open(sys.argv[1], "w") as handle:
-        json.dump(surface(), handle, indent=1, sort_keys=True)
+        json.dump(surface(), handle, sort_keys=True, separators=(",", ":"))
         handle.write("\n")

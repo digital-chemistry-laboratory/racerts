@@ -169,7 +169,8 @@ def test_rescore_with_a_batch_function(refined):
         Rescore(batch=batch, on_fail="ignore")
 
 
-def test_prepare_gets_the_reference(refined):
+def test_the_prepare_hook(refined):
+    # -- prepare gets the reference
     ensemble, ctx = refined
     reference = ctx.reference.GetConformer().GetPositions()
 
@@ -181,8 +182,7 @@ def test_prepare_gets_the_reference(refined):
     with pytest.raises(RuntimeError, match="not prepared"):
         ASEOptimizer(NeedsPreparation(), max_steps=2).refine(ensemble.mol)
 
-
-def test_prepare_in_worker_processes(refined):
+    # -- prepare in worker processes
     ensemble, ctx = refined
     optimizer = ASEOptimizer(
         NeedsPreparation, max_steps=2, num_workers=2, prepare=prepare_lj
@@ -190,16 +190,15 @@ def test_prepare_in_worker_processes(refined):
     optimizer.refine(ensemble.mol, ctx.reference, ctx.frozen.hard)
     assert not np.isnan(ensemble.energies()).any()
 
-
-def test_a_failing_conformer_in_the_process_pool(refined, caplog):
-    ensemble, ctx = refined
-    optimizer = MarkingOptimizer(FailOnMark, max_steps=2, num_workers=2)
-    optimizer.fail_ids = (ensemble.conf_ids[1],)
-    optimizer.refine(ensemble.mol, ctx.reference, ctx.frozen.hard)
-
-    has_energy = [e is not None for e in map(ensemble.energy, ensemble.conf_ids)]
-    assert has_energy == [True, False, True, True]
-    assert "SCF not converged" in caplog.text
+    # -- prepare without reference gets the unrelaxed first conformer
+    ensemble, _ = refined
+    first = ensemble.mol.GetConformer(ensemble.conf_ids[0]).GetPositions()
+    RecordingPrepare.seen = []
+    ASEOptimizer(LennardJones, max_steps=3, prepare=RecordingPrepare.prepare).refine(
+        ensemble.mol
+    )
+    assert len(RecordingPrepare.seen) == 4  # a factory: one calculator per conformer
+    assert all(np.allclose(seen, first) for seen in RecordingPrepare.seen)
 
 
 def test_convergence_is_recorded_and_unconverged_conformers_can_be_dropped(
@@ -245,7 +244,10 @@ def test_convergence_is_recorded_and_unconverged_conformers_can_be_dropped(
     assert all(converged.provenance(i)["converged"] for i in converged.conf_ids)
 
 
-def test_ase_refinement_keeps_the_ids(refined):
+def test_ase_refinement_ids_single_points_optimizers_and_failures(refined, caplog):
+    from ase.optimize import FIRE
+
+    # -- ase refinement keeps the ids
     ensemble, ctx = refined
     ensemble = ensemble.filter(ensemble.conf_ids[1:])
     ids = ensemble.conf_ids
@@ -254,8 +256,7 @@ def test_ase_refinement_keeps_the_ids(refined):
     )
     assert ensemble.conf_ids == ids
 
-
-def test_single_points_skip_the_optimizer(refined):
+    # -- single points skip the optimizer
     ensemble, _ = refined
 
     class NoOptimizer:
@@ -267,10 +268,8 @@ def test_single_points_skip_the_optimizer(refined):
     )
     assert not np.isnan(ensemble.energies()).any()
 
-
-def test_any_ase_style_optimizer_class(refined):
+    # -- any ase style optimizer class
     # e.g. Sella; here FIRE with its own keyword arguments.
-    from ase.optimize import FIRE
 
     ensemble, ctx = refined
     ASEOptimizer(
@@ -279,6 +278,17 @@ def test_any_ase_style_optimizer_class(refined):
     assert not np.isnan(ensemble.energies()).any()
     mol = Chem.Mol(ensemble.mol)
     assert mol.GetNumConformers() == 4
+
+    # -- a failing conformer in the process pool
+    caplog.clear()
+    ensemble, ctx = refined
+    optimizer = MarkingOptimizer(FailOnMark, max_steps=2, num_workers=2)
+    optimizer.fail_ids = (ensemble.conf_ids[1],)
+    optimizer.refine(ensemble.mol, ctx.reference, ctx.frozen.hard)
+
+    has_energy = [e is not None for e in map(ensemble.energy, ensemble.conf_ids)]
+    assert has_energy == [True, False, True, True]
+    assert "SCF not converged" in caplog.text
 
 
 class RecordingPrepare:
@@ -289,17 +299,6 @@ class RecordingPrepare:
     @classmethod
     def prepare(cls, calculator, atoms):
         cls.seen.append(atoms.get_positions().copy())
-
-
-def test_prepare_without_reference_gets_the_unrelaxed_first_conformer(refined):
-    ensemble, _ = refined
-    first = ensemble.mol.GetConformer(ensemble.conf_ids[0]).GetPositions()
-    RecordingPrepare.seen = []
-    ASEOptimizer(LennardJones, max_steps=3, prepare=RecordingPrepare.prepare).refine(
-        ensemble.mol
-    )
-    assert len(RecordingPrepare.seen) == 4  # a factory: one calculator per conformer
-    assert all(np.allclose(seen, first) for seen in RecordingPrepare.seen)
 
 
 def test_an_ensemble_gives_ase_atoms():

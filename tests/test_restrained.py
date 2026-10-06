@@ -49,15 +49,15 @@ def test_a_window_is_flat_bottom(d, excess):
     assert energy == pytest.approx(0.5 * 20.0 * excess**2 / EV_TO_KCAL_MOL)
 
 
-def test_a_position_restraint_holds_beyond_its_tolerance():
+def test_the_restraint_terms():
+    # -- a position restraint holds beyond its tolerance
     held = PositionRestraint(0, (0.0, 0.0, 0.0), tolerance=0.3, force_constant=5.0)
     assert _energy([[0.2, 0, 0]], [held]) == 0.0
     assert _energy([[0.5, 0, 0]], [held]) == pytest.approx(
         0.5 * 5.0 * 0.2**2 / EV_TO_KCAL_MOL
     )
 
-
-def test_forces_are_the_negative_gradient():
+    # -- forces are the negative gradient
     rng = np.random.default_rng(0)
     positions = rng.normal(size=(4, 3)) * 1.5
     restraints = [
@@ -80,8 +80,7 @@ def test_forces_are_the_negative_gradient():
             numeric[i, k] = -(up - _energy(shifted, restraints)) / (2 * h)
     np.testing.assert_allclose(forces, numeric, atol=1e-6)
 
-
-def test_the_wrapped_calculator_adds_its_terms():
+    # -- the wrapped calculator adds its terms
     positions = [[0, 0, 0], [1.1, 0, 0], [0, 1.2, 0]]
     window = DistanceRestraint(0, 1, 2.0, 3.0, force_constant=20.0)
     plain = _atoms(positions)
@@ -96,8 +95,7 @@ def test_the_wrapped_calculator_adds_its_terms():
     difference = wrapped.get_forces() - plain.get_forces()
     assert np.allclose(difference[2], 0) and np.allclose(difference.sum(axis=0), 0)
 
-
-def test_other_restraint_kinds_raise():
+    # -- other restraint kinds raise
     with pytest.raises(TypeError, match="ASE"):
         RestrainedCalculator(Zero(), ["not a restraint"])
 

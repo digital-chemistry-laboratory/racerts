@@ -6,6 +6,8 @@ import numpy as np
 from rdkit import Chem
 from rdkit.Chem import AllChem, rdDetermineBonds
 
+from racerts.errors import MoleculeError
+
 
 def mol_from_explicit_h_smiles(smiles: str) -> Chem.Mol:
     """
@@ -19,7 +21,7 @@ def mol_from_explicit_h_smiles(smiles: str) -> Chem.Mol:
     params.removeHs = False
     mol = Chem.MolFromSmiles(smiles, params)
     if mol is None:
-        raise ValueError(f"Invalid SMILES: {smiles!r}")
+        raise MoleculeError(f"Invalid SMILES: {smiles!r}")
     for atom in mol.GetAtoms():
         atom.SetNoImplicit(True)
     mol.UpdatePropertyCache(strict=False)
@@ -76,11 +78,11 @@ def mol_from_geometry(
     expected_charge = Chem.GetFormalCharge(template)
     expected_multiplicity = radical_multiplicity(template)
     if charge is not None and charge != expected_charge:
-        raise ValueError(
+        raise MoleculeError(
             f"Charge mismatch: {charge} given, the SMILES has {expected_charge}."
         )
     if multiplicity is not None and multiplicity != expected_multiplicity:
-        raise ValueError(
+        raise MoleculeError(
             f"Multiplicity mismatch: {multiplicity} given, the SMILES has "
             f"{expected_multiplicity} (1 + radical electrons)."
         )
@@ -110,13 +112,15 @@ def mol_from_geometry(
     query = query.GetMol()
     query.UpdatePropertyCache(strict=False)
     if geometry.GetNumAtoms() != template.GetNumAtoms():
-        raise ValueError(
+        raise MoleculeError(
             f"The geometry has {geometry.GetNumAtoms()} atoms, the SMILES "
             f"{template.GetNumAtoms()} (hydrogens must be explicit)."
         )
     match = geometry.GetSubstructMatch(query)
     if not match:
-        raise ValueError(f"The geometry does not have the connectivity of {smiles!r}.")
+        raise MoleculeError(
+            f"The geometry does not have the connectivity of {smiles!r}."
+        )
     for template_index, geometry_index in enumerate(match):
         geometry.GetAtomWithIdx(geometry_index).SetNumRadicalElectrons(
             template.GetAtomWithIdx(template_index).GetNumRadicalElectrons()
@@ -125,7 +129,7 @@ def mol_from_geometry(
     try:
         mol = AllChem.AssignBondOrdersFromTemplate(template, geometry)
     except ValueError as error:
-        raise ValueError(
+        raise MoleculeError(
             f"The geometry does not have the connectivity of {smiles!r}: {error}"
         ) from error
     Chem.AssignStereochemistryFrom3D(mol)

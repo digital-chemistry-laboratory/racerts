@@ -32,7 +32,7 @@ from .config import (
     RestraintConfig,
 )
 from .embed import Embed, InconsistentRestraints
-from .errors import NoConformersError
+from .errors import MoleculeError, NoConformersError, RacerTSError
 from .exploit import Exploit
 from .pipeline import (
     ConformerEnsemble,
@@ -63,6 +63,7 @@ __all__ = [
     "FrozenSet",
     "GroundState",
     "InconsistentRestraints",
+    "MoleculeError",
     "NoConformersError",
     "Pipeline",
     "PipelineConfig",
@@ -71,6 +72,7 @@ __all__ = [
     "PruneCount",
     "PruneEnergy",
     "PruneRMSD",
+    "RacerTSError",
     "Refine",
     "RefineConfig",
     "Rescore",

@@ -8,6 +8,7 @@ import numpy as np
 from rdkit import Chem
 
 from racerts.config import PipelineConfig
+from racerts.errors import MoleculeError
 from racerts.pipeline import ConformerEnsemble, Context, Pipeline
 from racerts.pipeline.runs import Runs, compare_runs, merge_runs
 from racerts.restraints import RestraintSet
@@ -209,7 +210,7 @@ def generate_ts(
             auto_fallback=auto_fallback,
         )
     if mol is None:
-        raise ValueError(f"No valid mol object could be generated from {file_name}.")
+        raise MoleculeError(f"No valid mol object could be generated from {file_name}.")
     return generate(
         mol,
         TransitionState(
@@ -247,7 +248,7 @@ def generate_gs(
     """
     mol = Chem.MolFromSmiles(smiles) if isinstance(smiles, str) else smiles
     if mol is None:
-        raise ValueError(f"Invalid SMILES: {smiles}")
+        raise MoleculeError(f"Invalid SMILES: {smiles}")
     mol = Chem.AddHs(mol, addCoords=mol.GetNumConformers() > 0)  # a new Mol
     return generate(
         mol,

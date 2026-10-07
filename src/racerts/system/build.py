@@ -10,6 +10,8 @@ from rdkit import Chem
 from rdkit.Chem import rdDetermineBonds, rdFMCS
 from rdkit.Chem.AllChem import SanitizeMol  # type: ignore
 
+from racerts.errors import MoleculeError
+
 from . import match
 
 logger = logging.getLogger(__name__)
@@ -136,7 +138,7 @@ class MolGetterSMILES(BaseMolGetter):
         for smiles in smiles_list:
             mol = Chem.MolFromSmiles(smiles)
             if mol is None:
-                raise ValueError(f"Invalid SMILES: {smiles}")
+                raise MoleculeError(f"Invalid SMILES: {smiles}")
             mol = Chem.AddHs(mol)
             combined_mol = (
                 mol if combined_mol is None else Chem.CombineMols(combined_mol, mol)
@@ -255,19 +257,19 @@ class MolGetterSMILES(BaseMolGetter):
         input_mol = self.combine_mols(input_smiles)
         charge = kwargs.get("charge")
         if charge is not None and charge != Chem.GetFormalCharge(input_mol):
-            raise ValueError(
+            raise MoleculeError(
                 f"Charge {charge} does not match the formal charges of the SMILES "
                 f"({Chem.GetFormalCharge(input_mol)})."
             )
 
         mol_ts = Chem.MolFromXYZFile(file_name)
         if mol_ts is None:
-            raise ValueError(f"Failed to read {file_name}.")
+            raise MoleculeError(f"Failed to read {file_name}.")
         # Otherwise atoms missing from the SMILES are silently left without bonds.
         in_smiles = Counter(atom.GetSymbol() for atom in input_mol.GetAtoms())
         in_xyz = Counter(atom.GetSymbol() for atom in mol_ts.GetAtoms())
         if in_smiles != in_xyz:
-            raise ValueError(
+            raise MoleculeError(
                 "The SMILES and the xyz file do not match. Extra atoms in the xyz file: "
                 f"{dict(in_xyz - in_smiles)}, extra atoms in the SMILES: "
                 f"{dict(in_smiles - in_xyz)}."
@@ -373,7 +375,7 @@ def _build_mol(
     if file_name.endswith(".sdf") or file_name.endswith(".mol"):
         mol_ts = Chem.MolFromMolFile(file_name, removeHs=False)
         if mol_ts is not None and charge != Chem.GetFormalCharge(mol_ts):
-            raise ValueError(
+            raise MoleculeError(
                 f"Charge {charge} does not match the formal charges in the file "
                 f"{file_name}."
             )
@@ -407,14 +409,16 @@ def _build_mol(
                 file_name=file_name, **get_mol_kwargs
             )
     else:
-        raise ValueError("Only the file extensions .xyz, .sdf and .mol are supported.")
+        raise MoleculeError(
+            "Only the file extensions .xyz, .sdf and .mol are supported."
+        )
     return _made(mol_ts, file_name)
 
 
 def _made(mol, file_name: str) -> Chem.Mol:
     """mol, or the error of a file that gave no molecule."""
     if mol is None:
-        raise ValueError(
+        raise MoleculeError(
             f"Failed to create molecule from {file_name}. Check the file format and "
             "content."
         )

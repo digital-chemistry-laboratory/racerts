@@ -6,6 +6,7 @@ import numpy as np
 from rdkit import Chem, rdBase
 from rdkit.Chem import AllChem
 
+from racerts.errors import SwapError
 from racerts.pipeline import ConformerEnsemble
 from racerts.system.swap import SwapResult, rotation_between
 from racerts.utils import seeds
@@ -48,7 +49,7 @@ def rigid_attach(
     with rdBase.BlockLogs():  # UFF typer messages for the dummy
         ids = list(AllChem.EmbedMultipleConfs(fragment, n_fragment_conformers, params))
     if not ids:
-        raise ValueError("Could not embed the fragment.")
+        raise SwapError("Could not embed the fragment.")
 
     mol = result.mol
     new_atoms = sorted(result.fragment_map.values())

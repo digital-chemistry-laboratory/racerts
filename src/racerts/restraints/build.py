@@ -171,7 +171,7 @@ def _with_fragment_links(
         except InconsistentRestraints:
             continue
         return candidate
-    raise ValueError(
+    raise InconsistentRestraints(
         "The fragment links cannot be embedded with the other restraints, even with "
         "the widened lower bounds (0.8 x the vdW sum)."
     )

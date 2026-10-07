@@ -11,6 +11,8 @@ from typing import Dict, Iterator, List, Union
 import numpy as np
 from rdkit import Chem
 
+from racerts.errors import MoleculeError
+
 logger = logging.getLogger(__name__)
 
 
@@ -31,16 +33,18 @@ def mapped_atoms(ref_mol: Chem.Mol, mol: Chem.Mol) -> Dict[int, int]:
         if not number:
             continue
         if not 1 <= number <= mol.GetNumAtoms():
-            raise ValueError(f"atom map number {number} is not an atom of the xyz file")
+            raise MoleculeError(
+                f"atom map number {number} is not an atom of the xyz file"
+            )
         other = mol.GetAtomWithIdx(number - 1)
         if other.GetAtomicNum() != atom.GetAtomicNum():
-            raise ValueError(
+            raise MoleculeError(
                 f"atom map number {number} is {atom.GetSymbol()} in the SMILES but "
                 f"{other.GetSymbol()} in the xyz file"
             )
         target[atom.GetIdx()] = number - 1
     if len(set(target.values())) != len(target):
-        raise ValueError("atom map numbers are repeated")
+        raise MoleculeError("atom map numbers are repeated")
     return target
 
 
@@ -95,7 +99,7 @@ def match_by_atom_maps(
             continue
         heavy = atom.GetNeighbors()[0].GetIdx() if atom.GetDegree() == 1 else None
         if atom.GetAtomicNum() != 1 or heavy not in target:
-            raise ValueError(f"atom {atom.GetIdx()} of the SMILES has no map number")
+            raise MoleculeError(f"atom {atom.GetIdx()} of the SMILES has no map number")
         anchor = positions[target[heavy]]
         candidates += [
             (float(np.linalg.norm(positions[h] - anchor)), atom.GetIdx(), h)
@@ -106,7 +110,7 @@ def match_by_atom_maps(
             target[template_h] = xyz_h
             free.discard(xyz_h)
     if len(target) != ref_mol.GetNumAtoms():
-        raise ValueError("the numbers of hydrogens differ")
+        raise MoleculeError("the numbers of hydrogens differ")
 
     for atom in ref_mol.GetAtoms():
         atom.SetAtomMapNum(target[atom.GetIdx()] + 1)
@@ -115,7 +119,7 @@ def match_by_atom_maps(
     missing = bonds_missing_from_geometry(ref_mol, mol, reacting_atoms)
     if missing:
         i, j = missing[0]
-        raise ValueError(
+        raise MoleculeError(
             f"atoms {i + 1} and {j + 1} are bonded in the SMILES but not in the xyz "
             "file"
         )
@@ -162,7 +166,7 @@ def match_by_substructure(
             logger.debug("Substructure match rejected: %s", error)
             continue
         return [template, geometry]
-    raise ValueError(
+    raise MoleculeError(
         "the SMILES does not match the connectivity of the xyz file with the "
         "mapped atoms in place"
     )
@@ -192,7 +196,7 @@ def apply_template(
         m1 = bond.GetBeginAtom().GetAtomMapNum()
         m2 = bond.GetEndAtom().GetAtomMapNum()
         if m1 not in map_to_idx or m2 not in map_to_idx:
-            raise ValueError(
+            raise MoleculeError(
                 f"Bond {m1}-{m2} of the SMILES template has no counterpart in the "
                 "TS geometry. Check that the SMILES matches the xyz file."
             )

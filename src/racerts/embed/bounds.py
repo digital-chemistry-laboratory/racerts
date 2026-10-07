@@ -8,6 +8,7 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 from rdkit.DistanceGeometry import DoTriangleSmoothing
 
+from racerts.errors import InconsistentRestraints
 from racerts.task import FrozenSet
 
 logger = logging.getLogger(__name__)
@@ -57,11 +58,6 @@ def fixed_distance_pairs(frozen: FrozenSet) -> List[Tuple[int, int]]:
         (atom, other) for atom in frozen.core for other in frozen.hard if other != atom
     ]
 
-
-INCONSISTENT_RESTRAINTS = (
-    "The distance restraints are inconsistent with each other or with the frozen "
-    "atoms: triangle smoothing would have to move other bounds (e.g. stretch bonds)."
-)
 
 # How bounds that exclude a distance of the reference geometry are handled: widened to
 # include it when smoothing fails without ("fallback"), always ("always"), or never.
@@ -188,13 +184,6 @@ def _widened(mol, reference, pairs, windows, fallback):
         level = logging.WARNING if fallback else logging.INFO
         logger.log(level, "%s.", widened_message(mol, widened, fallback))
     return bounds, widened
-
-
-class InconsistentRestraints(ValueError):
-    """The windows contradict each other or the distances that are fixed."""
-
-    def __init__(self, message: str = INCONSISTENT_RESTRAINTS):
-        super().__init__(message)
 
 
 def hard_pairs(frozen: FrozenSet, reference: Optional[Chem.Mol]) -> list:

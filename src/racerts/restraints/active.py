@@ -2,6 +2,8 @@
 
 import logging
 
+from racerts.errors import InconsistentRestraints
+
 from .model import WINDOW_SOURCES, DistanceRestraint  # noqa: F401 - used from here
 
 logger = logging.getLogger(__name__)
@@ -104,7 +106,7 @@ def keep_embedded_lengths(ctx, ensemble) -> None:
         f"{windows[pair][0]:.2f}-{windows[pair][1]:.2f} A"
     )
     if len(outside) == len(ensemble):
-        raise ValueError(
+        raise InconsistentRestraints(
             f"No conformer was embedded with its active bonds in the window (e.g. "
             f"{example}): the frozen atoms cannot take it; try a narrower active_window."
         )

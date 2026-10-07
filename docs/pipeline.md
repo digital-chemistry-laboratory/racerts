@@ -293,3 +293,28 @@ and `bondless_mol` are the pieces. A ground state (`generate_gs`, or `generate` 
 
 Ensembles can be pickled (e.g. to return them from worker processes) with all their
 data; plain RDKit pickling of `ensemble.mol` drops the properties.
+
+## Errors
+
+What racerts cannot do with a molecule, for a reason it names, is a
+`racerts.RacerTSError`. A caller that goes through many molecules catches it and goes on:
+
+| error | also a | when |
+|---|---|---|
+| `NoConformersError` | `RuntimeError` | a step left no conformer: nothing embedded, every calculation failed, none converged, none passed a check |
+| `MoleculeError` | `ValueError` | the molecule cannot be used as it was given: a SMILES that is not valid, a file that cannot be read, a geometry, a charge or a multiplicity that is not that of the SMILES, two endpoints that are not one reaction |
+| `InconsistentRestraints` | `ValueError` | the restraints cannot be met together: windows that contradict each other, the fixed distances or the frozen atoms (see [Restraints](restraints.md)) |
+| `SwapError` | `ValueError` | a swap that cannot be done as given (see [Swaps](swap.md)) |
+
+```python
+for name, smiles in molecules.items():
+    try:
+        ensembles[name] = racerts.generate_gs(smiles)
+    except racerts.RacerTSError as error:
+        failed[name] = error
+```
+
+A call that is wrong whatever the molecule (an unknown setting, a value out of range, a
+stage before the one it needs) raises a `ValueError` or `TypeError` that is none of these.
+What a calculator or RDKit raises comes as it is; `ASEOptimizer(expected_errors=...)`
+names the errors of a calculation that cost one conformer.

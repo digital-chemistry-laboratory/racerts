@@ -5,6 +5,7 @@ from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from rdkit import Chem
 
+from racerts.errors import SwapError
 from racerts.utils.checks import is_integer
 
 BOND_TYPES = {
@@ -17,10 +18,6 @@ MODES = ("append", "renumber")
 BOND_STEREO = ("cis", "trans", "E", "Z")
 ATOM_STEREO = ("R", "S")
 MIN_KEPT_SHARE = 0.3  # below: warn, the swap is close to a new embedding
-
-
-class SwapError(ValueError):
-    """A swap that cannot be done as given (selector, fragment, valences, settings)."""
 
 
 @dataclass(frozen=True)

@@ -9,6 +9,7 @@ from typing import Dict, List, Mapping, Optional, Sequence, Tuple, Union
 import numpy as np
 from rdkit import Chem
 
+from racerts.errors import MoleculeError
 from racerts.utils import seeds
 from racerts.utils.checks import is_integer
 
@@ -380,7 +381,7 @@ class TransitionState:
         """
         changes = formed_or_broken_bonds(reactant, product)
         if not changes:
-            raise ValueError(
+            raise MoleculeError(
                 "The endpoints have the same bonds: no bond forms or breaks."
             )
         reacting = sorted({atom for bond in changes for atom in bond})
@@ -459,7 +460,7 @@ def formed_or_broken_bonds(
         a.GetAtomicNum() != b.GetAtomicNum()
         for a, b in zip(reactant.GetAtoms(), product.GetAtoms())
     ):
-        raise ValueError(
+        raise MoleculeError(
             "The endpoints must have the same atoms in the same order "
             f"({reactant.GetNumAtoms()} and {product.GetNumAtoms()} atoms)."
         )

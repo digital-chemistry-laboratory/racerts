@@ -168,6 +168,16 @@ pruner with the legacy ones is `racerts.pruner.RMSDPruner`.
   one structure, for an override that only runs the structures its own way.
 - `racerts.NoConformersError` (a `RuntimeError`): a step left no conformer (nothing
   embedded, every calculation failed, none converged, none passed a check).
+- `racerts.RacerTSError`: the base of the errors that say what racerts cannot do with a
+  molecule, so that a caller that goes through many catches one type and goes on:
+  `NoConformersError`, `InconsistentRestraints`, `SwapError` and `MoleculeError` (a
+  `ValueError`: a SMILES that is not valid, a file that cannot be read, a geometry, a
+  charge or a multiplicity that is not that of the SMILES, endpoints that are not one
+  reaction). Each is also the built-in type it was raised as. A wrong call (an unknown
+  setting, a value out of range) stays a `ValueError` or `TypeError` alone. A window
+  that the frozen atoms cannot take and fragment links that the other restraints leave
+  no room for raise `InconsistentRestraints`, and a fragment of a swap that cannot be
+  embedded a `SwapError` (plain `ValueError`s before).
 - `Refine(anchors=False)` refines all atoms; `Refine` removes conformers whose optimization
   failed, with a warning.
 - `Rescore`: single-point energies at another level, or any function of the structure (a

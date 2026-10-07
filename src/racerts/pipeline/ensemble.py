@@ -286,7 +286,9 @@ class ConformerEnsemble:
         windowed TS, the lengths of the active bonds (A). Conformers held at
         different targets of the active bonds compare within a target only: for them
         the line gives the largest window of a target instead, and no window if
-        every conformer has a target of its own.
+        every conformer has a target of its own. With a restraint fraction below 1,
+        the line also counts the conformers per restraint of the reference that
+        their batch took, and those whose batch took none.
         """
         energies = self.energies()
         targets = {}  # the conformers per target of the active bonds
@@ -330,6 +332,24 @@ class ConformerEnsemble:
             text += (
                 f"; active bond {bond}: min {min(values):.3f}, median "
                 f"{float(np.median(values)):.3f}, max {max(values):.3f} A"
+            )
+        subsets = [
+            self.provenance(conf_id).get("restraint_subset")
+            for conf_id in self.conf_ids
+        ]
+        if any(subset is not None for subset in subsets):
+            # Batches that took the restraints of the reference with a probability.
+            counts = {}
+            for subset in subsets:
+                for label in subset or ["none"]:
+                    counts[label] = counts.get(label, 0) + 1
+            free = counts.pop("none", 0)
+            text += "; restraints of the reference: " + ", ".join(
+                [
+                    f"{label} in {count} of {len(self)} conformers"
+                    for label, count in sorted(counts.items())
+                ]
+                + [f"none in {free}"]
             )
         return text
 

@@ -123,7 +123,8 @@ pruner with the legacy ones is `racerts.pruner.RMSDPruner`.
   (`--link-fragments`), and hints: candidate hydrogen bonds from the graph, each tried in its
   own share of the conformers (`--hints`).
 - `restraints.fraction`: each embedding batch takes the restraints of the reference with
-  this probability, so biased and unbiased conformers come in one ensemble.
+  this probability, so biased and unbiased conformers come in one ensemble; the summary
+  of the ensemble counts both.
 - Fragment roles (reactive, anchored, contained, free) and containment restraints that keep
   a loose fragment near the core.
 - Held in MMFF/UFF refinement as flat-bottom terms and in ASE refinement as constraints;

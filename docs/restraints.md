@@ -140,7 +140,8 @@ without the restraints taken from the reference geometry (`hbonds`, `contacts`,
   with its own seed, and each batch takes every such restraint with probability
   `fraction`.
 - **Provenance:** records the restraints of each conformer's batch
-  (`restraint_subset`).
+  (`restraint_subset`), and `ensemble.summary()` counts the conformers per restraint
+  and those without any, since the share that comes out is random around `fraction`.
 - **Refinement:** follows the batch, so conformers embedded without a contact are not
   pulled into it afterwards; the gate checks each conformer only against its own
   restraints.

@@ -56,6 +56,10 @@ def test_the_restraint_fraction(sn2_ts_water, tmp_path):
         [inside[k] for k, i in enumerate(ensemble.conf_ids) if i not in with_contact]
     )
     assert biased > 0.8 and free < 0.5
+    # The summary says how the batches came out.
+    n, total = len(with_contact), len(ensemble)
+    assert f"contact:0-7 in {n} of {total} conformers" in ensemble.summary()
+    assert f"none in {total - n}" in ensemble.summary()
     # The fraction is the share of the batches with the contact, not without it.
     mostly = racerts.Embed(n_conformers=40, restraint_fraction=0.9).run(ctx)
     assert len(_with_contact(mostly)) / len(mostly) >= 0.7
@@ -90,6 +94,7 @@ def test_the_restraint_fraction(sn2_ts_water, tmp_path):
     assert all(
         "restraint_subset" not in ensemble.provenance(i) for i in ensemble.conf_ids
     )
+    assert "restraints of the reference" not in ensemble.summary()
     with pytest.raises(ValueError, match="restraint_fraction"):
         racerts.Embed(restraint_fraction=0.0)
 

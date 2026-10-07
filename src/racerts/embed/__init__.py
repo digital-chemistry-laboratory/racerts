@@ -4,6 +4,7 @@ from .base import BaseEmbedder
 from .bounds import InconsistentRestraints, bounds_matrix
 from .dg import (
     CHIRALITY_FALLBACK_MODES,
+    RESTRAINT_BOUNDS_WEIGHT,
     BoundsMatrixEmbedder,
     CmapEmbedder,
     DistanceGeometryEmbedder,
@@ -25,6 +26,7 @@ __all__ = [
     "DEFAULT_CONF_FACTOR",
     "DEFAULT_HINT_SHARE",
     "HINT_ATTEMPTS",
+    "RESTRAINT_BOUNDS_WEIGHT",
     "EMBED_MODES",
     "BaseEmbedder",
     "BoundsMatrixEmbedder",

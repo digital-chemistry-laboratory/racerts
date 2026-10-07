@@ -259,6 +259,25 @@ def test_an_rdkit_error_in_the_ring_terms_does_not_end_the_embedding(
     assert calls == [True, False]
 
 
+def test_with_restraints_etkdg_weights_the_bounds(monkeypatch):
+    # ETKDG's torsion terms override most windows unless the bounds weigh more:
+    # the weight has a name, and a run without restraints keeps RDKit's.
+    rdkit_embed, weights = dg.EmbedMultipleConfs, []
+
+    def recorded(mol, count, params):
+        weights.append(params.boundsMatForceScaling)
+        return rdkit_embed(mol, count, params)
+
+    monkeypatch.setattr(dg, "EmbedMultipleConfs", recorded)
+    embed_only = racerts.Pipeline([racerts.Embed(n_conformers=2)])
+    racerts.generate_gs("OCCCCO", pipeline=embed_only)
+    assert set(weights) == {1.0}
+    weights.clear()
+    config = PipelineConfig(restraints={"user": [[0, 5, 2.8]]})
+    racerts.generate_gs("OCCCCO", pipeline=embed_only, config=config)
+    assert set(weights) == {racerts.embed.RESTRAINT_BOUNDS_WEIGHT} == {100.0}
+
+
 @pytest.fixture
 def butanol():
     """(S)-butan-2-ol with a geometry."""

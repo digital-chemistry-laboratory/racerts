@@ -33,6 +33,9 @@ logger = logging.getLogger(__name__)
 
 CHIRALITY_FALLBACK_MODES = ("legacy", "frozen_first")  # the choices of the config
 CHIRALITY_FALLBACKS = (True, False, *CHIRALITY_FALLBACK_MODES)  # True: "legacy"
+# With restraints, ETKDG weights the distance bounds this much against its torsion
+# terms (RDKit's boundsMatForceScaling; 1.0 without restraints).
+RESTRAINT_BOUNDS_WEIGHT = 100.0
 
 
 class DistanceGeometryEmbedder(BaseEmbedder):
@@ -163,7 +166,7 @@ class DistanceGeometryEmbedder(BaseEmbedder):
             # (verified on RDKit 2023.09-2026.03); plain DG keeps most of them. The
             # small-ring terms are not scaled down from RDKit 2026.09 on: a window
             # that needs a boat embeds in 1 % of the attempts with them (66 % before).
-            params.boundsMatForceScaling = 100.0
+            params.boundsMatForceScaling = RESTRAINT_BOUNDS_WEIGHT
             params.useSmallRingTorsions = False
         params.trackFailures = True
         if getattr(self, "max_attempts", None) is not None:

@@ -144,9 +144,13 @@ get in place. `Embed` starts an ensemble: to combine two embedding runs (with di
 seeds), merge their ensembles. Components passed to a stage (an embedder with its seed,
 an optimizer) keep their own settings; stages create default ones for the task, e.g.
 `Embed()` uses ETKDGv3 for ground states, with RDKit's macrocycle and small-ring torsion
-terms. The small-ring terms are left out with restraints, so that a window can take a
-ring out of its chair. RDKit fails with them on cyclopentane rings: the embedding then
-goes on without them, with a warning.
+terms. With restraints, ETKDG weights the distance bounds 100 times higher against its
+torsion terms (`racerts.embed.RESTRAINT_BOUNDS_WEIGHT`, RDKit's `boundsMatForceScaling`),
+which override about 60 % of the windows otherwise, and leaves the small-ring terms out,
+so that a window can take a ring out of its chair. Conformers that are embedded with
+restraints therefore start from weaker torsion preferences than those embedded without;
+the refinement is the same for both. RDKit fails with the small-ring terms on
+cyclopentane rings: the embedding then goes on without them, with a warning.
 
 The pipeline logs every stage with its number of conformers and run time (logger
 `racerts.pipeline.runner`, level INFO); `generate`, `generate_ts` and `generate_gs` take

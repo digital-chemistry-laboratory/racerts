@@ -62,7 +62,8 @@ points to a wrong charge, restraint or hypothesis rather than to single bad conf
 Its `FrozenCore` allows 0.1 Å: MMFF and UFF hold the frozen atoms with stiff springs,
 which leave them a few hundredths of an Å from the reference.
 
-From TS-like conformers to transition states with GFN2-xTB (tblite) and Sella:
+From TS-like conformers to transition states with GFN2-xTB (tblite:
+`pip install "racerts[xtb]"`) and Sella (`pip install sella`):
 
 ```python
 from sella import Sella

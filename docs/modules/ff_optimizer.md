@@ -47,7 +47,8 @@ A conformer whose calculation fails (e.g. SCF not converged) is left without an 
 Install ASE support with:
 
 ```bash
-pip install racerts[ase]
+pip install "racerts[ase]"
+pip install "racerts[xtb]"  # also tblite, for GFN2-xTB
 ```
 
 Example with a calculator instance:

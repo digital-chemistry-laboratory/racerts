@@ -25,6 +25,7 @@ This documentation covers how to install and use racer<sup>TS</sup>, the command
 ```bash
 pip install racerts
 pip install "racerts[ase]"   # optional: refinement with ASE calculators (xTB, MLIPs, ...)
+pip install "racerts[xtb]"   # optional: the ASE extra plus tblite, for GFN2-xTB
 pip install "racerts[yaml]"  # optional: pipeline settings as YAML files
 ```
 

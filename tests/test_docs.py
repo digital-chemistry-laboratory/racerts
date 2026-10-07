@@ -1,5 +1,6 @@
 """The documentation names every setting and every option: a new one needs its row."""
 
+import re
 from dataclasses import fields
 from pathlib import Path
 
@@ -49,3 +50,15 @@ def test_every_option_of_the_command_line_is_described():
         }
     )
     assert missing == []
+
+
+def test_every_extra_that_the_docs_name_exists():
+    # pip install "racerts[xtb]" on a page needs the extra in pyproject.toml.
+    root = DOCS.parent
+    extras = (root / "pyproject.toml").read_text()
+    extras = extras.split("[project.optional-dependencies]")[1].split("\n[")[0]
+    defined = set(re.findall(r"^(\w+) = \[", extras, flags=re.MULTILINE))
+    named = set()
+    for page in [*DOCS.rglob("*.md"), root / "README.md"]:
+        named |= set(re.findall(r"racerts\[(\w+)\]", page.read_text()))
+    assert {"ase", "xtb", "yaml"} <= named <= defined

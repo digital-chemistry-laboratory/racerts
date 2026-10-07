@@ -65,7 +65,7 @@ The other arguments of `staged`:
 
 A force field misranks the conformers of a flexible system, and it does not sample ring
 conformations that distance geometry missed. A semiempirical level between the two
-helps with both:
+helps with both (`pip install "racerts[xtb]"` for GFN2-xTB with tblite):
 
 ```python
 from tblite.ase import TBLite

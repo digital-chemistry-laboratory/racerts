@@ -1,4 +1,4 @@
-"""Another level of theory: any ASE calculator, here GFN2-xTB (pip install tblite)."""
+"""Another level of theory: any ASE calculator, here GFN2-xTB (racerts[xtb])."""
 
 from tblite.ase import TBLite
 

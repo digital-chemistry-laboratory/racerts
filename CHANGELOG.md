@@ -22,7 +22,7 @@ working and gives the same files.
 | Restraints | distance windows from the user, from the hydrogen bonds and contacts of the reference, between the fragments of a complex, and as hints from the graph; held in embedding and refinement; exported for xtb, CREST and ORCA |
 | Active bonds | the forming and breaking bonds of a TS sampled over a window instead of frozen, at stratified targets |
 | Validation | checks after any stage: connectivity, stereo, frozen core, clashes, restraints, attack face, reaction core, number and character of imaginary modes, convergence; `gate()` bundles the cheap ones |
-| Other levels | any ASE calculator as optimizer or for re-ranking, with worker processes; a staged recipe (cheap levels first, the expensive one on what survives) and a saddle-point recipe |
+| Other levels | any ASE calculator (extras `ase`, and `xtb` for GFN2-xTB with tblite) as optimizer or for re-ranking, with worker processes; a staged recipe (cheap levels first, the expensive one on what survives) and a saddle-point recipe |
 | Search | `Exploit`: a Monte Carlo search around the conformers found (torsions, ring flips, rigid moves of fragments) that stops when it rarely finds new minima |
 | Swaps | replace a group, a ligand or ring atoms of a reference ensemble and sample only the new part, with stereo taken from the reference or given explicitly |
 | Pruning | duplicates decided by a symmetry-aware RMSD that does not list every atom mapping (so hydrogens can count), cluster pruning, family selection |

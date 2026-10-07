@@ -40,6 +40,11 @@ ase = [
     "ase>=3.22.0",
     "threadpoolctl>=3.0.0",
 ]
+xtb = [
+    "ase>=3.22.0",
+    "threadpoolctl>=3.0.0",
+    "tblite>=0.5.0",
+]
 yaml = [
     "pyyaml>=6.0",
 ]

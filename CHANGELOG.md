@@ -186,7 +186,9 @@ pruner with the legacy ones is `racerts.pruner.RMSDPruner`.
   number of their exchanges no longer matters. The value is never below the true
   RMSD. Two lower bounds of the RMSD skip 76 to 99.8 % of the pairs without computing it.
 - `racerts.prune.RMSDPruner(threshold, hydrogens="none" | "polar" | "all", align, max_maps)`
-  decides every pair by its RMSD. The pruner of legacy racerts, with its prefilters, keywords
+  decides every pair by its RMSD; with `energy_tolerance=` conformers whose energies differ
+  by more than that are not duplicates, however close (refined ensembles and thresholds
+  above the default). The pruner of legacy racerts, with its prefilters, keywords
   and overridable methods, is its subclass `racerts.pruner.RMSDPruner` (in `racerts.compat`).
   Clusters, Exploit and the comparison of runs use the same kernel. For conformers that
   are stored without bonds, `graph=` gives the bonded molecule (also in `ClusterPruner`

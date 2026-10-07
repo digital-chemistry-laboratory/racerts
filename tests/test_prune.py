@@ -291,6 +291,41 @@ def test_solvent_molecules_that_changed_places_give_a_duplicate(solvent, n, capl
     assert not caplog.text
 
 
+def test_close_structures_with_different_energies_are_not_duplicates():
+    # Two refined structures can lie within the threshold and still be two stationary
+    # points; their energies say so. Four copies of one geometry at 0, 0.3, 1.0 and
+    # 1.2 kcal/mol: one structure by the RMSD alone, two with a tolerance of 0.5 (0.3
+    # goes with 0, 1.2 with 1.0; 1.0 is compared with the one that is kept, 0).
+    mol = _conformers("CCCCCO", 1)
+    for _ in range(3):
+        mol.AddConformer(Chem.Conformer(mol.GetConformer()), assignId=True)
+
+    def kept(**settings):
+        return [
+            c.GetId()
+            for c in RMSDPruner(**settings).prune(Chem.Mol(mol)).GetConformers()
+        ]
+
+    for conf in mol.GetConformers():
+        conf.ClearProp("energy")
+    with pytest.raises(ValueError, match="energy_tolerance needs the energies"):
+        kept(energy_tolerance=0.5)
+    assert kept() == [0]
+    for conf, energy in zip(mol.GetConformers(), [0.0, 0.3, 1.0, 1.2]):
+        conf.SetDoubleProp("energy", energy)
+    assert kept() == [0]
+    assert kept(energy_tolerance=0.5) == [0, 2]
+    assert kept(energy_tolerance=0.25) == [0, 1, 2]  # 0.3 and 1.0 are too far from 0
+    assert kept(energy_tolerance=2.0) == [0]
+    for wrong, error in (
+        (-0.1, ValueError),
+        (float("nan"), ValueError),
+        ("0.5", TypeError),
+    ):
+        with pytest.raises(error, match="energy_tolerance"):
+            RMSDPruner(energy_tolerance=wrong)
+
+
 @pytest.fixture
 def ensemble():
     """Five conformers of pentanol with energies 3, 1, 4, 1.5, 2 kcal/mol."""

@@ -29,7 +29,8 @@ class RMSDPruner(BasePruner):
     the lowest of a set of duplicates stays (in their own order if one has no energy).
 
     Every pair is decided by its RMSD; a pair is skipped only where a lower bound of
-    the RMSD (racerts.symmetry.bound_descriptors) is above the threshold.
+    the RMSD (racerts.symmetry.bound_descriptors) is above the threshold, or where
+    the energies are further apart than energy_tolerance.
 
     Args:
         hydrogens: Which hydrogens count: "none" (the heavy atoms), "polar" (also
@@ -41,6 +42,11 @@ class RMSDPruner(BasePruner):
             coordinates): a molecule of the same atoms in the same order with the
             bonds. The equivalent atoms and the hydrogens that count are read from
             it. Without bonds, all atoms of an element count as equivalent.
+        energy_tolerance: Conformers whose energies differ by more than this
+            (kcal/mol) are not duplicates, however close they are: two refined
+            structures with different energies are two stationary points. For
+            ensembles that are refined at one level (all conformers need an energy);
+            None (default): the RMSD alone decides.
 
     The pruner of legacy racerts, with its energy and inertia prefilters and its
     keywords, is racerts.compat.pruner.RMSDPruner.
@@ -54,6 +60,7 @@ class RMSDPruner(BasePruner):
         align=True,
         max_maps=MAX_MAPS,
         graph=None,
+        energy_tolerance=None,
         verbose=False,
         **legacy,
     ):
@@ -71,11 +78,14 @@ class RMSDPruner(BasePruner):
         if not is_integer(max_maps) or max_maps < 1:
             raise ValueError("max_maps must be a positive integer.")
         check_graph(graph)
+        if energy_tolerance is not None:
+            check_threshold(energy_tolerance, "energy_tolerance")
         self.threshold = threshold
         self.hydrogens = hydrogens
         self.align = align
         self.max_maps = max_maps
         self.graph = graph
+        self.energy_tolerance = energy_tolerance
         self.verbose = verbose
 
     def prune(self, mol):
@@ -100,6 +110,15 @@ class RMSDPruner(BasePruner):
         kept ones that a lower bound of the RMSD does not already tell apart, the
         closest by that bound first, until one is within the threshold.
         """
+        energies = None
+        if self.energy_tolerance is not None:
+            conformers = [mol.GetConformer(int(i)) for i in conf_ids]
+            if not all(conf.HasProp("energy") for conf in conformers):
+                raise ValueError(
+                    "energy_tolerance needs the energies of the conformers: refine "
+                    "them first, or leave it out."
+                )
+            energies = [conf.GetDoubleProp("energy") for conf in conformers]
         if len(conf_ids) < 2:
             return set(conf_ids)
         kernel = symmetry_kernel(
@@ -111,8 +130,8 @@ class RMSDPruner(BasePruner):
             hard_max_maps=max(self.max_maps, LISTED_MAPS),
         )
         classes = symmetry_classes(kernel.graph, kernel.weight)
-        kept, prepared, described = [], [], ([], [])
-        for conf_id in conf_ids:
+        kept, prepared, described, kept_energies = [], [], ([], []), []
+        for n, conf_id in enumerate(conf_ids):
             positions = mol.GetConformer(int(conf_id)).GetPositions()
             own = bound_descriptors(positions, kernel.index, kernel.weight, classes)
             candidate = kernel.prepare(positions, align=self.align)
@@ -124,6 +143,9 @@ class RMSDPruner(BasePruner):
                         for others, vector in zip(described, own)
                     )
                 )
+                if energies is not None:  # another energy: another stationary point
+                    apart = np.abs(np.array(kept_energies) - energies[n])
+                    bounds = np.where(apart > self.energy_tolerance, np.inf, bounds)
                 for k in np.argsort(bounds):
                     if bounds[k] > self.threshold + 1e-9:
                         break
@@ -135,6 +157,8 @@ class RMSDPruner(BasePruner):
             if not duplicate:
                 kept.append(conf_id)
                 prepared.append(candidate)
+                if energies is not None:
+                    kept_energies.append(energies[n])
                 for others, vector in zip(described, own):
                     others.append(vector)
         return set(kept)

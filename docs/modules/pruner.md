@@ -19,6 +19,15 @@ Options of `racerts.prune.RMSDPruner`:
 - `hydrogens: str = "polar"` : the hydrogens that count: `"none"` (heavy atoms), `"polar"` (also those on N, O, P and S, so that the rotamers of a hydrogen bond stay apart) or `"all"`
 - `align: bool = True` : superpose before comparing; `False` compares the conformers in the frame they share (e.g. of a frozen core)
 - `max_maps: int = 100` : the most equivalent atom mappings that are listed; above it, local symmetry (the hydrogens of a methyl, the methyls of a tert-butyl) is assigned without a list
+- `graph: Mol = None` : for conformers that are stored without bonds (e.g. read from coordinates alone): a molecule of the same atoms in the same order with the bonds
+
+The equivalent atoms come from the bonds. In a molecule without bonds all atoms of an element count as equivalent and no hydrogen can be left out: two structures that differ in which hydrogen sits on the oxygen are taken for one, and a copy of a larger structure can be missed, because the list of mappings is cut. The pruner warns in that case; with `graph=` it reads the equivalent atoms and the hydrogens from the bonded molecule:
+
+```python
+from racerts.prune import RMSDPruner
+
+RMSDPruner(graph=bonded).prune(mol)  # mol: the same atoms, stored without bonds
+```
 
 #### The RMSD pruner of legacy racerts
 `racerts.pruner.RMSDPruner` (`racerts.compat.pruner.RMSDPruner`, a subclass of the one above) is what `ConformerGenerator`, the legacy command line, `PipelineConfig.legacy()` and a config with a prefilter switched on use. It computes the RMSD of `racerts.geometry` (the smallest over a list of symmetry maps, with the same values as `rdMolAlign.GetBestRMS`) only for pairs that pass its two prefilters, so duplicates whose energies differ by more than `energy_threshold` both stay.

@@ -174,7 +174,10 @@ pruner with the legacy ones is `racerts.pruner.RMSDPruner`.
 - `racerts.prune.RMSDPruner(threshold, hydrogens="none" | "polar" | "all", align, max_maps)`
   decides every pair by its RMSD. The pruner of legacy racerts, with its prefilters, keywords
   and overridable methods, is its subclass `racerts.pruner.RMSDPruner` (in `racerts.compat`).
-  Clusters, Exploit and the comparison of runs use the same kernel.
+  Clusters, Exploit and the comparison of runs use the same kernel. For conformers that
+  are stored without bonds, `graph=` gives the bonded molecule (also in `ClusterPruner`
+  with the symmetric kernel); without it all atoms of an element count as equivalent, and
+  a warning says so.
 - `PruneCluster` (Butina, hierarchical or leader clustering; one conformer per cluster) and
   `FamilySelector` (families of similar conformers, for pools); `PruneCount` (the n lowest).
 - `prune.check_stereo`: conformers whose stereo differs from the graph are removed after

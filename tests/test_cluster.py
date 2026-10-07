@@ -107,6 +107,12 @@ def test_distances_and_representatives(rng):
     mol.AddConformer(swapped, assignId=True)
     assert len(ClusterPruner(threshold=0.1, kernel="symmetric").clusters(mol)) == 1
     assert len(ClusterPruner(threshold=0.1).clusters(mol)) == 2  # fixed atoms
+    # Stored without bonds, the two have no graph with a symmetry: it is given.
+    bare = Chem.RWMol(mol)
+    for bond in list(bare.GetBonds()):
+        bare.RemoveBond(bond.GetBeginAtomIdx(), bond.GetEndAtomIdx())
+    on_graph = ClusterPruner(threshold=0.1, kernel="symmetric", graph=mol)
+    assert on_graph.clusters(bare.GetMol()) == [[0, 1]]
 
     # -- centroid representative
     base = np.zeros((8, 3))

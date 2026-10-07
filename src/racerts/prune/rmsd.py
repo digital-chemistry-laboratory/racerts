@@ -4,15 +4,16 @@ import logging
 
 import numpy as np
 
-from racerts.symmetry import (
-    LISTED_MAPS,
-    SymmetricRMSD,
-    bound_descriptors,
-    symmetry_classes,
-)
+from racerts.symmetry import LISTED_MAPS, bound_descriptors, symmetry_classes
 from racerts.utils.checks import is_integer
 
-from .base import BasePruner, check_threshold, drop_conformers_without_energy
+from .base import (
+    BasePruner,
+    check_graph,
+    check_threshold,
+    drop_conformers_without_energy,
+    symmetry_kernel,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,10 @@ class RMSDPruner(BasePruner):
             apart) or "all".
         max_maps: The most equivalent atom mappings that are listed; above it local
             symmetry is assigned without a list (racerts.symmetry.SymmetricRMSD).
+        graph: For conformers that are stored without bonds (e.g. read from
+            coordinates): a molecule of the same atoms in the same order with the
+            bonds. The equivalent atoms and the hydrogens that count are read from
+            it. Without bonds, all atoms of an element count as equivalent.
 
     The pruner of legacy racerts, with its energy and inertia prefilters and its
     keywords, is racerts.compat.pruner.RMSDPruner.
@@ -48,6 +53,7 @@ class RMSDPruner(BasePruner):
         hydrogens="polar",
         align=True,
         max_maps=MAX_MAPS,
+        graph=None,
         verbose=False,
         **legacy,
     ):
@@ -64,10 +70,12 @@ class RMSDPruner(BasePruner):
             )
         if not is_integer(max_maps) or max_maps < 1:
             raise ValueError("max_maps must be a positive integer.")
+        check_graph(graph)
         self.threshold = threshold
         self.hydrogens = hydrogens
         self.align = align
         self.max_maps = max_maps
+        self.graph = graph
         self.verbose = verbose
 
     def prune(self, mol):
@@ -94,8 +102,10 @@ class RMSDPruner(BasePruner):
         """
         if len(conf_ids) < 2:
             return set(conf_ids)
-        kernel = SymmetricRMSD(
+        kernel = symmetry_kernel(
             mol,
+            self.graph,
+            conf_ids,
             self.hydrogens,
             max_maps=self.max_maps,
             hard_max_maps=max(self.max_maps, LISTED_MAPS),

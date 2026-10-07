@@ -5,8 +5,10 @@ import math
 from abc import abstractmethod
 from numbers import Real
 
+import numpy as np
 from rdkit import Chem
 
+from racerts.symmetry import SymmetricRMSD
 from racerts.utils.checks import is_integer
 
 logger = logging.getLogger(__name__)
@@ -27,6 +29,40 @@ def check_n_max(n_max) -> int:
     if n_max < 1:
         raise ValueError("n_max must be positive.")
     return int(n_max)
+
+
+def check_graph(graph) -> None:
+    """Raise unless graph is an RDKit molecule or None (TypeError)."""
+    if graph is not None and not isinstance(graph, Chem.Mol):
+        raise TypeError(f"graph must be an RDKit molecule, not {graph!r}.")
+
+
+def symmetry_kernel(mol: Chem.Mol, graph, conf_ids, atoms, **limits) -> SymmetricRMSD:
+    """
+    The symmetry-aware RMSD of the conformers conf_ids of mol: over the equivalent
+    atoms of graph if one is given (a molecule of the same atoms in the same order,
+    for conformers that are stored without bonds), else of mol itself.
+    """
+    if graph is None:
+        if mol.GetNumBonds() == 0 and mol.GetNumAtoms() > 2:
+            logger.warning(
+                "The molecule has no bonds: all atoms of an element count as "
+                "equivalent and no hydrogen is left out, so that different structures "
+                "can be taken for one and copies of a structure can be missed. For a "
+                "molecule stored without its bonds, give the bonded one as graph=."
+            )
+        return SymmetricRMSD(mol, atoms, **limits)
+    if [a.GetAtomicNum() for a in mol.GetAtoms()] != [
+        a.GetAtomicNum() for a in graph.GetAtoms()
+    ]:
+        raise ValueError(
+            "graph must have the atoms of the conformers: the same elements in the "
+            "same order."
+        )
+    reference = np.array(
+        [mol.GetConformer(int(i)).GetPositions() for i in list(conf_ids)[:10]]
+    )
+    return SymmetricRMSD(graph, atoms, reference=reference, **limits)
 
 
 def drop_conformers_without_energy(mol: Chem.Mol) -> None:

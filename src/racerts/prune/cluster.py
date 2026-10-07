@@ -8,13 +8,15 @@ from rdkit import Chem
 
 from racerts.geometry import heavy_atoms, rmsd
 from racerts.pipeline import ConformerEnsemble
-from racerts.symmetry import LISTED_MAPS, SymmetricRMSD
+from racerts.symmetry import LISTED_MAPS
 
 from .base import (
     BasePruner,
+    check_graph,
     check_n_max,
     check_threshold,
     drop_conformers_without_energy,
+    symmetry_kernel,
 )
 from .targets import in_turns
 
@@ -54,6 +56,9 @@ class ClusterPruner(BasePruner):
             e.g. a distance over paired reactant and product conformers.
         max_matches: The most symmetry maps that the "symmetric" kernel lists; above
             it, local symmetry is assigned without a list.
+        graph: For the "symmetric" kernel on conformers that are stored without
+            bonds: a molecule of the same atoms in the same order with the bonds
+            (as RMSDPruner).
     """
 
     def __init__(
@@ -66,8 +71,10 @@ class ClusterPruner(BasePruner):
         linkage: str = "average",
         metric: Optional[Metric] = None,
         max_matches: int = 10000,
+        graph: Optional[Chem.Mol] = None,
     ):
         check_threshold(threshold, "threshold")
+        check_graph(graph)
         for value, allowed, name in (
             (method, METHODS, "method"),
             (kernel, KERNELS, "kernel"),
@@ -84,6 +91,7 @@ class ClusterPruner(BasePruner):
         self.linkage = linkage
         self.metric = metric
         self.max_matches = check_n_max(max_matches)
+        self.graph = graph
 
     def distances(self, mol: Chem.Mol, conf_ids: Sequence[int]) -> np.ndarray:
         """The symmetric matrix of distances between the conformers conf_ids."""
@@ -102,8 +110,10 @@ class ClusterPruner(BasePruner):
                     return rmsd(positions[a], positions[b], atoms)
 
             else:  # the symmetry depends on the graph only: once for all pairs
-                kernel = SymmetricRMSD(
+                kernel = symmetry_kernel(
                     mol,
+                    self.graph,
+                    conf_ids,
                     "heavy",
                     max_maps=self.max_matches,
                     hard_max_maps=max(self.max_matches, LISTED_MAPS),

@@ -177,6 +177,72 @@ def test_copies_of_a_linear_molecule_are_duplicates(smiles):
     assert len(ensemble) == 1
 
 
+def _without_bonds(mol):
+    """mol and its conformers without a bond, as read from coordinates alone."""
+    bare = Chem.RWMol(mol)
+    for bond in list(bare.GetBonds()):
+        bare.RemoveBond(bond.GetBeginAtomIdx(), bond.GetEndAtomIdx())
+    return bare.GetMol()
+
+
+def _with_exchanged(mol, pairs):
+    """mol with a second conformer: the first with the places of pairs exchanged."""
+    mol = Chem.Mol(mol)
+    positions = mol.GetConformer().GetPositions()
+    copy = Chem.Conformer(mol.GetConformer())
+    for a, b in pairs:
+        copy.SetAtomPosition(a, positions[b].tolist())
+        copy.SetAtomPosition(b, positions[a].tolist())
+    mol.AddConformer(copy, assignId=True)
+    return mol
+
+
+def test_duplicates_of_a_structure_without_bonds_need_its_graph(caplog):
+    def kept(mol, **settings):
+        return RMSDPruner(**settings).prune(Chem.Mol(mol)).GetNumConformers()
+
+    # -- a copy is not found
+    # Butanol and a copy in which two hydrogens of the methyl group changed places:
+    # one conformer. Without bonds every hydrogen may take the place of every other,
+    # which is more mappings than any list holds: the copy is not recognised.
+    butanol = _conformers("CCCCO", 1)
+    methyl = [a.GetIdx() for a in butanol.GetAtomWithIdx(0).GetNeighbors()]
+    hydrogens = [i for i in methyl if butanol.GetAtomWithIdx(i).GetAtomicNum() == 1]
+    copies = _with_exchanged(butanol, [hydrogens[:2]])
+    assert kept(copies, hydrogens="all") == 1
+    with caplog.at_level(logging.WARNING, logger="racerts"):
+        assert kept(_without_bonds(copies), hydrogens="all") == 2
+    assert "has no bonds" in caplog.text and "graph=" in caplog.text
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="racerts"):
+        assert kept(_without_bonds(copies), hydrogens="all", graph=butanol) == 1
+    assert not caplog.text
+
+    # -- two structures are taken for one
+    # Ethanol, and ethanol whose hydroxyl hydrogen sits where a hydrogen of the methyl
+    # group was and the other way round: another structure on the graph (which
+    # hydrogen is on the oxygen), the same one without bonds.
+    ethanol = _conformers("CCO", 1)
+    pattern = Chem.MolFromSmarts("[H][CH3][CH2][OH][H]")
+    on_carbon, _, _, _, on_oxygen = ethanol.GetSubstructMatch(pattern)
+    two = _with_exchanged(ethanol, [(on_carbon, on_oxygen)])
+    assert kept(two) == kept(two, hydrogens="all") == 2
+    assert kept(_without_bonds(two)) == 1
+    assert kept(_without_bonds(two), graph=ethanol) == 2
+
+    # -- which hydrogens count is read from the graph
+    # Without bonds no hydrogen is known as polar, and none can be left out.
+    assert kept(_without_bonds(copies), hydrogens="none", graph=butanol) == 1
+    assert kept(_without_bonds(two), hydrogens="none", graph=ethanol) == 1
+    assert kept(_without_bonds(two), hydrogens="polar", graph=ethanol) == 2
+
+    # -- the graph has the atoms of the conformers, in their order
+    with pytest.raises(ValueError, match="same elements in the same order"):
+        kept(_without_bonds(two), graph=butanol)
+    with pytest.raises(TypeError, match="graph must be an RDKit molecule"):
+        RMSDPruner(graph="CCO")
+
+
 @pytest.fixture
 def ensemble():
     """Five conformers of pentanol with energies 3, 1, 4, 1.5, 2 kcal/mol."""

@@ -169,10 +169,11 @@ def test_duplicates_by_the_rmsd_alone():
     assert {c.GetId() for c in pruned.GetConformers()} <= set(range(n))
 
 
-@pytest.mark.parametrize("smiles", ["C#C", "C#N", "[CH2]"])
+@pytest.mark.parametrize("smiles", ["C#C", "C#N", "[CH2]", "[Br-]"])
 def test_copies_of_a_linear_molecule_are_duplicates(smiles):
     # The moment of inertia about the axis of a linear molecule is rounding noise
     # (1e-16 to 1e-10): its relative difference between two copies says nothing.
+    # The same for every axis of a single atom.
     ensemble = racerts.generate_gs(smiles)
     assert len(ensemble) == 1
 

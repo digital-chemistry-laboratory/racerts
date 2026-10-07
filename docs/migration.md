@@ -60,9 +60,17 @@ The legacy API keeps working; all of it lives in `racerts.compat`:
   nothing (e.g. a metal over a bond, with the SMILES of the other side of the reaction),
   the bounds that exclude the reference geometry are widened to it, with a warning
   (`reference_bounds`, default `fallback`; `never` restores the error).
-- Copies of a linear molecule (acetylene, HCN) are pruned as duplicates. Their moment of
-  inertia about the axis is rounding noise, which the rotational filter of `RMSDPruner`
-  took for a difference, so most copies were kept.
+- Copies of a single atom or of a linear molecule (bromide, acetylene, HCN) are pruned
+  as duplicates. A moment of inertia that is zero is computed as rounding noise, which
+  the rotational filter of `RMSDPruner` took for a difference, so most copies were kept.
+  A caller that counts conformers sees the difference: an ensemble free energy over
+  n copies of one structure is RT ln n too low.
+- The ASE optimizer records how each optimization went in a conformer property,
+  `provenance` (converged, steps, wall time), also through `ConformerGenerator` and
+  `racerts.optimizer.ase`. The files that racerts writes are unchanged. A caller that
+  stores the molecule with its conformer properties stores this one too, and the wall
+  time makes two otherwise identical runs differ there:
+  `conformer.ClearProp("provenance")` removes it.
 
 ## For new code
 

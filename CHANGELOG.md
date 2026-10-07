@@ -274,7 +274,8 @@ calls: extended-XYZ comment lines, messages through `logging`, `conf_factor=80` 
 Python API as on the command line, stricter input (an invalid SMILES or one that disagrees
 with the charge is an error of the SMILES getter), an embedding without conformers raises,
 optimizer errors other than missing MMFF parameters are raised, the default multiplicity,
-widened bounds when RDKit embeds nothing, copies of a linear molecule pruned.
+widened bounds when RDKit embeds nothing, copies of an atom or a linear molecule pruned,
+a `provenance` conformer property from the ASE optimizer.
 
 #### Fixes to legacy behaviour
 

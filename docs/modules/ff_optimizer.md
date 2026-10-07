@@ -1,4 +1,4 @@
-# optimizer
+# Optimizers (`racerts.refine`)
 
 Optimizers for refining TS-constrained conformers.
 

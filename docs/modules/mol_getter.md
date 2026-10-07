@@ -1,4 +1,4 @@
-# mol_getter
+# Molecule builders (`racerts.system`)
 
 Build RDKit molecules from a TS .xyz file (and optional SMILES), providing different strategies for topology inference.
 

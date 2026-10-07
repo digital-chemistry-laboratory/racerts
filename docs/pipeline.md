@@ -36,6 +36,14 @@ ensemble = racerts.generate(mol, racerts.TransitionState([3, 4, 5]))
 | `GroundState()` | none | no |
 | `Constrained(hard, soft=(), core=None)` | the `hard` atoms; `soft` atoms start at the reference and are held near it | yes |
 
+`generate_ts` builds the molecule and a `TransitionState` from its arguments. Any other
+task goes through `generate` with a molecule from `build_mol`, as above:
+
+```python
+task = racerts.TransitionState.from_endpoints(reactant, product)  # two RDKit molecules
+ensemble = racerts.generate(mol, task)
+```
+
 A task returns a `FrozenSet`: `hard` atoms are placed at the reference positions during
 embedding and held there during refinement; `soft` atoms are placed there too and held
 within 0.3 Å by position restraints in MMFF/UFF refinement (e.g. the kept atoms of a

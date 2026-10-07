@@ -12,7 +12,7 @@
   <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license">
 </p>
 
-<p align="center">Transition-state conformer ensembles via constrained distance geometry</p>
+<p align="center">Conformer ensembles of transition states, and of ground states and complexes, via constrained distance geometry</p>
 
 # Installation
 

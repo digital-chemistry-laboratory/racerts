@@ -45,10 +45,10 @@ nav:
       - CLI: cli.md
   - Components:
       - Modules overview: modules/README.md
-      - mol_getter: modules/mol_getter.md
-      - embedder: modules/embedder.md
-      - optimizer: modules/ff_optimizer.md
-      - pruner: modules/pruner.md
+      - Molecule builders: modules/mol_getter.md
+      - Embedders: modules/embedder.md
+      - Optimizers: modules/ff_optimizer.md
+      - Pruners: modules/pruner.md
   - Legacy racerts:
       - Migrating from legacy racerts: migration.md
       - conformer_generator: modules/conformer_generator.md

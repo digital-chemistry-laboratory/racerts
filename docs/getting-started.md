@@ -2,7 +2,7 @@
 
 ## What is racer<sup>TS</sup>?
 
-racer<sup>TS</sup> generates conformer ensembles for transition states (TS) using RDKit functions.
+racer<sup>TS</sup> generates conformer ensembles for transition states (TS) using RDKit functions. The same pipeline gives ensembles of ground states and of any structure with a part held fixed.
 
 This documentation covers how to install and use racer<sup>TS</sup>, the command-line interface, and how to configure the individual components.
 

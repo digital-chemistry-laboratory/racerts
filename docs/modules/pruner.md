@@ -1,4 +1,4 @@
-# pruner
+# Pruners (`racerts.prune`)
 
 Reduce conformer ensembles based on relative conformer energy and structural similarity.
 

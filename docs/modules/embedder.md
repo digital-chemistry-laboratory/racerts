@@ -1,4 +1,4 @@
-# **embedder**
+# Embedders (`racerts.embed`)
 
 Embedding strategies for TS-constrained conformer generation.
 

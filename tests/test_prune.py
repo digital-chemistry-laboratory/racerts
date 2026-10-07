@@ -260,6 +260,30 @@ def test_duplicates_of_a_structure_without_bonds_need_its_graph(caplog):
         RMSDPruner(graph="CCO")
 
 
+@pytest.mark.parametrize("solvent, n", [("O", 6), ("CO", 5), ("O", 12)])
+def test_solvent_molecules_that_changed_places_give_a_duplicate(solvent, n, caplog):
+    # Identical molecules around a solute are equivalent as wholes: acetate with n
+    # waters or methanols, and a copy in which every solvent molecule sits where the
+    # next one was. Twelve waters have more mappings than are listed (12! x 2); the
+    # copy is found all the same, and a warning says that the list was cut.
+    mol = Chem.AddHs(Chem.MolFromSmiles(".".join(["CC(=O)[O-]"] + [solvent] * n)))
+    AllChem.EmbedMolecule(mol, randomSeed=11)
+    positions = mol.GetConformer().GetPositions()
+    molecules = Chem.GetMolFrags(mol)[1:]
+    copy, moved = Chem.Conformer(mol.GetConformer()), Chem.Conformer(mol.GetConformer())
+    for here, there in zip(molecules, molecules[1:] + molecules[:1]):
+        for a, b in zip(here, there):
+            copy.SetAtomPosition(a, positions[b].tolist())
+    for a in molecules[0]:  # one solvent molecule 1 A further out: another structure
+        moved.SetAtomPosition(a, (positions[a] + [1.0, 0.0, 0.0]).tolist())
+    mol.AddConformer(copy, assignId=True)
+    mol.AddConformer(moved, assignId=True)
+    with caplog.at_level(logging.WARNING, logger="racerts"):
+        kept = RMSDPruner().prune(Chem.Mol(mol))
+    assert [c.GetId() for c in kept.GetConformers()] == [0, 2]
+    assert ("the list is cut" in caplog.text) == (n == 12)
+
+
 @pytest.fixture
 def ensemble():
     """Five conformers of pentanol with energies 3, 1, 4, 1.5, 2 kcal/mol."""

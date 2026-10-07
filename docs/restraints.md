@@ -60,6 +60,30 @@ From Python, `racerts.restraints.RestraintSet` and `DistanceRestraint` (with `st
 `generate_gs` as `restraints=`, and `build_restraints(mol, frozen, ...)` builds them
 from the sources above.
 
+## Releasing the restraints
+
+A restraint with stage `"both"` acts in every refinement of the pipeline. That is what
+"keep this contact" means, and it also holds the contact at the level whose energies
+decide. `Refine(optimizer, restraints=False)` refines without the restraints of the
+context:
+
+```python
+from racerts import Refine
+from racerts.recipes import Level, staged
+
+pipeline = staged([Level(window=25), Level(Refine(uma, restraints=False), exploit={})])
+```
+
+- The windows of the user, the kept contacts, the links between fragments and the
+  containment no longer act in this refinement, nor in the `Exploit` search of the level.
+- What the task holds stays: frozen atoms, soft atoms, and the windows of a TS with
+  [active-bond windows](active-bonds.md).
+- The conformers record `restraints_released` in their provenance, and the gate after the
+  refinement does not drop them for a contact that opened. A later `Refine` with the
+  restraints holds them again.
+- A restraint that should guide the embedding only has stage `"embed"` (as the
+  [hints](#hints) have): it never reaches a refinement.
+
 ## Hints
 
 `restraints.hints` adds candidate hydrogen bonds from the graph (at most `max_hints`)

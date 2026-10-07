@@ -116,14 +116,23 @@ class DistanceRestraint:
 # The restraints of the reference geometry that Embed(restraint_fraction=...) takes in
 # some batches only; user restraints, links, containment and task windows always apply.
 OPTIONAL_SOURCES = ("hbond", "contact", "fragment")
+# The sources of the restraints that place the reacting atoms of a windowed TS: they
+# are part of the task, not restraints that a refinement can release.
+WINDOW_SOURCES = ("active", "neighbor", "core", "target")
 
 
 def applying(restraints, provenance) -> list:
     """
     The restraints that apply to a conformer: all of them, but of the optional ones
     (OPTIONAL_SOURCES) only those of its embedding batch, if its provenance lists
-    them ("restraint_subset", see Embed restraint_fraction).
+    them ("restraint_subset", see Embed restraint_fraction), and only the windows of
+    the task (WINDOW_SOURCES) if its last refinement released the restraints
+    ("restraints_released", see Refine restraints).
     """
+    if provenance.get("restraints_released"):
+        restraints = [
+            r for r in restraints if getattr(r, "source", None) in WINDOW_SOURCES
+        ]
     subset = provenance.get("restraint_subset")
     if subset is None:
         return list(restraints)

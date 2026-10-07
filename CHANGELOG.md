@@ -124,7 +124,8 @@ pruner with the legacy ones is `racerts.pruner.RMSDPruner`.
 - Fragment roles (reactive, anchored, contained, free) and containment restraints that keep
   a loose fragment near the core.
 - Held in MMFF/UFF refinement as flat-bottom terms and in ASE refinement as constraints;
-  reported energies leave the terms out.
+  reported energies leave the terms out. `Refine(restraints=False)` releases them for one
+  refinement, e.g. at the level whose energies decide; the gate knows.
 - `export_restraints` and `--export-restraints {xtb,crest,orca,json}`: the frozen atoms and
   restraints as input for other programs.
 

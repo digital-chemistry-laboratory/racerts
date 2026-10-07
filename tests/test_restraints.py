@@ -380,6 +380,49 @@ def test_restraints_through_the_default_pipeline(sn2_ts_water, sn2_ts, caplog):
         assert conf.GetDoubleProp("energy") == pytest.approx(ff.CalcEnergy(), abs=1e-8)
 
 
+def test_a_refinement_can_release_the_restraints():
+    # A window that holds the ends of butane closer than any of its minima does.
+    mol = Chem.AddHs(Chem.MolFromSmiles("CCCC"))
+    AllChem.EmbedMultipleConfs(mol, numConfs=4, randomSeed=61453)
+    window = RestraintSet([DistanceRestraint(0, 3, 2.3, 2.5, force_constant=1000.0)])
+    ctx = racerts.Context.create(mol, racerts.GroundState(), restraints=window)
+    check = racerts.validate.RestraintViolation()
+
+    def ends(ensemble):
+        positions = [c.GetPositions() for c in ensemble.mol.GetConformers()]
+        return np.array([np.linalg.norm(p[0] - p[3]) for p in positions])
+
+    def refined(ensemble, **settings):
+        optimizer = racerts.refine.MMFFOptimizer(converge=True)
+        return racerts.Refine(optimizer, **settings).run(ctx, ensemble.copy())
+
+    held = refined(racerts.ConformerEnsemble(mol))
+    assert (ends(held) < 2.6).all() and not check.validate(ctx, held)
+    assert all("restraints_released" not in held.provenance(i) for i in held.conf_ids)
+
+    # -- restraints=False: the refinement is free, and says so in the provenance
+    free = refined(held, restraints=False)
+    assert (ends(free) > 3.0).all()  # gauche or anti
+    assert all(free.provenance(i)["restraints_released"] for i in free.conf_ids)
+    assert free.energies().max() < held.energies().min()
+    # The gate does not ask a released restraint of these conformers ...
+    assert not check.validate(ctx, free)
+    assert len(racerts.validate.gate().run(ctx, free.copy())) == len(free)
+    # ... as it would without the mark.
+    unmarked = free.copy()
+    unmarked.add_provenance(restraints_released=False)
+    assert set(check.validate(ctx, unmarked)) == set(free.conf_ids)
+
+    # -- a later refinement with the restraints holds them again
+    again = refined(free)
+    assert (ends(again) < 2.6).all()
+    assert not any(again.provenance(i)["restraints_released"] for i in again.conf_ids)
+
+    # -- the windows of a task are not restraints of the context: they stay
+    with pytest.raises(TypeError, match="restraints"):
+        racerts.Refine(restraints="none")
+
+
 @pytest.mark.ase
 def test_ase_refinement_takes_the_restraints(caplog):
     # The terms themselves: tests/test_restrained.py.

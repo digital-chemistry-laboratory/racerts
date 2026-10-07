@@ -2,7 +2,7 @@
 
 import logging
 
-from .model import DistanceRestraint
+from .model import WINDOW_SOURCES, DistanceRestraint  # noqa: F401 - used from here
 
 logger = logging.getLogger(__name__)
 
@@ -10,8 +10,6 @@ OUTSIDE_TOLERANCE = 0.05  # A: distance geometry meets a window to about this
 # Half widths (A) of the windows that hold an active bond at its target.
 EMBED_TARGET_HALF_WIDTH = 0.01
 REFINE_TARGET_HALF_WIDTH = 0.02
-# The sources of the restraints that place the reacting atoms of a windowed TS.
-WINDOW_SOURCES = ("active", "neighbor", "core", "target")
 
 
 def target_windows(restraints, target, half_width, force_constant=None):

@@ -96,6 +96,15 @@ class Refine:
             which the "frozen_first" embedding places at the reference; the default
             pipeline sets it with that fallback. Otherwise refinement can turn such a
             substituent through to the other stereoisomer.
+        restraints: Hold the distance restraints of the context (default). False
+            releases them for this refinement: the windows of the user, the contacts
+            kept from the reference, the links between fragments and the containment
+            no longer act, e.g. at the level whose energies decide. What the task
+            itself holds stays: the frozen atoms, the soft atoms and the windows of a
+            TS with active-bond windows. The conformers record
+            "restraints_released" in their provenance, and the checks that follow
+            (RestraintViolation, in gate) do not ask the released restraints of
+            them; a later refinement with the restraints holds them again.
     """
 
     name = "refine"
@@ -106,11 +115,18 @@ class Refine:
         fallback: bool = True,
         anchors: bool = True,
         stereo_anchors: bool = False,
+        restraints: bool = True,
     ):
+        if not isinstance(restraints, bool):
+            raise TypeError(
+                "restraints is True (hold the restraints of the context) or False "
+                f"(release them), not {restraints!r}."
+            )
         self.optimizer = optimizer
         self.fallback = fallback
         self.anchors = anchors
         self.stereo_anchors = stereo_anchors
+        self.restraints = restraints
 
     def run(self, ctx, ensemble: ConformerEnsemble) -> ConformerEnsemble:
         optimizer = self.optimizer if self.optimizer is not None else MMFFOptimizer()
@@ -131,6 +147,8 @@ class Refine:
             extra = [i for i in stereo_anchors(ctx.mol, ctx.frozen) if i not in anchors]
             anchors = (*anchors, *extra)
         restraints = ctx.restraints.for_stage("refine")
+        if not self.restraints:  # only what the task itself holds
+            restraints = [r for r in restraints if r.source in WINDOW_SOURCES]
         released = not self.anchors and getattr(ctx.task, "windowed", False)
         if released:
             restraints = [r for r in restraints if r.source not in WINDOW_SOURCES]
@@ -172,6 +190,12 @@ class Refine:
         record_active_lengths(ctx, ensemble)
         if released:
             release_targets(ensemble)
+        for conf_id in ensemble.conf_ids:
+            marked = "restraints_released" in ensemble.provenance(conf_id)
+            if marked or not self.restraints:
+                ensemble.add_provenance(
+                    conf_id, restraints_released=not self.restraints
+                )
         return ensemble
 
 

@@ -7,9 +7,11 @@ from .model import WINDOW_SOURCES, DistanceRestraint  # noqa: F401 - used from h
 logger = logging.getLogger(__name__)
 
 OUTSIDE_TOLERANCE = 0.05  # A: distance geometry meets a window to about this
-# Half widths (A) of the windows that hold an active bond at its target.
+# Half widths (A) of the windows that hold an active bond at its target. In
+# refinement the window is a pin: within a wider one every level of theory ends at
+# its own edge (MMFF 0.02 A above the target, GFN2-xTB 0.02 A below it).
 EMBED_TARGET_HALF_WIDTH = 0.01
-REFINE_TARGET_HALF_WIDTH = 0.02
+REFINE_TARGET_HALF_WIDTH = 0.001
 
 
 def target_windows(restraints, target, half_width, force_constant=None):

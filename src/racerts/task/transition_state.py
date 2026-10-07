@@ -111,8 +111,9 @@ class TransitionState:
             None (default): 5 targets, or one per conformer if there are fewer.
             0: the embedding places the lengths in the window (not evenly: distance
             geometry puts most at its lower edge). Either way,
-            refinement holds each conformer at its target (+/- 0.02 A, with
-            target_force_constant; a flat-bottom window would let the force field push
+            refinement holds each conformer at its target (a pin with
+            target_force_constant, which the pull of the level moves by up to about
+            0.03 A with MMFF; a flat-bottom window would let the force field push
             all conformers to one edge). The provenance records the targets
             ("active_bond_targets") and the lengths ("active_bond_lengths").
         stereo_filter: In window mode, drop conformers whose reacting atoms are

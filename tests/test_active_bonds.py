@@ -99,14 +99,15 @@ def test_windows_and_their_targets(aldol, caplog):
     for conf_id in ensemble.conf_ids:
         p = ensemble.mol.GetConformer(conf_id).GetPositions()
         assert np.abs(p[hard] - seed).max() < 1e-3
-        # Refinement holds the embedded length (the target).
+        # Refinement holds the embedded length (the target): MMFF's push on the two
+        # atoms moves it by less than 0.03 A (0.045 A with a window of +/- 0.02 A).
         provenance = ensemble.provenance(conf_id)
         assert (
             abs(
                 provenance["active_bond_lengths"]["10-12"]
                 - provenance["active_bond_targets"]["10-12"]
             )
-            < 0.05
+            < 0.03
         )
     neighbor = [r for r in ctx.restraints if r.source == "neighbor"]
     worst = max(
@@ -131,7 +132,7 @@ def test_windows_and_their_targets(aldol, caplog):
     targets = collections.Counter()
     for conf_id in ensemble.conf_ids:
         target = ensemble.provenance(conf_id)["active_bond_targets"]["10-12"]
-        assert abs(_length(ensemble, conf_id) - target) < 0.05
+        assert abs(_length(ensemble, conf_id) - target) < 0.03
         targets[target] += 1
     # The midpoints of five equal parts of the window: none on its edges.
     assert sorted(targets) == pytest.approx([2.09, 2.27, 2.45, 2.63, 2.81])

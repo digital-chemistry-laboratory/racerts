@@ -56,10 +56,12 @@ What changes with a window (`TransitionState(..., active_window=...)`):
   Conformers embedded outside the window are reported; if all are, the frozen atoms
   cannot take the window, and embedding raises.
 - **Refinement:** MMFF/UFF and ASE calculators (xTB, MLIPs) hold each conformer at its
-  target (stratified) or at its embedded length (unstratified), with a term that is
-  flat within ± 0.02 Å of it (k = 10⁴ kcal/(mol Å²)). Where the force field pushes the
-  two atoms apart, the default refinement (not converged) ends 0.02 to 0.04 Å above
-  the target. A flat-bottom window over the whole range would not do: a minimizer pushes every conformer
+  target (stratified) or at its embedded length (unstratified), with a harmonic pin
+  (k = 10⁴ kcal/(mol Å²), `target_force_constant`). The length ends where the pull of
+  the level on the two atoms balances the pin: on the two TSs measured, up to 0.03 Å
+  above the target with MMFF (0.01 Å on average) and within 0.005 Å with GFN2-xTB;
+  conformers of one target differ by less than 0.005 Å. The provenance has the length
+  of every conformer. A flat-bottom window over the whole range would not do: a minimizer pushes every conformer
   to one edge of the window (a force field's repulsion between the unbonded atoms
   pushes them to the upper edge). The TS optimization that follows relaxes the core.
   Optimizers that take no restraints raise in window mode, unless they search the

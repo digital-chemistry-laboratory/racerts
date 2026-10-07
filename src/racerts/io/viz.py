@@ -10,9 +10,13 @@ if TYPE_CHECKING:
 
 def _viewer_modules():
     """py3Dmol and RDKit's IPythonConsole, imported when first used (they load IPython)."""
-    import py3Dmol
-    from rdkit.Chem.Draw import IPythonConsole
-
+    try:
+        import py3Dmol
+        from rdkit.Chem.Draw import IPythonConsole
+    except ImportError as error:
+        raise ImportError(
+            'The notebook viewers need py3Dmol and IPython: pip install "racerts[viz]".'
+        ) from error
     return py3Dmol, IPythonConsole
 
 

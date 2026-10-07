@@ -18,8 +18,6 @@ dependencies = [
     "rdkit>=2023.9.6",
     "numpy>=1.26.4",
     "scipy>=1.10",
-    "ipython>=7.34.0",
-    "py3Dmol>=2.0.0",
 ]
 license = "MIT"
 license-files = ["LICENSE*"]
@@ -39,6 +37,10 @@ include = ["racerts*"]
 ase = [
     "ase>=3.22.0",
     "threadpoolctl>=3.0.0",
+]
+viz = [
+    "ipython>=7.34.0",
+    "py3Dmol>=2.0.0",
 ]
 xtb = [
     "ase>=3.22.0",

@@ -126,6 +126,26 @@ def test_the_api_of_racerts_0_1_7_is_kept():
     assert incompatibilities(snapshot, CHANGED_SINCE_0_1_7) == []
 
 
+def test_the_viewers_say_what_to_install(monkeypatch):
+    # py3Dmol and IPython come with the viz extra. Without them racerts imports and
+    # runs; a viewer function names the extra.
+    import sys
+
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+
+    import racerts.visualizer
+    from racerts.io import viz
+
+    assert racerts.visualizer.drawit is viz.drawit
+    mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+    AllChem.EmbedMolecule(mol, randomSeed=1)
+    monkeypatch.setitem(sys.modules, "py3Dmol", None)  # as if it were not installed
+    for view in (viz.drawit, viz.draw_multiple_confs):
+        with pytest.raises(ImportError, match=r'pip install "racerts\[viz\]"'):
+            view(mol)
+
+
 @pytest.mark.ase
 def test_patching_the_legacy_ase_atoms_builder(hept_1_ene_ts, monkeypatch):
     # Callers may replace racerts.optimizer.ase.rdkit_conformer_to_ase_atoms.

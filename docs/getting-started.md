@@ -27,6 +27,7 @@ pip install racerts
 pip install "racerts[ase]"   # optional: refinement with ASE calculators (xTB, MLIPs, ...)
 pip install "racerts[xtb]"   # optional: the ASE extra plus tblite, for GFN2-xTB
 pip install "racerts[yaml]"  # optional: pipeline settings as YAML files
+pip install "racerts[viz]"   # optional: the notebook viewers (py3Dmol, IPython)
 ```
 
 ## Input format

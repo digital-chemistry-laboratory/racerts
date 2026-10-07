@@ -61,4 +61,4 @@ def test_every_extra_that_the_docs_name_exists():
     named = set()
     for page in [*DOCS.rglob("*.md"), root / "README.md"]:
         named |= set(re.findall(r"racerts\[(\w+)\]", page.read_text()))
-    assert {"ase", "xtb", "yaml"} <= named <= defined
+    assert {"ase", "viz", "xtb", "yaml"} <= named <= defined

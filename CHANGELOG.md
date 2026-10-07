@@ -281,6 +281,10 @@ optimizer errors other than missing MMFF parameters are raised, the default mult
 widened bounds when RDKit embeds nothing, copies of an atom or a linear molecule pruned,
 a `provenance` conformer property from the ASE optimizer.
 
+Installation: IPython and py3Dmol are no longer dependencies of racerts itself but of the
+extra `viz`, which the notebook viewers name when the two are missing. A plain install
+(e.g. on a cluster) is lighter by these two and what they bring.
+
 #### Fixes to legacy behaviour
 
 Input (hydrogens of `.sdf`/`.mol` files kept; map-number lookup), extended-Hückel energies

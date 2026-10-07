@@ -60,6 +60,9 @@ The legacy API keeps working; all of it lives in `racerts.compat`:
   nothing (e.g. a metal over a bond, with the SMILES of the other side of the reaction),
   the bounds that exclude the reference geometry are widened to it, with a warning
   (`reference_bounds`, default `fallback`; `never` restores the error).
+- `pip install racerts` no longer installs IPython and py3Dmol. The notebook viewers
+  (`racerts.visualizer`, `racerts.io.viz`) need them and say so:
+  `pip install "racerts[viz]"`.
 - Copies of a single atom or of a linear molecule (bromide, acetylene, HCN) are pruned
   as duplicates. A moment of inertia that is zero is computed as rounding noise, which
   the rotational filter of `RMSDPruner` took for a difference, so most copies were kept.

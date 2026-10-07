@@ -35,6 +35,9 @@ Same flow as `MMFF_optimizer` using the RDKit implementation of UFF.
 >5. Write positions back to RDKit and set conformer `energy` in kcal/mol (`eV * 23.06054783061903`)
 >6. Re-align to the TS reference
 
+Charge and multiplicity are the `charge` and `multiplicity` arguments, else the values stored on the molecule by [`generate_conformers`](./conformer_generator.md#generate_conformers), else the sum of the formal charges and the lowest multiplicity for the number of electrons. They reach the calculator in two forms: in `atoms.info` (`charge`, `spin` = multiplicity, as read by UMA/fairchem) and as initial charges and magnetic moments (whose sums tblite and xtb-python read). Calculators that take charge and multiplicity as their own arguments (e.g. ASE's `ORCA(charge=..., mult=...)`, PySCF) need them passed there.
+A conformer whose calculation fails (e.g. SCF not converged) is left without an energy and is dropped when pruning; if all conformers fail, an error is raised.
+
 !!! note Index convention
     `align_indices` follow standard Python indexing (0-based), consistent with RDKit and ASE atom indices.
 

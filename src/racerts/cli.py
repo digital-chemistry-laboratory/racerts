@@ -2,6 +2,7 @@ import argparse
 import os
 
 from racerts import ConformerGenerator, embedders, mol_getters, optimizers
+from racerts.conformer_generator import DEFAULT_CONF_FACTOR
 from racerts.pruner import EnergyPruner, RMSDPruner
 
 
@@ -26,6 +27,13 @@ def main():
         required=False,
         default=0,
         help="Molecule total charge.",
+    )
+    parser.add_argument(
+        "-mult",
+        "--multiplicity",
+        type=int,
+        default=None,
+        help="Spin multiplicity 2S+1 (default: the lowest for the number of electrons).",
     )
 
     parser.add_argument(
@@ -65,8 +73,8 @@ def main():
         "-cf",
         "--conf_factor",
         type=int,
-        default=80,
-        help="Conformer factor (default: 80).",
+        default=DEFAULT_CONF_FACTOR,
+        help=f"Conformer factor (default: {DEFAULT_CONF_FACTOR}).",
     )
 
     # ------ Conformer generation setup -------
@@ -85,7 +93,7 @@ def main():
         action="store",
         choices=["dm", "cmap"],
         required=False,
-        help="Method for the RDKit-based embedding step: either using a distance matrix ('dm'), as the default, or a coordinate mapping ('cmap').",
+        help="Method for the RDKit-based embedding step: either using a distance matrix ('dm') or a coordinate mapping ('cmap'), as the default.",
     )
     parser.add_argument(
         "-ff",
@@ -107,7 +115,7 @@ def main():
         "--out_energies",
         action="store_true",
         required=False,
-        help="Flag which adds the force field energies to the output conformer xyz file.",
+        help="Write only the energy (in Hartree) on each comment line, as in CREST ensembles, instead of the default extended XYZ line with energy (eV), charge and spin.",
     )
     parser.add_argument(
         "-v", "--verbose", action="store_true", help="Output verbosity."
@@ -264,6 +272,8 @@ def main():
             randomSeed=args.seed,
             useRandomCoords=args.useRandomCoords,
         )
+    else:  # keep the default embedder, but apply its flag
+        cg.embedder.useRandomCoords = args.useRandomCoords
 
     if args.ff:
         cg.optimizer = optimizers[args.ff](
@@ -271,6 +281,8 @@ def main():
             num_threads=args.num_threads,
             force_constant=args.force_constant,
         )
+    else:  # keep the default optimizer, but apply its flag
+        cg.optimizer.force_constant = args.force_constant
 
     if not os.path.isfile(args.filename):
         parser.error(f"'{args.filename}' does not exist or is not a valid file.")
@@ -284,6 +296,7 @@ def main():
             number_of_conformers=args.number_of_conformers,
             conf_factor=args.conf_factor,
             auto_fallback=args.fallback,
+            multiplicity=args.multiplicity,
         )
 
     output_filename = args.output if args.output else "conformer_ensemble.xyz"

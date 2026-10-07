@@ -162,6 +162,8 @@ class MMFFOptimizer(BaseOptimizer):
         coordinates_ref = reference.GetConformer(self.conf_id_ref).GetPositions()
 
         ff_props = MMFFGetMoleculeProperties(mol, mmffVerbosity=mmffVerbosity)
+        if ff_props is None:
+            raise ValueError("MMFF parameters are not available for this molecule")
 
         def _optimize(conf_id: int) -> int:
             """

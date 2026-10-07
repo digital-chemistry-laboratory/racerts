@@ -12,7 +12,8 @@ if TYPE_CHECKING:
 
 
 OptimizationTask = tuple[int, "ASEAtoms"]
-OptimizationResult = tuple[int, Any, float, bool]
+# (conf_id, positions, energy, converged, error); positions and energy are None on error.
+OptimizationResult = tuple[int, Any, "float | None", bool, "str | None"]
 
 
 @dataclass(frozen=True)
@@ -64,17 +65,20 @@ def run_optimization(
     config: OptimizationConfig,
     task: OptimizationTask,
 ) -> OptimizationResult:
-    """Relax one structure and return its id, positions, energy, and convergence."""
+    """Relax one structure and return its id, positions, energy, convergence and error.
+
+    A failing calculation (e.g. an SCF that does not converge) is reported as an error
+    instead of raising, so that it only costs this conformer and not the whole ensemble.
+    """
     conf_id, atoms = task
-    atoms.calc = calculator
-    optimizer = config.optimizer_cls(atoms, **config.optimizer_kwargs)
-    converged = optimizer.run(fmax=config.fmax, steps=config.max_steps)
-    return (
-        conf_id,
-        atoms.get_positions(),
-        float(atoms.get_potential_energy()),
-        bool(converged),
-    )
+    try:
+        atoms.calc = calculator
+        optimizer = config.optimizer_cls(atoms, **config.optimizer_kwargs)
+        converged = optimizer.run(fmax=config.fmax, steps=config.max_steps)
+        energy = float(atoms.get_potential_energy())
+    except Exception as exc:
+        return conf_id, None, None, False, f"{type(exc).__name__}: {exc}"
+    return conf_id, atoms.get_positions(), energy, bool(converged), None
 
 
 def _run_worker_optimization(task: OptimizationTask) -> OptimizationResult:

@@ -12,7 +12,7 @@ pytestmark = pytest.mark.ase
 ase = pytest.importorskip("ase")
 from ase.calculators.lj import LennardJones  # noqa: E402
 
-from racerts.refine import ASEOptimizer  # noqa: E402
+from racerts.refine import ASEOptimizer, Outcome, optimize_one  # noqa: E402
 
 
 class FailOnMark(LennardJones):
@@ -372,6 +372,127 @@ def test_which_errors_cost_a_conformer_and_when_workers_start(refined):
     assert not CALLS_HERE
     with pytest.raises(ValueError, match="serial_below"):
         ASEOptimizer(LennardJones(), serial_below=-1)
+
+
+class OneCall(MarkingOptimizer):
+    """
+    Stands for the relaxation of another package, which takes all structures in one
+    call: _relax is the one step it replaces. Its "relaxation" moves every atom
+    max_steps times a little along its Lennard-Jones force and never converges; it
+    reports a structure marked to fail as failed.
+    """
+
+    def __init__(self, **settings):
+        super().__init__(LennardJones(), method="one call", **settings)
+        self.calls = []
+
+    def _relax(self, tasks, config, reference=None, num_workers=1):
+        self.calls.append((len(tasks), config.max_steps, len(config.restraints)))
+        outcomes = []
+        for conf_id, atoms in tasks:
+            if atoms.info["fail"]:
+                outcomes.append(Outcome(conf_id, error="RuntimeError: lost"))
+                continue
+            work = atoms.copy()  # with the frozen atoms as constraints
+            work.calc = LennardJones()
+            for _ in range(config.max_steps):
+                work.set_positions(work.get_positions() + 1e-3 * work.get_forces())
+            outcomes.append(
+                Outcome(
+                    conf_id,
+                    work.get_positions(),
+                    work.get_potential_energy(),
+                    converged=config.max_steps == 0,
+                    n_steps=config.max_steps,
+                )
+            )
+        return outcomes
+
+
+def test_a_subclass_can_replace_the_relaxation_step(refined):
+    from racerts.restraints import DistanceRestraint
+
+    start, ctx = refined
+    ids = start.conf_ids
+    hard = list(ctx.frozen.hard)
+    symbols = [a.GetSymbol() for a in start.mol.GetAtoms()]
+
+    # -- one call with all structures; what is around the step is the optimizer's:
+    # the energies in kcal/mol, the provenance, the frozen atoms
+    optimizer = OneCall(max_steps=3)
+    ensemble = start.copy()
+    optimizer.refine(ensemble.mol, ctx.reference, hard)
+    assert optimizer.calls == [(4, 3, 0)]
+    for conf_id in ids:
+        before = start.mol.GetConformer(conf_id).GetPositions()
+        after = ensemble.mol.GetConformer(conf_id).GetPositions()
+        assert np.abs(after - before).max() > 1e-4
+        np.testing.assert_allclose(after[hard], before[hard], atol=1e-6)
+        assert ensemble.energy(conf_id) == pytest.approx(_lj_energy(after, symbols))
+        provenance = ensemble.provenance(conf_id)
+        assert provenance["converged"] is False and provenance["n_steps"] == 3
+
+    # -- the restraints arrive with the settings, and single points as max_steps 0
+    window = DistanceRestraint(0, 6, 2.0, 9.0)
+    optimizer.refine(start.copy().mol, ctx.reference, hard, restraints=[window])
+    points = start.copy()
+    OneCall(max_steps=0).optimize(points.mol)
+    assert optimizer.calls[-1] == (4, 3, 1)
+    assert points.energies() == pytest.approx(
+        [_lj_energy(start.mol.GetConformer(i).GetPositions(), symbols) for i in ids]
+    )
+
+    # -- a structure reported as failed costs its conformer; all of them, the run
+    optimizer = OneCall(max_steps=3)
+    optimizer.fail_ids = (ids[1],)
+    ensemble = start.copy()
+    optimizer.refine(ensemble.mol, ctx.reference, hard)
+    has_energy = [e is not None for e in map(ensemble.energy, ids)]
+    assert has_energy == [True, False, True, True]
+    assert ensemble.provenance(ids[1])["error"] == "RuntimeError: lost"
+    optimizer.fail_ids = tuple(ids)
+    with pytest.raises(racerts.NoConformersError, match="failed for all 4"):
+        optimizer.refine(start.copy().mol, ctx.reference, hard)
+
+    # -- as a stage, and one Outcome for each structure, in their order
+    staged = racerts.Refine(OneCall(max_steps=3)).run(ctx, start.copy())
+    assert staged.energy_method == "one call" and staged.conf_ids == ids
+
+    class LosesOne(OneCall):
+        def _relax(self, tasks, config, reference=None, num_workers=1):
+            return super()._relax(tasks, config)[1:]
+
+    with pytest.raises(ValueError, match="one Outcome for each structure"):
+        LosesOne(max_steps=1).refine(start.copy().mol, ctx.reference, hard)
+
+    # -- a package that only runs the structures its own way, with calculators of
+    # its own, takes the relaxation of one structure from here: optimize_one. The
+    # restraints, the frozen atoms and a failed calculation are then as without it.
+    class OwnCalculators(MarkingOptimizer):
+        def _relax(self, tasks, config, reference=None, num_workers=1):
+            done = {
+                task[0]: optimize_one(FailOnMark(), config, task)
+                for task in reversed(tasks)  # its own order
+            }
+            return [done[conf_id] for conf_id, _ in tasks]
+
+    def relaxed(optimizer_cls):
+        optimizer = optimizer_cls(FailOnMark(), max_steps=3)
+        optimizer.fail_ids = (ids[2],)
+        ensemble = start.copy()
+        optimizer.refine(ensemble.mol, ctx.reference, hard, restraints=[window])
+        return ensemble
+
+    own, plain = relaxed(OwnCalculators), relaxed(MarkingOptimizer)
+    assert own.energy(ids[2]) is None and plain.energy(ids[2]) is None
+    assert own.provenance(ids[2])["error"] == "RuntimeError: SCF not converged"
+    for conf_id in (ids[0], ids[1], ids[3]):
+        assert own.energy(conf_id) == pytest.approx(plain.energy(conf_id), abs=1e-9)
+        np.testing.assert_allclose(
+            own.mol.GetConformer(conf_id).GetPositions(),
+            plain.mol.GetConformer(conf_id).GetPositions(),
+            atol=1e-9,
+        )
 
 
 class RecordingPrepare:

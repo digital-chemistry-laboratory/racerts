@@ -157,7 +157,11 @@ pruner with the legacy ones is `racerts.pruner.RMSDPruner`.
   soft atoms as ASE constraints; worker processes; charge and spin passed to the calculator.
   `expected_errors` names the errors of a calculation that cost one conformer (default:
   any), every other error ends the run; the error of a failed conformer is in its
-  provenance; `serial_below` starts no worker processes for few conformers.
+  provenance; `serial_below` starts no worker processes for few conformers. The step
+  that relaxes the structures is one method, `_relax`: a subclass replaces it to hand
+  them to the relaxation of another package (e.g. one that takes several structures at
+  once on a GPU) and keeps the rest; `racerts.refine.optimize_one` is the relaxation of
+  one structure, for an override that only runs the structures its own way.
 - `racerts.NoConformersError` (a `RuntimeError`): a step left no conformer (nothing
   embedded, every calculation failed, none converged, none passed a check).
 - `Refine(anchors=False)` refines all atoms; `Refine` removes conformers whose optimization

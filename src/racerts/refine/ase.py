@@ -18,7 +18,7 @@ from racerts.utils.optional import require
 from racerts.utils.units import EV_TO_KCAL_MOL
 
 from .base import BaseOptimizer
-from .parallel import OptimizationConfig, OptimizationTask, optimize_all
+from .parallel import OptimizationConfig, OptimizationTask, Outcome, optimize_all
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +67,10 @@ class ASEOptimizer(BaseOptimizer):
 
     Every conformer records "converged", "n_steps" and "wall_time" in its provenance,
     and a conformer whose calculation failed its "error".
+
+    A subclass can relax the structures in another way and keep everything else: see
+    _relax, e.g. for the optimizer of another package that takes several structures
+    at once.
     """
 
     def __init__(
@@ -198,14 +202,14 @@ class ASEOptimizer(BaseOptimizer):
             and (self.num_workers is None or self.num_workers > 1)
             and len(tasks) >= self.serial_below
         )
-        outcomes = optimize_all(
-            tasks,
-            self.calculator,
-            self._calculator_is_factory,
-            config,
-            num_workers=self.num_workers if use_processes else 1,
-            reference=reference_atoms,
+        outcomes = self._relax(
+            tasks, config, reference_atoms, self.num_workers if use_processes else 1
         )
+        if [outcome.conf_id for outcome in outcomes] != conf_ids:
+            raise ValueError(
+                f"{type(self).__name__}._relax must return one Outcome for each "
+                "structure, in their order."
+            )
 
         ensemble = ConformerEnsemble(mol)  # a view, to record the provenance
         failures = 0
@@ -260,6 +264,51 @@ class ASEOptimizer(BaseOptimizer):
             for unconverged_id in unconverged:
                 mol.RemoveConformer(unconverged_id)
         return failures
+
+    def _relax(
+        self,
+        tasks: List[OptimizationTask],
+        config: OptimizationConfig,
+        reference: Any = None,
+        num_workers: Optional[int] = 1,
+    ) -> List[Outcome]:
+        """
+        Relax the structures and return an Outcome for each, in their order. tasks:
+        pairs of a conformer id and its ASE Atoms (with the charge and the
+        multiplicity in atoms.info, and the frozen atoms as constraints); config: the
+        settings (the optimizer class, fmax, max_steps, the restraints); reference:
+        the Atoms for config.prepare. Here: with the calculator of this optimizer,
+        one structure after the other or in num_workers processes.
+
+        The one step to override for a relaxation of another kind, e.g. an optimizer
+        of another package that relaxes several structures at once on a GPU. What is
+        around it stays: the conversion from and to conformers, the alignment, the
+        energies and the provenance, the count of failures, and the stages that take
+        an ASEOptimizer (Refine, Exploit). An override
+
+        - returns Outcome(conf_id, positions, energy (eV), converged, n_steps=...,
+          seconds=...) for a structure, or Outcome(conf_id, error="...") for one that
+          failed (it is then left without an energy); an error that it raises ends
+          the run;
+        - gives single points for config.max_steps == 0;
+        - holds config.restraints with the energy left out (see
+          racerts.refine.restrained), or refuses them.
+
+        An override that only brings calculators of its own, or runs the structures
+        in its own way (e.g. several at a time, with their energies and forces
+        computed together), owes none of this: racerts.refine.optimize_one(
+        calculator, config, task) is the relaxation of one structure as it is done
+        here, with the optimizer class, the restraints, the single point and a
+        failed calculation as an Outcome.
+        """
+        return optimize_all(
+            tasks,
+            self.calculator,
+            self._calculator_is_factory,
+            config,
+            num_workers=num_workers,
+            reference=reference,
+        )
 
     def _to_atoms(self, mol: Chem.Mol, conf_id: int, state: Dict[str, int]):
         """

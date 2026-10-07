@@ -420,7 +420,7 @@ def _build_mol(
                 file_name=file_name, **get_mol_kwargs
             )
     else:
-        raise ValueError("Only file extensions .sdf and .xyz are supported")
+        raise ValueError("Only file extensions .sdf, .mol and .xyz are supported")
     if mol_ts is None:
         raise ValueError(
             f"Failed to create molecule from {file_name}. Check the file format and "

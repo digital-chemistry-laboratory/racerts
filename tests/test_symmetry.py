@@ -5,6 +5,7 @@ that must not happen is a value below the true RMSD: it would merge distinct con
 """
 
 import itertools
+import math
 
 import numpy as np
 import pytest
@@ -26,6 +27,11 @@ MOLECULES = {  # each a kind of local symmetry
     "a carboxylate": "CC(C)CC(=O)[O-]",
     "two stereocentres, meso": "C[C@@H](O)[C@H](C)O",
     "identical fragments": "CC(N)=O.O.O.O",
+    "identical molecules with a ring": "CC(N)=O.c1ccccc1.c1ccccc1",
+    "identical molecules and nothing else": "CO.CO.CO",
+    "identical molecules with groups of their own": (
+        "C[NH3+].[O-]C(=O)C(F)(F)F.[O-]C(=O)C(F)(F)F"
+    ),
 }
 THRESHOLD = 0.125
 _made = {}
@@ -38,8 +44,42 @@ def _conformers(smiles, n=3):
         params.randomSeed = 11
         ids = list(AllChem.EmbedMultipleConfs(mol, n, params))
         AllChem.MMFFOptimizeMoleculeConfs(mol, maxIters=200)
-        _made[smiles] = mol, [mol.GetConformer(i).GetPositions() for i in ids]
+        rng = np.random.default_rng(len(smiles))
+        _made[smiles] = (
+            mol,
+            [_apart(mol, mol.GetConformer(i).GetPositions(), rng) for i in ids],
+        )
     return _made[smiles]
+
+
+def _turn(rng):
+    """A random proper rotation."""
+    q, r = np.linalg.qr(rng.normal(size=(3, 3)))
+    q *= np.sign(np.diag(r))
+    if np.linalg.det(q) < 0:
+        q[:, 0] = -q[:, 0]
+    return q
+
+
+def _apart(mol, positions, rng):
+    """The molecules of a system at random places and turns around the first one, no
+    two atoms of different molecules within 2.5 A: RDKit embeds every molecule on its
+    own, all of them at the origin."""
+    molecules = [list(atoms) for atoms in Chem.GetMolFrags(mol)]
+    out = np.array(positions)
+    placed = molecules[0]
+    for atoms in molecules[1:]:
+        own = out[atoms] - out[atoms].mean(axis=0)
+        while True:
+            trial = own @ _turn(rng) + rng.normal(
+                scale=1.5 + len(molecules) ** (1 / 3), size=3
+            )
+            gaps = np.linalg.norm(trial[:, None] - out[placed][None], axis=2)
+            if gaps.min() > 2.5:
+                break
+        out[atoms] = trial
+        placed = placed + atoms
+    return out
 
 
 def _all_maps(mol, hydrogens):
@@ -101,11 +141,7 @@ def _planted(positions, automorphism, rng, noise=0.02):
     out = np.array(positions)
     out[automorphism] = positions
     out += rng.normal(scale=noise, size=out.shape)
-    q, r = np.linalg.qr(rng.normal(size=(3, 3)))
-    q *= np.sign(np.diag(r))
-    if np.linalg.det(q) < 0:
-        q[:, 0] = -q[:, 0]
-    return out @ q + rng.normal(scale=3.0, size=3)
+    return out @ _turn(rng) + rng.normal(scale=3.0, size=3)
 
 
 @pytest.mark.parametrize("smiles", MOLECULES.values(), ids=list(MOLECULES))
@@ -122,7 +158,7 @@ def test_never_below_the_rmsd_over_all_maps(smiles, hydrogens, max_maps):
         value = kernel.rmsd(a, b)
         assert value >= true - 1e-9
         assert kernel.lower_bound(a, b) <= true + 1e-7
-        if duplicate or kernel.level == 0:  # exact: a duplicate, or plain enumeration
+        if duplicate or kernel.exact:  # a duplicate, or the list of all maps
             assert value == pytest.approx(true, abs=1e-7)
             assert kernel.within(a, b, THRESHOLD) == (true <= THRESHOLD)
         assert not (kernel.within(a, b, THRESHOLD) and true > THRESHOLD + 1e-6)
@@ -198,3 +234,87 @@ def test_chirality_limits_the_maps():
     flat = Chem.AddHs(Chem.MolFromSmiles("CC(O)C(C)O"))
     orders = [SymmetricRMSD(mol, "none").order for mol in (meso, chiral, flat)]
     assert orders == [1, 2, 2]  # the mirror map of the meso form inverts both centres
+
+
+def _exchanged(mol, positions, rng):
+    """The structure with every molecule of a kind where the next of its kind was,
+    turned and moved as a whole: the same structure, its molecules renumbered."""
+    kinds = {}
+    for atoms in Chem.GetMolFrags(mol):
+        kinds.setdefault(Chem.MolFragmentToSmiles(mol, atoms), []).append(atoms)
+    out = np.array(positions)
+    for molecules in kinds.values():
+        for here, there in zip(molecules, molecules[1:] + molecules[:1]):
+            # the molecules of a kind are written alike: atom k of one is atom k of all
+            out[list(here)] = positions[list(there)]
+    return out @ _turn(rng) + rng.normal(scale=3.0, size=3)
+
+
+@pytest.mark.parametrize(
+    "smiles, order, listed",
+    [
+        ("CC(=O)[O-]" + ".CO" * 8, 2 * math.factorial(8), False),
+        ("Oc1ccccc1" + ".c1ccccc1" * 3, 2 * 6 * 12**3, False),
+        ("CC(=O)[O-]" + ".O" * 12, 2 * math.factorial(12), False),
+        (".".join(["c1ccccc1"] * 6), math.factorial(6) * 12**6, False),
+        ("CC(=O)[O-].CO.CO", 2 * 2, True),
+    ],
+    ids=["8 methanols", "3 benzenes", "12 waters", "6 benzenes alone", "2 methanols"],
+)
+def test_identical_molecules_are_exchanged_as_wholes(smiles, order, listed):
+    # The exchanges of n identical molecules are n! maps times those of each molecule:
+    # they are assigned, not listed, so nothing is cut however many there are.
+    mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
+    AllChem.EmbedMolecule(mol, randomSeed=11)
+    a = _apart(mol, mol.GetConformer().GetPositions(), np.random.default_rng(2))
+    kernel = SymmetricRMSD(mol, "none")
+    assert kernel.order == order and not kernel.truncated and kernel.level == 0
+    assert kernel.exact == listed  # two methanols: four maps, all of them listed
+    copy = _exchanged(mol, a, np.random.default_rng(5))
+    assert kernel.rmsd(a, copy) < 1e-6
+    assert kernel.within(a, copy, THRESHOLD)
+    value, found = kernel.rmsd(a, copy, return_map=True)
+    paired = rmsd(a[kernel.index], copy[kernel.index[found]])
+    assert value == pytest.approx(paired, abs=1e-9)  # the value is that of an atom map
+    moved = copy.copy()
+    moved[list(Chem.GetMolFrags(mol)[-1])] += (1.5, 0.0, 0.0)  # one molecule elsewhere
+    assert kernel.rmsd(a, moved) > 0.1
+    assert not kernel.within(a, moved, 0.1)
+
+
+def test_arrangements_with_nothing_in_common_get_nearly_the_exact_rmsd():
+    # Four methanols at random places, eight times: the 28 pairs are 1.5 to 5 A apart.
+    # The exchange by assignment (forced: max_maps=1) against the list of all 24 x 6^4
+    # maps: never below it, and the same value in nearly every pair, because step 2
+    # also starts from the rotations of the cube between the principal axes.
+    mol, _ = _conformers("CO.CO.CO.CO", n=1)
+    rng = np.random.default_rng(4)
+    base = mol.GetConformer().GetPositions()
+    arrangements = [_apart(mol, base, rng) for _ in range(8)]
+    exact = SymmetricRMSD(mol, "polar", exchange_fragments=False, max_maps=10000)
+    assigned = SymmetricRMSD(mol, "polar", max_maps=1)
+    assert exact.exact and assigned.n_molecules == 4
+    gaps = []
+    for a, b in itertools.combinations(arrangements, 2):
+        true = exact.rmsd(a, b)
+        assert true > 1.0
+        gaps.append(assigned.rmsd(a, b) - true)
+    assert min(gaps) > -1e-7
+    assert np.mean(np.array(gaps) < 1e-6) >= 0.9 and np.mean(gaps) < 0.02
+
+
+def test_without_the_exchange_of_molecules_the_list_is_cut(caplog):
+    # exchange_fragments=False: every map is listed as before, and 8! exchanges are too many.
+    mol = Chem.AddHs(Chem.MolFromSmiles("CC(=O)[O-]" + ".CO" * 8))
+    AllChem.EmbedMolecule(mol, randomSeed=11)
+    with caplog.at_level("WARNING", logger="racerts"):
+        kernel = SymmetricRMSD(mol, "none", exchange_fragments=False)
+    assert kernel.truncated and "the list is cut" in caplog.text
+    assert not SymmetricRMSD(mol, "none").truncated
+
+
+def test_enantiomers_are_not_exchanged():
+    # (R)- and (S)-butan-2-ol are two kinds of molecule; two (R) are one kind.
+    pair = Chem.AddHs(Chem.MolFromSmiles("C[C@H](O)CC.C[C@@H](O)CC"))
+    twice = Chem.AddHs(Chem.MolFromSmiles("C[C@H](O)CC.C[C@H](O)CC"))
+    assert [SymmetricRMSD(mol, "none").order for mol in (pair, twice)] == [1, 2]

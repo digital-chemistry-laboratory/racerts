@@ -48,7 +48,8 @@ def symmetry_source(mol: Chem.Mol, graph) -> Chem.Mol:
             logger.warning(
                 "The molecule has no bonds: all atoms of an element count as "
                 "equivalent and no hydrogen is left out, so that different structures "
-                "can be taken for one and copies of a structure can be missed. For a "
+                "can be taken for one (and copies of a structure missed where the "
+                "mappings are listed: the prefilters of legacy racerts). For a "
                 "molecule stored without its bonds, give the bonded one as graph=."
             )
         return mol

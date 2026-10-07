@@ -202,17 +202,19 @@ def test_duplicates_of_a_structure_without_bonds_need_its_graph(caplog):
     def kept(mol, **settings):
         return RMSDPruner(**settings).prune(Chem.Mol(mol)).GetNumConformers()
 
-    # -- a copy is not found
+    # -- a copy
     # Butanol and a copy in which two hydrogens of the methyl group changed places:
     # one conformer. Without bonds every hydrogen may take the place of every other,
-    # which is more mappings than any list holds: the copy is not recognised.
+    # which is more mappings than any list holds. They are exchanged like identical
+    # molecules, so the copy is found; the pruner of legacy racerts, which lists the
+    # mappings, misses it (below). The warning stays: see the next case.
     butanol = _conformers("CCCCO", 1)
     methyl = [a.GetIdx() for a in butanol.GetAtomWithIdx(0).GetNeighbors()]
     hydrogens = [i for i in methyl if butanol.GetAtomWithIdx(i).GetAtomicNum() == 1]
     copies = _with_exchanged(butanol, [hydrogens[:2]])
     assert kept(copies, hydrogens="all") == 1
     with caplog.at_level(logging.WARNING, logger="racerts"):
-        assert kept(_without_bonds(copies), hydrogens="all") == 2
+        assert kept(_without_bonds(copies), hydrogens="all") == 1
     assert "has no bonds" in caplog.text and "graph=" in caplog.text
     caplog.clear()
     with caplog.at_level(logging.WARNING, logger="racerts"):
@@ -240,14 +242,15 @@ def test_duplicates_of_a_structure_without_bonds_need_its_graph(caplog):
     # -- the pruner of legacy racerts takes the graph too
     # It ignores keywords it does not know; the graph must not be one of them. With
     # its two prefilters (the copy has the energy and the moments of its original)
-    # and without them.
+    # and without them. With them it lists the mappings, and without bonds the list
+    # is cut before the one of the copy: the copy is missed.
     for settings in ({}, dict(filter_energies=False, filter_rotations=False)):
 
         def legacy(mol, **more):
             pruner = LegacyRMSDPruner(include_hs=True, **settings, **more)
             return pruner.prune(Chem.Mol(mol)).GetNumConformers()
 
-        assert legacy(_without_bonds(copies)) == 2
+        assert legacy(_without_bonds(copies)) == (1 if settings else 2)
         assert legacy(_without_bonds(copies), graph=butanol) == 1
         assert legacy(_without_bonds(two)) == 1
         assert legacy(_without_bonds(two), graph=ethanol) == 2
@@ -261,12 +264,15 @@ def test_duplicates_of_a_structure_without_bonds_need_its_graph(caplog):
         RMSDPruner(graph="CCO")
 
 
-@pytest.mark.parametrize("solvent, n", [("O", 6), ("CO", 5), ("O", 12)])
+@pytest.mark.parametrize(
+    "solvent, n", [("O", 6), ("CO", 5), ("O", 12), ("CO", 8), ("c1ccccc1", 3)]
+)
 def test_solvent_molecules_that_changed_places_give_a_duplicate(solvent, n, caplog):
     # Identical molecules around a solute are equivalent as wholes: acetate with n
-    # waters or methanols, and a copy in which every solvent molecule sits where the
-    # next one was. Twelve waters have more mappings than are listed (12! x 2); the
-    # copy is found all the same, and a warning says that the list was cut.
+    # waters, methanols or benzenes, and a copy in which every solvent molecule sits
+    # where the next one was. Twelve waters, eight methanols and three benzenes have
+    # more mappings than any list holds (12! x 2, 8! x 2, 3! x 12^3 x 2): the
+    # molecules are exchanged by assignment, and nothing is cut.
     mol = Chem.AddHs(Chem.MolFromSmiles(".".join(["CC(=O)[O-]"] + [solvent] * n)))
     AllChem.EmbedMolecule(mol, randomSeed=11)
     positions = mol.GetConformer().GetPositions()
@@ -282,7 +288,7 @@ def test_solvent_molecules_that_changed_places_give_a_duplicate(solvent, n, capl
     with caplog.at_level(logging.WARNING, logger="racerts"):
         kept = RMSDPruner().prune(Chem.Mol(mol))
     assert [c.GetId() for c in kept.GetConformers()] == [0, 2]
-    assert ("the list is cut" in caplog.text) == (n == 12)
+    assert not caplog.text
 
 
 @pytest.fixture

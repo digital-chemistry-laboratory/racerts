@@ -21,6 +21,20 @@ Per pair of conformers:
    the resulting atom map, and again until the map stays; the same from two more
    starting rotations.
 
+Identical molecules of the system (connected components of one kind: the solvent
+molecules around a solute, the molecules of a cluster) are exchanged as wholes in the same
+way. n of them have n! exchanges times the maps of each, which no list holds for long:
+8 methanols have 40320, 3 benzenes 10368. They are taken out of the list instead, and
+step 2 assigns them: for every pair of molecules the best of the maps of one molecule
+(listed once, for one molecule: 12 for a benzene ring) with the best sibling permutations
+below it, then the Hungarian method over the molecules. Exchanging molecules moves
+atoms far, so the turns of step 2 end in more local minima than those of a methyl group:
+with such molecules step 2 also starts from the 24 rotations of the cube in the frame of
+the principal axes of the two conformers (the first four put the axes on each other).
+For arrangements that have nothing in common (2 to 8 A apart) the value is then the exact
+one in 85 to 100 % of the pairs and 0.03 A above it on average; without these starts it
+was above it in up to 80 % of them.
+
 Every value is the Kabsch RMSD of an explicit automorphism, so it is never below the
 true minimum. It can be above it only if step 2 ends in a local minimum, which was
 seen for pairs of different conformers (5 of 3060, by at most 0.006 A) and for no
@@ -55,6 +69,22 @@ _INDEX = "_symmetric_rmsd_index"
 _FORCED = 1000  # isotope offset of the forced automorphism test
 _BRUTE = 4  # families up to this size: all permutations; above: Hungarian method
 _CHUNK = 20000  # maps per batch of the plain enumeration
+
+
+def _cube_rotations() -> np.ndarray:
+    """The 24 proper rotations of the cube, (24, 3, 3): the four that only change the
+    signs of two axes first."""
+    found = []
+    for order in itertools.permutations(range(3)):
+        for signs in itertools.product((1.0, -1.0), repeat=3):
+            matrix = np.zeros((3, 3))
+            matrix[range(3), order] = signs
+            if np.linalg.det(matrix) > 0:
+                found.append(matrix)
+    return np.array(found)
+
+
+_CUBE = _cube_rotations()
 
 
 def matching_graph(
@@ -279,6 +309,20 @@ class _Block(NamedTuple):
     count: np.ndarray
 
 
+class _Molecules(NamedTuple):
+    """
+    Identical molecules (connected components of one kind) that are exchanged as wholes:
+    atoms[i, a] is atom a of molecule i, in an order in which the molecules agree;
+    maps[m, a] the image of atom a under map m of one molecule onto itself (the identity
+    first; stripped atoms in the fixed way, as for a skeleton map); skeleton the atoms a
+    that are not stripped.
+    """
+
+    atoms: np.ndarray
+    maps: np.ndarray
+    skeleton: np.ndarray
+
+
 class Prepared(NamedTuple):
     """A conformer as SymmetricRMSD.prepare returns it."""
 
@@ -288,6 +332,7 @@ class Prepared(NamedTuple):
     norm: float  # sum of x^2
     norm_points: float
     align: bool
+    axes: Optional[np.ndarray] = None  # the principal axes of x as columns, proper
 
 
 class SymmetricRMSD:
@@ -308,17 +353,25 @@ class SymmetricRMSD:
             fixed points of a level determine a rotation (default: the conformers of
             mol, at most 10).
         min_spread: A level is refused if the root-mean-square extent of its fixed
-            points along their second principal axis is below this (A).
+            points along their second principal axis is below this (A), unless it
+            exchanges molecules (step 2 then has starts that need no fixed point).
+        exchange_fragments: Identical molecules of the system are exchanged as wholes
+            by assignment (the default). False: their exchanges are listed like any
+            other map, as before, and cut at hard_max_maps.
 
     Attributes: index, weight (matching_graph), n (atoms in the RMSD), level (rounds
-    of stripping; 0: plain enumeration), maps (the skeleton maps, continued onto all
-    graph atoms), order (the number of automorphisms represented, an int), truncated,
-    stats (counts: pairs, pairs that needed the bounds of step 1, pairs that needed
-    step 2 in within, skeleton maps evaluated in step 2, assignments).
+    of stripping), maps (the skeleton maps, continued onto all graph atoms), order (the
+    number of automorphisms represented, an int), truncated, exact (every map is
+    listed: the result is the minimum over all of them), n_molecules (molecules that
+    are exchanged as wholes), stats (counts: pairs, pairs that needed the bounds of
+    step 1, pairs that needed step 2 in within, skeleton maps evaluated in step 2,
+    assignments).
     """
 
     max_rounds = 8
-    starts = 3
+    starts = (
+        3  # rotations that step 2 starts from; 24 more where molecules are exchanged
+    )
 
     def __init__(
         self,
@@ -330,6 +383,7 @@ class SymmetricRMSD:
         min_spread: float = 0.2,
         max_pairs: int = 200000,
         polar_parents=POLAR_PARENTS,
+        exchange_fragments: bool = True,
     ):
         if max_maps < 1 or hard_max_maps < max_maps:
             raise ValueError("Need 1 <= max_maps <= hard_max_maps.")
@@ -354,8 +408,15 @@ class SymmetricRMSD:
             )
             for a in self.graph.GetAtoms()
         ]
+        molecules: List[_Molecules] = []
         maps = self._skeleton_maps(0, max_maps + 1)
         layout = self._layout(0, max_pairs)
+        if len(maps) > max_maps and exchange_fragments:
+            found = self._molecules(0, max_maps)
+            candidate = self._layout(0, max_pairs, found) if found else None
+            if candidate is not None:  # None: more node pairs than max_pairs
+                molecules, layout = found, candidate
+                maps = self._skeleton_maps(0, max_maps + 1, molecules)
         level = 0
         self.n_pinned = self.n_generators = 0
         self.max_level = 0
@@ -372,16 +433,21 @@ class SymmetricRMSD:
             self.n_pinned = int(pinned.sum())
             self.max_level = int(self._level.max())
             for deeper in range(1, self.max_level + 1):
-                candidate = self._layout(deeper, max_pairs)
-                if candidate is None or self._spread(candidate, reference) < min_spread:
+                found = self._molecules(deeper, max_maps) if exchange_fragments else []
+                candidate = self._layout(deeper, max_pairs, found)
+                if candidate is None and found:
+                    found, candidate = [], self._layout(deeper, max_pairs)
+                if candidate is None or (
+                    not found and self._spread(candidate, reference) < min_spread
+                ):
                     break
-                level, layout = deeper, candidate
-                maps = self._skeleton_maps(level, max_maps + 1)
+                level, layout, molecules = deeper, candidate, found
+                maps = self._skeleton_maps(level, max_maps + 1, molecules)
                 if len(maps) <= max_maps:
                     break
         self.truncated = False
         if len(maps) > max_maps:
-            maps = self._skeleton_maps(level, hard_max_maps + 1)
+            maps = self._skeleton_maps(level, hard_max_maps + 1, molecules)
             self.truncated = len(maps) > hard_max_maps
             maps = maps[:hard_max_maps]
             if self.truncated:
@@ -532,28 +598,112 @@ class SymmetricRMSD:
         return np.array(sorted(set(rejected)), dtype=int)
 
     # ------------------------------------------------------------ set-up: one level
-    def _layout(self, level: int, max_pairs: int):
+    def _stripped(self, level: int) -> np.ndarray:
+        if level == 0:
+            return np.zeros(self.graph.GetNumAtoms(), dtype=bool)
+        return (self._level > 0) & (self._level <= level)
+
+    def _labelled(self, level: int, molecules: Sequence[_Molecules] = ()) -> Chem.Mol:
+        """
+        The graph with what a map of a level has to keep written on every atom (as its
+        isotope): a stripped atom its shape and its place in its family, an atom of the
+        molecules that are exchanged as wholes itself, any other atom its isotope and
+        whether it counts.
+        """
+        labelled = Chem.Mol(self.graph)
+        stripped = self._stripped(level)
+        place = {}
+        if level:
+            for by_shape in self._families.values():
+                for family in by_shape.values():
+                    for k, i in enumerate(family):
+                        place[i] = k
+        own = {int(i) for family in molecules for i in family.atoms.ravel()}
+        ids = {}
+        for atom in labelled.GetAtoms():
+            i = atom.GetIdx()
+            if i in own:
+                key = ("molecule", i)
+            elif stripped[i]:
+                key = ("stripped", int(self._shape[i]), place[i])
+            else:
+                key = ("skeleton", atom.GetIsotope(), bool(self.weight[i]))
+            atom.SetIsotope(1 + ids.setdefault(key, len(ids)))
+        return labelled
+
+    def _molecules(self, level: int, max_maps: int) -> List[_Molecules]:
+        """
+        The families of identical molecules of a level: connected components that
+        RDKit maps onto each other (with chirality, and with the labels of the level),
+        two or more of a kind, each with at most max_maps maps onto itself. A component
+        that is stripped altogether is a tree on a lone atom: a sibling family already.
+        """
+        labelled = self._labelled(level)
+        members: List[Tuple[int, ...]] = []
+        parts = Chem.GetMolFrags(
+            labelled, asMols=True, sanitizeFrags=False, fragsMolAtomMapping=members
+        )
+        if len(parts) < 2:
+            return []
+        stripped = self._stripped(level)
+        kinds: dict = {}  # composition -> [(the first molecule, [atoms of each])]
+        for part, atoms in zip(parts, members):
+            atoms = np.array(atoms, dtype=np.intp)
+            if stripped[atoms].all():
+                continue
+            key = (
+                part.GetNumBonds(),
+                tuple(
+                    sorted((a.GetAtomicNum(), a.GetIsotope()) for a in part.GetAtoms())
+                ),
+            )
+            for first, same in kinds.setdefault(key, []):
+                match = part.GetSubstructMatch(
+                    first, useChirality=True, useQueryQueryMatches=False
+                )
+                if len(match) == len(atoms):
+                    same.append(atoms[list(match)])  # in the order of the first
+                    break
+            else:
+                kinds[key].append((part, [atoms]))
+        found = []
+        for candidates in kinds.values():
+            for first, same in candidates:
+                if len(same) < 2:
+                    continue
+                maps = _matches(first, max_maps + 1)
+                if len(maps) > max_maps:
+                    continue  # too many maps of its own here: a deeper level, or the list
+                table = np.array(same, dtype=np.intp)
+                found.append(
+                    _Molecules(table, maps, np.flatnonzero(~stripped[table[0]]))
+                )
+        return found
+
+    def _layout(self, level: int, max_pairs: int, molecules: Sequence[_Molecules] = ()):
         """
         The tables of a level, or None if it needs more than max_pairs node pairs.
 
         fixed: the atoms whose image a skeleton map determines (the skeleton and the
-        stripped atoms that have no sibling of their shape all the way up). The other
-        stripped atoms are 'free'. A node pair (u, v) is a free atom u of a and a
-        candidate image v of it in b when the skeleton map is the identity; family
-        pairs collect the node pairs of two families that can be matched.
+        stripped atoms that have no sibling of their shape all the way up, outside the
+        molecules that are exchanged as wholes). The other atoms are 'free'. A node
+        pair (u, v) is a free atom u of a and a candidate image v of it in b when the
+        skeleton map is the identity; family pairs collect the node pairs of two
+        families that can be matched, wholes the node pairs of the skeleton atoms of
+        every two molecules of a kind under every map of one molecule.
         """
-        n = self.graph.GetNumAtoms()
+        stripped = self._stripped(level)
         if level == 0:
-            stripped = np.zeros(n, dtype=bool)
             families = {}
         else:
-            stripped = (self._level > 0) & (self._level <= level)
             families = {
                 p: {s: f for s, f in by_shape.items() if stripped[f[0]]}
                 for p, by_shape in self._families.items()
             }
             families = {p: by_shape for p, by_shape in families.items() if by_shape}
         fixed = ~stripped
+        for family in molecules:
+            fixed[family.atoms] = False
         for i in sorted(np.flatnonzero(stripped), key=lambda i: -self._level[i]):
             p = int(self._parent[i])
             alone = len(families[p][int(self._shape[i])]) == 1
@@ -577,6 +727,7 @@ class SymmetricRMSD:
                         add(kids_u[s], kids_v[s], q, depth + 1)
             blocks.setdefault((depth, k), []).append((child, parent_pair))
 
+        wholes = []
         try:
             for p in sorted(families):
                 if p >= 0 and not fixed[p]:
@@ -584,12 +735,41 @@ class SymmetricRMSD:
                 for s in sorted(families[p]):
                     if len(families[p][s]) > 1:
                         add(families[p][s], families[p][s], -1, 1)
+            for family in molecules:
+                k, m = len(family.atoms), len(family.maps)
+                table = np.empty((k, k, m, len(family.skeleton)), dtype=np.intp)
+                for i, j, mu in itertools.product(range(k), range(k), range(m)):
+                    images = family.atoms[j][family.maps[mu]]
+                    for t, a in enumerate(family.skeleton):
+                        u, v = int(family.atoms[i][a]), int(images[a])
+                        q = len(pu)
+                        if q >= max_pairs:
+                            raise OverflowError
+                        pu.append(u)
+                        pv.append(v)
+                        table[i, j, mu, t] = q
+                        kids_u, kids_v = families.get(u, {}), families.get(v, {})
+                        for s in sorted(kids_u):
+                            add(kids_u[s], kids_v[s], q, 2)
+                wholes.append(table)
         except OverflowError:
             return None
-        # the sets that the sibling permutations mix: the free atoms by their path of
-        # shapes from the fixed atom (or from nothing) they hang on
+        # the sets that the permutations mix: of the molecules that are exchanged, the
+        # atoms that the maps of one molecule put on each other, in all of them; the
+        # other free atoms by their path of shapes from the atom (or from nothing) they
+        # hang on
         group_of = {}
         groups: List[List[int]] = []
+        for f, family in enumerate(molecules):
+            orbit = family.maps.min(axis=0)
+            for a in family.skeleton:
+                key = ("molecule", f, int(orbit[a]))
+                if key not in group_of:
+                    group_of[key] = len(groups)
+                    groups.append([])
+                for atom in family.atoms[:, a]:
+                    group_of[int(atom)] = group_of[key]
+                    groups[group_of[key]].append(int(atom))
         for i in sorted(
             np.flatnonzero(stripped & ~fixed), key=lambda i: -self._level[i]
         ):
@@ -606,11 +786,16 @@ class SymmetricRMSD:
         for by_shape in families.values():
             for family in by_shape.values():
                 order *= math.factorial(len(family))
+        for family in molecules:
+            k = len(family.atoms)
+            order *= math.factorial(k) * len(family.maps) ** k
         return {
             "fixed": np.flatnonzero(fixed),
             "pu": np.array(pu, dtype=np.intp),
             "pv": np.array(pv, dtype=np.intp),
             "blocks": blocks,
+            "wholes": wholes,
+            "n_molecules": sum(len(family.atoms) for family in molecules),
             "groups": groups,
             "order": order,
             "n_families": sum(len(b) for b in families.values()),
@@ -644,30 +829,17 @@ class SymmetricRMSD:
         s = np.linalg.svd(points, compute_uv=False)
         return float(s[..., 1].min() / math.sqrt(self.n))
 
-    def _skeleton_maps(self, level: int, limit: int) -> np.ndarray:
+    def _skeleton_maps(
+        self, level: int, limit: int, molecules: Sequence[_Molecules] = ()
+    ) -> np.ndarray:
         """
         The skeleton maps of a level, each continued onto the stripped atoms in the
-        fixed way (child k of a family onto child k of the image family): the
-        automorphisms of the graph in which every stripped atom carries its shape and
-        its place in its family as a label. Enumerated by RDKit, at most limit. Level
-        0: all automorphisms.
+        fixed way (child k of a family onto child k of the image family) and leaving
+        the molecules that are exchanged as wholes where they are: the automorphisms of
+        the graph with the labels of the level (_labelled). Enumerated by RDKit, at
+        most limit. Level 0 without such molecules: all automorphisms.
         """
-        labelled = Chem.Mol(self.graph)
-        place = {}
-        if level:
-            for by_shape in self._families.values():
-                for family in by_shape.values():
-                    for k, i in enumerate(family):
-                        place[i] = k
-        ids = {}
-        for atom in labelled.GetAtoms():
-            i = atom.GetIdx()
-            if level and 0 < self._level[i] <= level:
-                key = ("stripped", int(self._shape[i]), place[i])
-            else:
-                key = ("skeleton", atom.GetIsotope(), bool(self.weight[i]))
-            atom.SetIsotope(1 + ids.setdefault(key, len(ids)))
-        return _matches(labelled, limit)
+        return _matches(self._labelled(level, molecules), limit)
 
     def _install(self, layout) -> None:
         """The arrays of the chosen level."""
@@ -679,6 +851,14 @@ class SymmetricRMSD:
         self._pu, self._pv = layout["pu"], layout["pv"]
         self.n_pairs = len(self._pu)
         self._free = self.n_pairs > 0
+        self.n_molecules = layout["n_molecules"]
+        self._wholes = []  # per family of molecules: its node pairs, the permutations
+        for table in layout["wholes"]:
+            k = len(table)
+            perms = None
+            if k <= _BRUTE:
+                perms = np.array(list(itertools.permutations(range(k))), dtype=np.intp)
+            self._wholes.append((table, perms))
         self._blocks: List[_Block] = []
         for depth, k in sorted(layout["blocks"], reverse=True):  # deepest first
             entries = layout["blocks"][(depth, k)]
@@ -743,8 +923,13 @@ class SymmetricRMSD:
             sums = np.add.reduceat(x[self._group_atoms], self._group_start, axis=0)
             points = np.concatenate([points, sums * self._group_scale])
         transposed = np.ascontiguousarray(points.T)
+        axes = None
+        if align and self._wholes:  # the frame for the further starts of step 2
+            axes = np.linalg.eigh(x.T @ x)[1]
+            if np.linalg.det(axes) < 0:
+                axes[:, 0] = -axes[:, 0]
         return Prepared(
-            x, points, transposed, norm, float((points * points).sum()), align
+            x, points, transposed, norm, float((points * points).sum()), align, axes
         )
 
     def _bounds(
@@ -778,8 +963,8 @@ class SymmetricRMSD:
         return np.maximum(pa.norm_points + pb.norm_points - 2.0 * trace, 0.0), h
 
     def _assign(self, xa: np.ndarray, y: np.ndarray) -> np.ndarray:
-        """The node pairs of the best sibling permutations for a and the rotated b:
-        the exact minimum over the sibling permutations of the summed squared
+        """The node pairs of the best sibling permutations and exchanges of molecules
+        for a and the rotated b: the exact minimum over them of the summed squared
         deviation in this frame."""
         self.stats["assignments"] += 1
         delta = np.take(xa, self._pu, axis=0)
@@ -806,6 +991,18 @@ class SymmetricRMSD:
             if block.parent is not None:
                 np.add.at(cost, block.parent, best)
         selected = np.zeros(len(cost), dtype=bool)
+        for table, perms in self._wholes:
+            # molecule i of a on molecule j of b: the best map of one molecule, then
+            # the best exchange of the molecules
+            sums = cost[table].sum(axis=3)
+            best_map = sums.argmin(axis=2)
+            price = np.take_along_axis(sums, best_map[:, :, None], axis=2)[:, :, 0]
+            rows = np.arange(len(price))
+            if perms is not None:
+                image = perms[price[rows, perms].sum(axis=1).argmin()]
+            else:
+                image = linear_sum_assignment(price)[1]
+            selected[table[rows, image, best_map[rows, image]].ravel()] = True
         for block, picked in zip(reversed(self._blocks), reversed(chosen)):
             if block.parent is not None:
                 picked = picked[selected[block.parent]]
@@ -816,8 +1013,9 @@ class SymmetricRMSD:
         """
         (summed squared deviation, node pairs) for skeleton map k: sibling permutations
         and rotation in turn until the permutations repeat, from up to three rotations
-        (of the bound, h; of all atoms paired in the fixed way; of the fixed atoms).
-        Stops as soon as a value is within limit.
+        (of the bound, h; of all atoms paired in the fixed way; of the fixed atoms),
+        and where molecules are exchanged from the 24 rotations of the cube between the
+        principal axes of b and of a. Stops as soon as a value is within limit.
         """
         self.stats["evaluations"] += 1
         xa = pa.x
@@ -831,13 +1029,16 @@ class SymmetricRMSD:
         h_fixed = xb[fixed].T @ xa[fixed]
         best, best_pairs = np.inf, None
         seen = set()
-        for start in range(self.starts):
+        frames = () if pa.axes is None or pb.axes is None else _CUBE
+        for start in range(self.starts + len(frames)):
             if start == 0:
                 rot = _rotation(h)[0]
             elif start == 1:
                 rot = _rotation(xb.T @ xa)[0]
-            else:
+            elif start == 2:
                 rot = _rotation(h_fixed)[0]
+            else:
+                rot = pb.axes @ frames[start - self.starts] @ pa.axes.T
             for _ in range(self.max_rounds):
                 pairs = self._assign(xa, xb @ rot)
                 key = pairs.tobytes()
@@ -927,10 +1128,15 @@ class SymmetricRMSD:
         pa, pb = self.prepare(positions_a, align), self.prepare(positions_b, align)
         return float(np.sqrt(self._bounds(pa, pb)[0].min() / self.n))
 
+    @property
+    def exact(self) -> bool:
+        """Every automorphism is listed: rmsd is the minimum over all of them."""
+        return not self._free and not self.truncated
+
     def describe(self) -> str:
         return (
             f"{self.n} atoms, level {self.level}/{self.max_level}: {len(self.maps)} maps"
             f"{' (truncated)' if self.truncated else ''}, {self.n_stripped} stripped atoms "
-            f"in {self.n_families} families, {self.n_pairs} node pairs, "
-            f"{self.order:.4g} automorphisms"
+            f"in {self.n_families} families, {self.n_molecules} molecules exchanged as "
+            f"wholes, {self.n_pairs} node pairs, {self.order:.4g} automorphisms"
         )

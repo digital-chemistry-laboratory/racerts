@@ -181,7 +181,9 @@ pruner with the legacy ones is `racerts.pruner.RMSDPruner`.
   pruning: the kernel of legacy racerts and the reference that the tests compare against.
 - `racerts.symmetry`: the RMSD minimised over the symmetry of the graph without listing
   every atom mapping. Up to `max_maps` mappings are listed (exact); above that, the local
-  symmetry of terminal groups is assigned per parent atom. The value is never below the true
+  symmetry of terminal groups is assigned per parent atom, and identical molecules (solvent
+  molecules, the molecules of a cluster) are exchanged as wholes, molecule to molecule: the
+  number of their exchanges no longer matters. The value is never below the true
   RMSD. Two lower bounds of the RMSD skip 76 to 99.8 % of the pairs without computing it.
 - `racerts.prune.RMSDPruner(threshold, hydrogens="none" | "polar" | "all", align, max_maps)`
   decides every pair by its RMSD. The pruner of legacy racerts, with its prefilters, keywords

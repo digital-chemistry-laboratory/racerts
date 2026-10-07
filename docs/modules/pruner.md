@@ -18,10 +18,12 @@ Options of `racerts.prune.RMSDPruner`:
 - `threshold: float = 0.125` : RMSD in Å below which two conformers are duplicates
 - `hydrogens: str = "polar"` : the hydrogens that count: `"none"` (heavy atoms), `"polar"` (also those on N, O, P and S, so that the rotamers of a hydrogen bond stay apart) or `"all"`
 - `align: bool = True` : superpose before comparing; `False` compares the conformers in the frame they share (e.g. of a frozen core)
-- `max_maps: int = 100` : the most equivalent atom mappings that are listed; above it, local symmetry (the hydrogens of a methyl, the methyls of a tert-butyl) is assigned without a list
+- `max_maps: int = 100` : the most equivalent atom mappings that are listed; above it, local symmetry (the hydrogens of a methyl, the methyls of a tert-butyl) and the exchange of identical molecules (solvent molecules, the molecules of a cluster) are assigned without a list
 - `graph: Mol = None` : for conformers that are stored without bonds (e.g. read from coordinates alone): a molecule of the same atoms in the same order with the bonds
 
-The equivalent atoms come from the bonds. In a molecule without bonds all atoms of an element count as equivalent and no hydrogen can be left out: two structures that differ in which hydrogen sits on the oxygen are taken for one, and a copy of a larger structure can be missed, because the list of mappings is cut. The pruner warns in that case; with `graph=` it reads the equivalent atoms and the hydrogens from the bonded molecule:
+Identical molecules of the system are equivalent as wholes: a conformer in which two solvent molecules have changed places is a duplicate. Their exchanges are not listed (eight methanols have 40320, three benzenes 10368) but assigned, molecule to molecule, so their number does not matter.
+
+The equivalent atoms come from the bonds. In a molecule without bonds all atoms of an element count as equivalent and no hydrogen can be left out: two structures that differ in which hydrogen sits on the oxygen are taken for one. The pruner warns in that case; with `graph=` it reads the equivalent atoms and the hydrogens from the bonded molecule:
 
 ```python
 from racerts.prune import RMSDPruner
@@ -38,7 +40,7 @@ RMSDPruner(graph=bonded).prune(mol)  # mol: the same atoms, stored without bonds
 - `energy_threshold: float = 0.1` : minimum energy in kcal/mol deviation to identify different conformers
 - `filter_rotations: bool = True` : use prefilter by rotational constants
 - `rot_fraction_threshold: float = 0.03` : minimum rotational constant deviation to identify different conformers
-- `maxMatches: int = 10000` : maximum number of symmetry maps; beyond it the others are left out, with a warning
+- `maxMatches: int = 10000` : maximum number of symmetry maps; beyond it the others are left out, with a warning (also the exchanges of identical molecules: it can then miss a copy)
 - `graph: Mol = None` : as above, for conformers that are stored without bonds
 
 With both prefilters off it decides every pair by its RMSD, as the pruner above.

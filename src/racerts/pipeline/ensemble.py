@@ -283,14 +283,38 @@ class ConformerEnsemble:
         """
         One line: the number of conformers, the lowest energy (kcal/mol) with its
         conformer and method, the energy window (highest minus lowest) and, for a
-        windowed TS, the lengths of the active bonds (A).
+        windowed TS, the lengths of the active bonds (A). Conformers held at
+        different targets of the active bonds compare within a target only: for them
+        the line gives the largest window of a target instead, and no window if
+        every conformer has a target of its own.
         """
         energies = self.energies()
+        targets = {}  # the conformers per target of the active bonds
+        for k, conf_id in enumerate(self.conf_ids):
+            held = self.provenance(conf_id).get("active_bond_targets")
+            if held:
+                targets.setdefault(tuple(sorted(held.items())), []).append(k)
+        method = self.energy_method or "unknown method"
         if np.isnan(energies).all():
             text = f"{len(self)} conformers"
+        elif len(targets) > 1 and max(map(len, targets.values())) == 1:
+            text = (
+                f"{len(self)} conformers, each at its own lengths of the active "
+                f"bonds; energies ({method}) do not compare across them"
+            )
+        elif len(targets) > 1:
+            widest = max(
+                np.nanmax(energies[members]) - np.nanmin(energies[members])
+                for members in targets.values()
+                if not np.isnan(energies[members]).all()
+            )
+            text = (
+                f"{len(self)} conformers at {len(targets)} targets of the active "
+                f"bonds; energies ({method}) compare within a target: windows of up "
+                f"to {widest:.2f} kcal/mol"
+            )
         else:
             i = int(np.nanargmin(energies))
-            method = self.energy_method or "unknown method"
             window = np.nanmax(energies) - energies[i]
             text = (
                 f"{len(self)} conformers; energies ({method}): lowest {energies[i]:.4f} "

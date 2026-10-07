@@ -80,7 +80,9 @@ What changes with a window (`TransitionState(..., active_window=...)`):
   face counts where the partner lies at least 0.3 Å from the plane of the atom's other
   neighbours, in the reference and, to be flagged, on the other side in the conformer.
 - **Provenance:** `active_bond_targets` and `active_bond_lengths` ("i-j": Å) for every
-  conformer; `ConformerEnsemble.summary()` gives min, median and max per bond.
+  conformer; `ConformerEnsemble.summary()` gives min, median and max per bond, and the
+  largest energy window of a target instead of one over all conformers: energies at
+  different lengths of the active bonds are not comparable.
 
 After the TS optimization of windowed conformers, check the TS with `ReactionCore()`
 besides the imaginary mode: from stretched or compressed active bonds, a free saddle

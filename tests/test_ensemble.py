@@ -57,6 +57,14 @@ def test_energies_records_and_copies(ethanol):
         "3 conformers; energies (MMFFOptimizer): lowest 1.0000 kcal/mol "
         "(conformer 2), window 1.00 kcal/mol"
     )
+    # Conformers held at targets of their own (a windowed TS) do not compare.
+    held = ethanol.copy()
+    for conf_id, target in zip(held.conf_ids, (1.4, 1.5, 1.6)):
+        held.add_provenance(conf_id, active_bond_targets={"0-1": target})
+    assert held.summary() == (
+        "3 conformers, each at its own lengths of the active bonds; energies "
+        "(MMFFOptimizer) do not compare across them"
+    )
 
     # -- pickle keeps the conformer data
     ethanol.add_provenance(2, seed=12)

@@ -115,6 +115,13 @@ def test_windows_and_their_targets(aldol, caplog):
         for i in ensemble.conf_ids
     )
     assert worst < 0.02
+    # The embedded lengths are the targets: no energy window over all of them.
+    assert re.match(
+        rf"{len(ensemble)} conformers at \d+ targets of the active bonds; energies "
+        r"\(MMFFOptimizer\) compare within a target: windows of up to \S+ kcal/mol; "
+        r"active bond 10-12: ",
+        ensemble.summary(),
+    )
 
     # -- stratified targets
     task = TransitionState(
@@ -146,6 +153,21 @@ def test_windows_and_their_targets(aldol, caplog):
     assert (
         lengths and float(lengths[1]) < 2.2 and float(lengths[2]) > 2.7
     )  # all targets
+    # Energies compare within a target only: the summary gives the largest window of
+    # a target, and none over all of them.
+    window = re.search(
+        r"conformers at 5 targets of the active bonds; energies \(MMFFOptimizer\) "
+        r"compare within a target: windows of up to (\S+) kcal/mol;",
+        pruned.summary(),
+    )
+    per_target = collections.defaultdict(list)
+    for i in pruned.conf_ids:
+        target = pruned.provenance(i)["active_bond_targets"]["10-12"]
+        per_target[target].append(pruned.energy(i))
+    widest = max(max(e) - min(e) for e in per_target.values())
+    assert window and float(window[1]) == pytest.approx(widest, abs=0.005)
+    assert widest < np.ptp(pruned.energies())  # the targets differ by more
+    assert "lowest" not in pruned.summary()
 
     # -- targets are the midpoints of equal parts
     def lengths(task, count=None):

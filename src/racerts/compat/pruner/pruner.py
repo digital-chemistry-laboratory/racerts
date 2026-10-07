@@ -21,7 +21,11 @@ from racerts.geometry import (
     symmetry_maps,
 )
 from racerts.prune import BasePruner
-from racerts.prune.base import check_threshold, drop_conformers_without_energy
+from racerts.prune.base import (
+    check_threshold,
+    drop_conformers_without_energy,
+    symmetry_source,
+)
 from racerts.utils.units import EV_TO_KCAL_MOL
 
 logger = logging.getLogger(__name__)
@@ -98,7 +102,8 @@ class RMSDPruner(prune.RMSDPruner):
     hydrogens: "none" (the heavy atoms, the default) or "all" (also include_hs=True).
     With both prefilters off (and check_similarity not overridden) every pair is
     decided by its RMSD, as by racerts.prune.RMSDPruner; "polar" needs that.
-    Unknown keywords are ignored, as in legacy racerts.
+    graph: the bonded molecule of conformers that are stored without bonds, as in
+    racerts.prune.RMSDPruner. Unknown keywords are ignored, as in legacy racerts.
     """
 
     def __init__(self, threshold=0.125, verbose=False, **kwargs):
@@ -115,6 +120,7 @@ class RMSDPruner(prune.RMSDPruner):
             hydrogens=hydrogens,
             align=kwargs.get("align", True),
             max_maps=self.maxMatches,
+            graph=kwargs.get("graph"),
             verbose=verbose,
         )
         self.include_hs = hydrogens == "all"
@@ -162,7 +168,9 @@ class RMSDPruner(prune.RMSDPruner):
         # every pair (not for legacy subclasses whose check_similarity takes none).
         options = {}
         if len(conf_idx) > 1 and _takes(self.check_similarity, "symmetry"):
-            options["symmetry"] = symmetry_maps(mol, self.include_hs, self.maxMatches)
+            options["symmetry"] = symmetry_maps(
+                symmetry_source(mol, self.graph), self.include_hs, self.maxMatches
+            )
 
         candidates = np.array(conf_idx)
         keep_list = []
@@ -231,7 +239,8 @@ class RMSDPruner(prune.RMSDPruner):
         if filter_rotations:
             ref_rotations = self.calc_rotations(mol, id=int(id))
         if symmetry is None:
-            symmetry = symmetry_maps(mol, self.include_hs, maxMatches)
+            graph = symmetry_source(mol, getattr(self, "graph", None))
+            symmetry = symmetry_maps(graph, self.include_hs, maxMatches)
         ref_positions = ref_conformer.GetPositions()
 
         checked = []

@@ -37,11 +37,11 @@ def check_graph(graph) -> None:
         raise TypeError(f"graph must be an RDKit molecule, not {graph!r}.")
 
 
-def symmetry_kernel(mol: Chem.Mol, graph, conf_ids, atoms, **limits) -> SymmetricRMSD:
+def symmetry_source(mol: Chem.Mol, graph) -> Chem.Mol:
     """
-    The symmetry-aware RMSD of the conformers conf_ids of mol: over the equivalent
-    atoms of graph if one is given (a molecule of the same atoms in the same order,
-    for conformers that are stored without bonds), else of mol itself.
+    The molecule whose bonds say which atoms of mol are equivalent: graph if one is
+    given (a molecule of the same atoms in the same order, for conformers that are
+    stored without bonds), else mol itself, with a warning if it has no bond.
     """
     if graph is None:
         if mol.GetNumBonds() == 0 and mol.GetNumAtoms() > 2:
@@ -51,7 +51,7 @@ def symmetry_kernel(mol: Chem.Mol, graph, conf_ids, atoms, **limits) -> Symmetri
                 "can be taken for one and copies of a structure can be missed. For a "
                 "molecule stored without its bonds, give the bonded one as graph=."
             )
-        return SymmetricRMSD(mol, atoms, **limits)
+        return mol
     if [a.GetAtomicNum() for a in mol.GetAtoms()] != [
         a.GetAtomicNum() for a in graph.GetAtoms()
     ]:
@@ -59,10 +59,21 @@ def symmetry_kernel(mol: Chem.Mol, graph, conf_ids, atoms, **limits) -> Symmetri
             "graph must have the atoms of the conformers: the same elements in the "
             "same order."
         )
+    return graph
+
+
+def symmetry_kernel(mol: Chem.Mol, graph, conf_ids, atoms, **limits) -> SymmetricRMSD:
+    """
+    The symmetry-aware RMSD of the conformers conf_ids of mol, over the equivalent
+    atoms of symmetry_source(mol, graph).
+    """
+    source = symmetry_source(mol, graph)
+    if source is mol:
+        return SymmetricRMSD(mol, atoms, **limits)
     reference = np.array(
         [mol.GetConformer(int(i)).GetPositions() for i in list(conf_ids)[:10]]
     )
-    return SymmetricRMSD(graph, atoms, reference=reference, **limits)
+    return SymmetricRMSD(source, atoms, reference=reference, **limits)
 
 
 def drop_conformers_without_energy(mol: Chem.Mol) -> None:

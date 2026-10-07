@@ -39,6 +39,7 @@ RMSDPruner(graph=bonded).prune(mol)  # mol: the same atoms, stored without bonds
 - `filter_rotations: bool = True` : use prefilter by rotational constants
 - `rot_fraction_threshold: float = 0.03` : minimum rotational constant deviation to identify different conformers
 - `maxMatches: int = 10000` : maximum number of symmetry maps; beyond it the others are left out, with a warning
+- `graph: Mol = None` : as above, for conformers that are stored without bonds
 
 With both prefilters off it decides every pair by its RMSD, as the pruner above.
 

@@ -236,9 +236,26 @@ def test_duplicates_of_a_structure_without_bonds_need_its_graph(caplog):
     assert kept(_without_bonds(two), hydrogens="none", graph=ethanol) == 1
     assert kept(_without_bonds(two), hydrogens="polar", graph=ethanol) == 2
 
+    # -- the pruner of legacy racerts takes the graph too
+    # It ignores keywords it does not know; the graph must not be one of them. With
+    # its two prefilters (the copy has the energy and the moments of its original)
+    # and without them.
+    for settings in ({}, dict(filter_energies=False, filter_rotations=False)):
+
+        def legacy(mol, **more):
+            pruner = LegacyRMSDPruner(include_hs=True, **settings, **more)
+            return pruner.prune(Chem.Mol(mol)).GetNumConformers()
+
+        assert legacy(_without_bonds(copies)) == 2
+        assert legacy(_without_bonds(copies), graph=butanol) == 1
+        assert legacy(_without_bonds(two)) == 1
+        assert legacy(_without_bonds(two), graph=ethanol) == 2
+
     # -- the graph has the atoms of the conformers, in their order
     with pytest.raises(ValueError, match="same elements in the same order"):
         kept(_without_bonds(two), graph=butanol)
+    with pytest.raises(ValueError, match="same elements in the same order"):
+        LegacyRMSDPruner(graph=butanol).prune(_without_bonds(two))
     with pytest.raises(TypeError, match="graph must be an RDKit molecule"):
         RMSDPruner(graph="CCO")
 

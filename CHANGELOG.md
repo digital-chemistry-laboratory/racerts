@@ -180,8 +180,8 @@ pruner with the legacy ones is `racerts.pruner.RMSDPruner`.
   and overridable methods, is its subclass `racerts.pruner.RMSDPruner` (in `racerts.compat`).
   Clusters, Exploit and the comparison of runs use the same kernel. For conformers that
   are stored without bonds, `graph=` gives the bonded molecule (also in `ClusterPruner`
-  with the symmetric kernel); without it all atoms of an element count as equivalent, and
-  a warning says so.
+  with the symmetric kernel and in the pruner of legacy racerts); without it all atoms of
+  an element count as equivalent, and a warning says so.
 - `PruneCluster` (Butina, hierarchical or leader clustering; one conformer per cluster) and
   `FamilySelector` (families of similar conformers, for pools); `PruneCount` (the n lowest).
   `ClusterPruner.clusters(mol)` and `round_robin(clusters)` give the clusters and the

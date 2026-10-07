@@ -111,7 +111,9 @@ def test_rescore_failures(refined, on_fail, caplog):
 def test_rescore_raises_if_every_conformer_fails(refined):
     ensemble, ctx = refined
     before = ensemble.copy()
-    with pytest.raises(RuntimeError, match="all 4 conformers: RuntimeError: SCF"):
+    with pytest.raises(
+        racerts.NoConformersError, match="all 4 conformers: RuntimeError: SCF"
+    ):
         Rescore(AlwaysFails).run(ctx, ensemble)
 
     # The ensemble is as before: its energies still belong to its energy method.
@@ -212,7 +214,9 @@ def test_convergence_is_recorded_and_unconverged_conformers_can_be_dropped(
         assert provenance["converged"] is False and provenance["n_steps"] == 1
         assert provenance["wall_time"] >= 0
 
-    with pytest.raises(RuntimeError, match="No conformer converged within 1 steps"):
+    with pytest.raises(
+        racerts.NoConformersError, match="No conformer converged within 1 steps"
+    ):
         ASEOptimizer(LennardJones(), max_steps=1, drop_unconverged=True).refine(
             ensemble.copy().mol
         )
@@ -289,6 +293,85 @@ def test_ase_refinement_ids_single_points_optimizers_and_failures(refined, caplo
     has_energy = [e is not None for e in map(ensemble.energy, ensemble.conf_ids)]
     assert has_energy == [True, False, True, True]
     assert "SCF not converged" in caplog.text
+
+
+class CannotBeSent(RuntimeError):
+    """An error that pickle cannot take to another process."""
+
+    def __reduce__(self):
+        raise TypeError("holds a handle")
+
+
+class FailsUnsendably(LennardJones):
+    def calculate(self, atoms=None, *args, **kwargs):
+        if atoms is not None and atoms.info.get("fail"):
+            raise CannotBeSent("the device is gone")
+        super().calculate(atoms, *args, **kwargs)
+
+
+CALLS_HERE = []
+
+
+def counted_lj():
+    """A calculator factory that counts its calls in the process it runs in."""
+    CALLS_HERE.append(1)
+    return LennardJones()
+
+
+def test_which_errors_cost_a_conformer_and_when_workers_start(refined):
+    start, ctx = refined
+    ids = start.conf_ids
+
+    def run(calculator=FailOnMark, **settings):
+        ensemble = start.copy()
+        optimizer = MarkingOptimizer(calculator, max_steps=2, **settings)
+        optimizer.fail_ids = (ids[1],)
+        optimizer.refine(ensemble.mol, ctx.reference, ctx.frozen.hard)
+        return ensemble
+
+    # -- the error of a failed conformer is in its provenance
+    ensemble = run()
+    assert ensemble.provenance(ids[1])["error"] == "RuntimeError: SCF not converged"
+    assert "error" not in ensemble.provenance(ids[0])
+
+    # -- expected_errors: only these cost a conformer; any other error ends the run,
+    # also from a worker process
+    for workers in (1, 2):
+        ensemble = run(num_workers=workers, expected_errors=RuntimeError)
+        assert ensemble.energy(ids[1]) is None and ensemble.energy(ids[0]) is not None
+        with pytest.raises(RuntimeError, match="SCF not converged"):
+            run(num_workers=workers, expected_errors=(ArithmeticError, OSError))
+    # An error that cannot be sent from a worker arrives with its type and text.
+    with pytest.raises(RuntimeError, match="CannotBeSent: the device is gone"):
+        run(FailsUnsendably, num_workers=2, expected_errors=())
+    with pytest.raises(CannotBeSent):
+        run(FailsUnsendably, expected_errors=())
+
+    # If every conformer fails with an expected error, nothing is left: that has a
+    # type of its own, so that a caller can tell it from an error of the backend.
+    def all_fail(ensemble):
+        optimizer = MarkingOptimizer(FailOnMark, max_steps=2)
+        optimizer.fail_ids = tuple(ids)
+        optimizer.refine(ensemble.mol, ctx.reference, ctx.frozen.hard)
+
+    with pytest.raises(racerts.NoConformersError, match="failed for all 4"):
+        all_fail(start.copy())
+    assert issubclass(racerts.NoConformersError, RuntimeError)  # as it was raised
+    for wrong in ("RuntimeError", (RuntimeError, "x"), [RuntimeError], int):
+        with pytest.raises(TypeError, match="expected_errors"):
+            ASEOptimizer(LennardJones(), expected_errors=wrong)
+
+    # -- serial_below: no worker processes for fewer conformers than this
+    del CALLS_HERE[:]
+    run(counted_lj, num_workers=2)
+    assert not CALLS_HERE  # the calculators were made in the workers
+    run(counted_lj, num_workers=2, serial_below=len(ids) + 1)
+    assert len(CALLS_HERE) == len(ids)  # one per conformer, in this process
+    del CALLS_HERE[:]
+    run(counted_lj, num_workers=2, serial_below=len(ids))
+    assert not CALLS_HERE
+    with pytest.raises(ValueError, match="serial_below"):
+        ASEOptimizer(LennardJones(), serial_below=-1)
 
 
 class RecordingPrepare:

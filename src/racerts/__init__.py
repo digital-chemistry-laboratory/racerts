@@ -32,6 +32,7 @@ from .config import (
     RestraintConfig,
 )
 from .embed import Embed
+from .errors import NoConformersError
 from .exploit import Exploit
 from .pipeline import (
     ConformerEnsemble,
@@ -61,6 +62,7 @@ __all__ = [
     "Exploit",
     "FrozenSet",
     "GroundState",
+    "NoConformersError",
     "Pipeline",
     "PipelineConfig",
     "PruneCluster",

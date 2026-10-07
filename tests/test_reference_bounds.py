@@ -53,7 +53,7 @@ def test_bounds_are_widened_to_the_reference(caplog, tmp_path):
     from racerts.cli import main
 
     # -- rdkit alone cannot embed the tilted core
-    with pytest.raises(RuntimeError, match="no conformers"):
+    with pytest.raises(racerts.NoConformersError, match="no conformers"):
         racerts.Embed(CmapEmbedder(reference_bounds="never"), n_conformers=5).run(
             _ctx(70)
         )

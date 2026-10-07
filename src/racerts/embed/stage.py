@@ -7,6 +7,7 @@ from typing import Callable, Optional, Sequence, Union
 from rdkit import Chem
 from rdkit.Chem import Descriptors
 
+from racerts.errors import NoConformersError
 from racerts.pipeline import ConformerEnsemble
 from racerts.restraints.active import (
     EMBED_TARGET_HALF_WIDTH,
@@ -111,13 +112,13 @@ def default_embedder(
     )
 
 
-def no_conformers_error(frozen) -> RuntimeError:
+def no_conformers_error(frozen) -> NoConformersError:
     hint = (
         "Check the reacting atoms and the TS geometry, or try another embedder."
         if frozen
         else "Try more conformers (n_conformers) or another embedder."
     )
-    return RuntimeError(f"Embedding produced no conformers. {hint}")
+    return NoConformersError(f"Embedding produced no conformers. {hint}")
 
 
 class Embed:

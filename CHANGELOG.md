@@ -151,6 +151,11 @@ pruner with the legacy ones is `racerts.pruner.RMSDPruner`.
 - `ASEOptimizer`: any ASE calculator and optimizer; a `prepare` hook per structure;
   convergence, steps and wall time in the provenance; `drop_unconverged`; restraints and
   soft atoms as ASE constraints; worker processes; charge and spin passed to the calculator.
+  `expected_errors` names the errors of a calculation that cost one conformer (default:
+  any), every other error ends the run; the error of a failed conformer is in its
+  provenance; `serial_below` starts no worker processes for few conformers.
+- `racerts.NoConformersError` (a `RuntimeError`): a step left no conformer (nothing
+  embedded, every calculation failed, none converged, none passed a check).
 - `Refine(anchors=False)` refines all atoms; `Refine` removes conformers whose optimization
   failed, with a warning.
 - `Rescore`: single-point energies at another level, or any function of the structure (a

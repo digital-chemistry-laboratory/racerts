@@ -6,6 +6,7 @@ from typing import Callable, Dict, Optional, Protocol, Union, runtime_checkable
 
 from rdkit import Chem
 
+from racerts.errors import NoConformersError
 from racerts.pipeline import ConformerEnsemble
 
 logger = logging.getLogger(__name__)
@@ -68,8 +69,8 @@ class Validate:
             ImaginaryModes, or validator(function)).
         on_fail: "drop" removes the conformers that fail any validator; "flag" keeps
             them with the reasons in their provenance.
-        require_any: With "drop", raise RuntimeError if no conformer passes. Flagging
-            removes nothing: it then logs a warning and returns the ensemble.
+        require_any: With "drop", raise NoConformersError if no conformer passes.
+            Flagging removes nothing: it then logs a warning and returns the ensemble.
         warn_above: The share of failing conformers above which a warning is logged
             (default 0: any failure); below it, the failures are logged as information.
             The log counts the failures per validator.
@@ -134,7 +135,7 @@ class Validate:
                 )
                 return ensemble
             if self.require_any:
-                raise RuntimeError(none + ".")
+                raise NoConformersError(none + ".")
         if failed:
             counts = Counter(name for reasons in failed.values() for name in reasons)
             share = len(failed) / len(results)

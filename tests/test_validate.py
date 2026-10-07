@@ -153,7 +153,9 @@ def test_the_validate_stage(ts_ensemble, caplog):
     caplog.clear()
     ensemble, ctx = ts_ensemble
     always = validator(lambda mol, conf_id: "no", name="never")
-    with pytest.raises(RuntimeError, match="No conformer passed validation.*never: no"):
+    with pytest.raises(
+        racerts.NoConformersError, match="No conformer passed validation.*never: no"
+    ):
         Validate(always).run(ctx, ensemble.copy())
     assert len(Validate(always, require_any=False).run(ctx, ensemble.copy())) == 0
 

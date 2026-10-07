@@ -8,10 +8,12 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Type
 
 from rdkit import Chem
 
+from racerts.errors import NoConformersError
 from racerts.io import ase as ase_io
 from racerts.pipeline.ensemble import ConformerEnsemble
 from racerts.restraints.model import PositionRestraint
 from racerts.system.spec import infer_charge_and_multiplicity
+from racerts.utils.checks import is_integer
 from racerts.utils.optional import require
 from racerts.utils.units import EV_TO_KCAL_MOL
 
@@ -53,8 +55,18 @@ class ASEOptimizer(BaseOptimizer):
             Must be picklable for worker processes.
         method: The name of the energies (the molecule property "energy_method" that
             Refine records), e.g. "GFN2-xTB" or "UMA-s-1p2"; default: the class name.
+        expected_errors: The exception types (a class or a tuple of classes, as for
+            except) of a calculation that cost its conformer only: it is left
+            without an energy. Default: any Exception. Any other error is raised and
+            ends the run, also from a worker process (as RuntimeError with its type
+            and text if it cannot be sent from there): e.g. a lost device, where a
+            run that goes on would return an ensemble with most conformers missing.
+        serial_below: With fewer conformers than this no worker processes are
+            started (default 0: workers for any number). Starting a worker costs
+            the imports of the calculator, which can be more than a few conformers.
 
-    Every conformer records "converged", "n_steps" and "wall_time" in its provenance.
+    Every conformer records "converged", "n_steps" and "wall_time" in its provenance,
+    and a conformer whose calculation failed its "error".
     """
 
     def __init__(
@@ -74,9 +86,25 @@ class ASEOptimizer(BaseOptimizer):
         drop_unconverged: bool = False,
         prepare: Optional[Callable[[Any, Any], None]] = None,
         method: Optional[str] = None,
+        expected_errors=(Exception,),
+        serial_below: int = 0,
     ):
         if calculator is None:
             raise ValueError("`calculator` must be provided.")
+        if isinstance(expected_errors, type):
+            expected_errors = (expected_errors,)
+        if not isinstance(expected_errors, tuple) or not all(
+            isinstance(e, type) and issubclass(e, BaseException)
+            for e in expected_errors
+        ):
+            raise TypeError(
+                "expected_errors is an exception class or a tuple of them, not "
+                f"{expected_errors!r}."
+            )
+        if isinstance(serial_below, bool) or not is_integer(serial_below):
+            raise ValueError(f"serial_below must be an integer, not {serial_below!r}.")
+        if serial_below < 0:
+            raise ValueError("serial_below must not be negative.")
 
         self.calculator = calculator
         self._calculator_is_factory = ase_io.check_calculator(calculator)
@@ -95,6 +123,8 @@ class ASEOptimizer(BaseOptimizer):
         self.drop_unconverged = drop_unconverged
         self.prepare = prepare
         self.method = method
+        self.expected_errors = expected_errors
+        self.serial_below = int(serial_below)
 
         if num_threads != 1:
             warnings.warn(
@@ -120,13 +150,15 @@ class ASEOptimizer(BaseOptimizer):
         """Optimize one conformer or the full ensemble in place.
 
         Full-ensemble calls use spawned processes when ``num_workers`` is ``None``
-        or greater than one; otherwise conformers are optimized serially. A call
-        with ``conf_id`` always optimizes that conformer serially. reference: the
-        geometry passed to prepare (default: the first conformer).
+        or greater than one (and there are at least serial_below conformers);
+        otherwise conformers are optimized serially. A call with ``conf_id`` always
+        optimizes that conformer serially. reference: the geometry passed to prepare
+        (default: the first conformer).
 
-        A conformer whose calculation fails (e.g. an SCF that does not converge) is
-        left without an energy, so the pruners drop it. If all fail, RuntimeError is
-        raised. Returns the number of conformers that failed or did not converge.
+        A conformer whose calculation fails with one of expected_errors (e.g. an SCF
+        that does not converge) is left without an energy, so the pruners drop it.
+        If all fail, NoConformersError is raised. Returns the number of conformers that
+        failed or did not converge.
         restraints: flat-bottom terms added to the calculator (energies without them).
         """
         conf_ids = (
@@ -152,6 +184,7 @@ class ASEOptimizer(BaseOptimizer):
             max_steps=self.max_steps,
             prepare=self.prepare,
             restraints=tuple(restraints),
+            expected_errors=self.expected_errors,
         )
         reference_atoms = None
         if self.prepare is not None:
@@ -160,8 +193,10 @@ class ASEOptimizer(BaseOptimizer):
                 reference_atoms = self._to_atoms(reference, ref_id, state)
             else:  # a copy: the first conformer is relaxed in place
                 reference_atoms = tasks[0][1].copy()
-        use_processes = conf_id is None and (
-            self.num_workers is None or self.num_workers > 1
+        use_processes = (
+            conf_id is None
+            and (self.num_workers is None or self.num_workers > 1)
+            and len(tasks) >= self.serial_below
         )
         outcomes = optimize_all(
             tasks,
@@ -186,6 +221,7 @@ class ASEOptimizer(BaseOptimizer):
             )
             if outcome.error is not None:
                 errors[outcome.conf_id] = outcome.error
+                ensemble.add_provenance(outcome.conf_id, error=outcome.error)
                 conf.ClearProp("energy")  # no stale energy from an earlier step
                 failures += 1
                 continue
@@ -198,7 +234,7 @@ class ASEOptimizer(BaseOptimizer):
         if errors:
             first_error = next(iter(errors.values()))
             if len(errors) == len(outcomes):
-                raise RuntimeError(
+                raise NoConformersError(
                     f"ASE optimization failed for all {len(outcomes)} conformers: "
                     f"{first_error}"
                 )
@@ -212,7 +248,7 @@ class ASEOptimizer(BaseOptimizer):
             )
         if unconverged and self.drop_unconverged:
             if len(unconverged) + len(errors) == len(outcomes):
-                raise RuntimeError(
+                raise NoConformersError(
                     f"No conformer converged within {self.max_steps} steps."
                 )
             logger.warning(

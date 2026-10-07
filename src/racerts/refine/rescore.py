@@ -5,6 +5,7 @@ import math
 from functools import partial
 from typing import Any, Callable, List, Optional, Sequence
 
+from racerts.errors import NoConformersError
 from racerts.io.ase import rdkit_conformer_to_ase_atoms
 from racerts.pipeline import ConformerEnsemble
 from racerts.system.spec import infer_charge_and_multiplicity
@@ -46,7 +47,7 @@ class Rescore:
 
     The energy that is replaced, and its method, go into the provenance of each
     conformer ("previous_energy", "previous_energy_method"). If no conformer gets an
-    energy, RuntimeError is raised.
+    energy, NoConformersError is raised.
     """
 
     name = "rescore"
@@ -107,7 +108,7 @@ class Rescore:
         ]
         if len(failed) == len(conf_ids):  # before anything changes
             detail = f": {errors[0]}" if errors else ""
-            raise RuntimeError(
+            raise NoConformersError(
                 f"Rescoring failed for all {len(conf_ids)} conformers{detail}"
             )
         previous_method = ensemble.energy_method

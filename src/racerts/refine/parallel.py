@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import multiprocessing
 import os
+import pickle
 import time
 from concurrent.futures import ProcessPoolExecutor
 from copy import deepcopy
@@ -28,6 +29,9 @@ class OptimizationConfig:
 
     restraints (DistanceRestraint, PositionRestraint) are added to the calculator as
     flat-bottom terms (racerts.refine.restrained); the reported energy leaves them out.
+
+    expected_errors: The exception types of a calculation that cost its conformer
+    only (optimize_one reports them); any other error is raised.
     """
 
     optimizer_cls: type
@@ -36,6 +40,7 @@ class OptimizationConfig:
     max_steps: int = 100
     prepare: Optional[Callable[[Any, Any], None]] = None
     restraints: tuple = ()
+    expected_errors: tuple = (Exception,)
 
 
 @dataclass(frozen=True)
@@ -106,7 +111,8 @@ def optimize_one(
     Relax one structure. With max_steps=0, only the energy is computed (a single
     point). A failing calculation (e.g. an SCF that does not converge) is reported as
     an error instead of raising, so that it only costs this conformer and not the
-    whole ensemble.
+    whole ensemble: for the exception types in config.expected_errors (default: any
+    Exception). Other errors are raised.
     """
     conf_id, atoms = task
     start = time.perf_counter()
@@ -127,7 +133,7 @@ def optimize_one(
         energy = float(atoms.get_potential_energy())
         if config.restraints:
             energy -= float(calculator.results["restraint_energy"])
-    except Exception as exc:
+    except config.expected_errors as exc:
         return Outcome(
             conf_id,
             error=f"{type(exc).__name__}: {exc}",
@@ -160,7 +166,14 @@ def _run_worker_optimization(task: OptimizationTask) -> Outcome:
     """Relax a structure with the current worker's resident calculator."""
     if _WORKER_CONFIG is None:  # pragma: no cover - initializer contract
         raise RuntimeError("Optimization worker was not initialized.")
-    return optimize_one(_WORKER_CALC, _WORKER_CONFIG, task)
+    try:
+        return optimize_one(_WORKER_CALC, _WORKER_CONFIG, task)
+    except Exception as error:  # not an expected one: it ends the run of the caller
+        try:  # the way back is a pickle
+            pickle.loads(pickle.dumps(error))
+        except Exception:
+            raise RuntimeError(f"{type(error).__name__}: {error}") from None
+        raise
 
 
 def _resolve_workers(n_workers: int | None, n_tasks: int) -> int:

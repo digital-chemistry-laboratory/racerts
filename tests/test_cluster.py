@@ -6,7 +6,7 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 
 from racerts import ConformerEnsemble
-from racerts.prune import ClusterPruner, FamilySelector, PruneCluster
+from racerts.prune import ClusterPruner, FamilySelector, PruneCluster, round_robin
 
 
 @pytest.fixture
@@ -94,6 +94,10 @@ def test_distances_and_representatives(rng):
         mol
     )
     assert clusters == [[1, 3], [2, 0]]  # by energy, families by their best member
+    # The families in turns: the best of each, then the second best of each, ...
+    assert round_robin(clusters) == [1, 2, 3, 0]
+    assert round_robin([[4, 5, 6], [], [7]]) == [4, 7, 5, 6]
+    assert round_robin([]) == []
 
     # -- the symmetric kernel ignores hydrogens and symmetry
     # Two conformers of 2-methylpropane that differ by swapping methyl groups.

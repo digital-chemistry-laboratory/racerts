@@ -18,7 +18,7 @@ from .base import (
     drop_conformers_without_energy,
     symmetry_kernel,
 )
-from .targets import in_turns
+from .targets import in_turns, round_robin
 
 logger = logging.getLogger(__name__)
 
@@ -256,8 +256,7 @@ class FamilySelector:
         def by_family(part: ConformerEnsemble) -> List[int]:
             families = self.clusterer.clusters(part.mol)
             sizes.extend(len(f) for f in families)
-            ranks = range(max((len(f) for f in families), default=0))
-            return [f[rank] for rank in ranks for f in families if rank < len(f)]
+            return round_robin(families)
 
         chosen = set(in_turns(ctx, ensemble, by_family)[: self.n_max])
         logger.info(

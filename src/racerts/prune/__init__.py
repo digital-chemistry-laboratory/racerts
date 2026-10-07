@@ -5,6 +5,7 @@ from .cluster import ClusterPruner, FamilySelector
 from .energy import EnergyPruner
 from .rmsd import RMSDPruner
 from .stage import PruneCluster, PruneCount, PruneEnergy, PruneRMSD
+from .targets import round_robin
 
 __all__ = [
     "BasePruner",
@@ -17,4 +18,5 @@ __all__ = [
     "PruneRMSD",
     "RMSDPruner",
     "drop_conformers_without_energy",
+    "round_robin",
 ]

@@ -184,6 +184,8 @@ pruner with the legacy ones is `racerts.pruner.RMSDPruner`.
   a warning says so.
 - `PruneCluster` (Butina, hierarchical or leader clustering; one conformer per cluster) and
   `FamilySelector` (families of similar conformers, for pools); `PruneCount` (the n lowest).
+  `ClusterPruner.clusters(mol)` and `round_robin(clusters)` give the clusters and the
+  order that takes them in turns, for a selection of one's own.
 - `prune.check_stereo`: conformers whose stereo differs from the graph are removed after
   refinement, centres with a lone pair and ring double bonds included.
 

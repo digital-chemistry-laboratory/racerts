@@ -1,6 +1,6 @@
 """The targets of a windowed TS: conformers compare only within one."""
 
-from typing import Callable, List
+from typing import Callable, List, Sequence
 
 from racerts.pipeline import ConformerEnsemble
 
@@ -49,6 +49,16 @@ def target_groups(ctx, ensemble) -> List[List[int]]:
     return [groups[key] for key in sorted(groups)] or [ensemble.conf_ids]
 
 
+def round_robin(groups: Sequence[Sequence]) -> list:
+    """
+    The members of the groups in turns: the first of each group, then the second of
+    each, ... (e.g. of the clusters of ClusterPruner.clusters, for a selection that
+    is spread over them).
+    """
+    ranks = range(max(map(len, groups), default=0))
+    return [group[rank] for rank in ranks for group in groups if rank < len(group)]
+
+
 def in_turns(
     ctx, ensemble: ConformerEnsemble, ranked: Callable[[ConformerEnsemble], List[int]]
 ) -> List[int]:
@@ -59,10 +69,4 @@ def in_turns(
     """
     groups = target_groups(ctx, ensemble)
     parts = [ensemble] if len(groups) == 1 else [ensemble.filter(g) for g in groups]
-    queues = [ranked(part) for part in parts]
-    return [
-        queue[rank]
-        for rank in range(max(map(len, queues)))
-        for queue in queues
-        if rank < len(queue)
-    ]
+    return round_robin([ranked(part) for part in parts])

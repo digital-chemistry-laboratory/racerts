@@ -126,6 +126,10 @@ pruner with the legacy ones is `racerts.pruner.RMSDPruner`.
 - Held in MMFF/UFF refinement as flat-bottom terms and in ASE refinement as constraints;
   reported energies leave the terms out. `Refine(restraints=False)` releases them for one
   refinement, e.g. at the level whose energies decide; the gate knows.
+- Windows that contradict each other or the fixed distances raise
+  `racerts.InconsistentRestraints` (a `ValueError`). `racerts.embed.bounds_matrix` runs the
+  same test before a run, and `racerts.restraints.link_window` gives the contact window of
+  a fragment link for any pair.
 - `export_restraints` and `--export-restraints {xtb,crest,orca,json}`: the frozen atoms and
   restraints as input for other programs.
 

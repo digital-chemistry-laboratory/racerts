@@ -10,10 +10,14 @@ from rdkit.Chem import AllChem
 import racerts
 import racerts.embed.dg as dg
 from racerts import EmbedConfig, PipelineConfig, TransitionState
+from racerts.embed import InconsistentRestraints, bounds_matrix
 from racerts.restraints import (
+    LINK_LOWER_FACTORS,
+    LINK_UPPER_FACTOR,
     DistanceRestraint,
     RestraintSet,
     build_restraints,
+    link_window,
     sources,
 )
 from racerts.system import build_mol
@@ -509,6 +513,40 @@ def test_fragment_links():
     for conf in ensemble.mol.GetConformers():
         p = conf.GetPositions()
         assert np.linalg.norm(p[link.first] - p[link.second]) < link.upper + 0.3
+
+
+def test_a_contact_window_from_the_public_pieces():
+    # The pieces that join the fragments, for a caller with a rule of their own (one
+    # window at a time, say, and none where none fits). Water and chloride: alone,
+    # the contact window of O and Cl fits; next to a hydrogen bond of 2.0 A only the
+    # widened one does; next to an H...Cl of 1.2 A neither.
+    mol = Chem.AddHs(Chem.MolFromSmiles("O.[Cl-]"))
+    table = Chem.GetPeriodicTable()
+    vdw = table.GetRvdw(8) + table.GetRvdw(17)
+    tight, wide = (link_window(mol, (0, 1), factor) for factor in LINK_LOWER_FACTORS)
+    assert tight == pytest.approx((vdw, LINK_UPPER_FACTOR * vdw))
+    assert wide == pytest.approx((0.8 * vdw, LINK_UPPER_FACTOR * vdw))
+
+    def fits(window, hydrogen_bond=None):
+        windows = [DistanceRestraint(0, 1, *window, source="link")]
+        if hydrogen_bond is not None:
+            windows.append(
+                DistanceRestraint(2, 1, hydrogen_bond - 0.25, hydrogen_bond + 0.25)
+            )
+        try:
+            bounds = bounds_matrix(mol, windows=windows)
+        except InconsistentRestraints:
+            return False
+        # Upper bounds above the diagonal, lower bounds below it.
+        assert window[0] <= bounds[1, 0] <= bounds[0, 1] <= window[1]
+        return True
+
+    assert fits(tight) and fits(wide)
+    assert not fits(tight, 2.0) and fits(wide, 2.0)
+    assert not fits(tight, 1.2) and not fits(wide, 1.2)
+    # The error of an embedding whose restraints contradict each other.
+    assert racerts.InconsistentRestraints is InconsistentRestraints
+    assert issubclass(InconsistentRestraints, ValueError)
 
 
 # ---- graph hints ----

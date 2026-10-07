@@ -46,9 +46,26 @@ Rules:
 - Restraints between two frozen atoms are left out (their distance is fixed), with a
   warning.
 - User windows that need more triangle-smoothing tolerance than the bounds without them
-  raise `ValueError` ("inconsistent"): smoothing would otherwise repair them silently,
-  e.g. by stretching a bond. Fragment links are widened once (lower factor 0.8) before
-  that; user windows never are.
+  raise `racerts.InconsistentRestraints` (a `ValueError`): smoothing would otherwise
+  repair them silently, e.g. by stretching a bond. Fragment links are widened once
+  (lower factor 0.8) before that; user windows never are.
+
+The same test for windows of your own, before a run: `bounds_matrix` gives the distance
+bounds of a molecule with the windows in place, or raises. `link_window` is the contact
+window of a fragment link, for a pair of your choice:
+
+```python
+from racerts.embed import InconsistentRestraints, bounds_matrix
+from racerts.restraints import LINK_LOWER_FACTORS, DistanceRestraint, link_window
+
+for factor in LINK_LOWER_FACTORS:  # 1.0, then 0.8 x the sum of the vdW radii
+    contact = DistanceRestraint(i, j, *link_window(mol, (i, j), factor), source="link")
+    try:
+        bounds_matrix(mol, windows=[*others, contact])
+    except InconsistentRestraints:
+        continue
+    break
+```
 
 On the command line: `--restraint I J D` (repeatable), `--hints`,
 `--restraint-half-width` and `--restraint-force-constant` for `racerts ts` and

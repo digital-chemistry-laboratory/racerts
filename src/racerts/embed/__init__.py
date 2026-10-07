@@ -1,6 +1,7 @@
 """Embedding: starting geometries with the frozen atoms of the task in place."""
 
 from .base import BaseEmbedder
+from .bounds import InconsistentRestraints, bounds_matrix
 from .dg import (
     CHIRALITY_FALLBACK_MODES,
     BoundsMatrixEmbedder,
@@ -30,6 +31,8 @@ __all__ = [
     "CmapEmbedder",
     "DistanceGeometryEmbedder",
     "Embed",
+    "InconsistentRestraints",
+    "bounds_matrix",
     "conformer_count",
     "default_embedder",
 ]

@@ -31,7 +31,7 @@ from .config import (
     RefineConfig,
     RestraintConfig,
 )
-from .embed import Embed
+from .embed import Embed, InconsistentRestraints
 from .errors import NoConformersError
 from .exploit import Exploit
 from .pipeline import (
@@ -62,6 +62,7 @@ __all__ = [
     "Exploit",
     "FrozenSet",
     "GroundState",
+    "InconsistentRestraints",
     "NoConformersError",
     "Pipeline",
     "PipelineConfig",

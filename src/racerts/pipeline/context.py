@@ -1,5 +1,7 @@
 """Context: what every stage of a pipeline can use."""
 
+from __future__ import annotations
+
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Optional
@@ -47,7 +49,7 @@ class Context:
         seed: int = 12,
         charge: Optional[int] = None,
         multiplicity: Optional[int] = None,
-    ) -> "Context":
+    ) -> Context:
         """
         A context for a copy of mol: charge and multiplicity are settled and stored as
         properties of the copy (see set_charge_and_multiplicity), then the frozen atoms

@@ -1,5 +1,7 @@
 """ConformerEnsemble: a molecule with its conformers, energies and provenance."""
 
+from __future__ import annotations
+
 import json
 from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Optional
@@ -35,7 +37,7 @@ class ConformerEnsemble:
     def __init__(self, mol: Chem.Mol):
         self.mol = mol
 
-    def copy(self) -> "ConformerEnsemble":
+    def copy(self) -> ConformerEnsemble:
         return ConformerEnsemble(Chem.Mol(self.mol))
 
     # RDKit's default pickling drops all properties (energies, provenance, charge).
@@ -103,7 +105,7 @@ class ConformerEnsemble:
             provenance=_provenance(conf),
         )
 
-    def filter(self, conf_ids: Iterable[int]) -> "ConformerEnsemble":
+    def filter(self, conf_ids: Iterable[int]) -> ConformerEnsemble:
         """A copy with only the given conformers (ids and data kept)."""
         keep = set(conf_ids)
         unknown = keep - set(self.conf_ids)
@@ -115,7 +117,7 @@ class ConformerEnsemble:
                 mol.RemoveConformer(conf_id)
         return ConformerEnsemble(mol)
 
-    def merge(self, other: "ConformerEnsemble") -> "ConformerEnsemble":
+    def merge(self, other: ConformerEnsemble) -> ConformerEnsemble:
         """
         A copy with the conformers of both ensembles, which must share the molecular
         graph. The conformers of other get new ids. Energies from different methods

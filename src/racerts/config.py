@@ -1,5 +1,7 @@
 """PipelineConfig: the settings of the default pipeline, as plain data."""
 
+from __future__ import annotations
+
 import json
 import os
 import re
@@ -142,7 +144,7 @@ class PipelineConfig:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "PipelineConfig":
+    def from_dict(cls, data: Dict[str, Any]) -> PipelineConfig:
         """
         Build from a (possibly partial) dict; unknown keys and values of the wrong
         type raise ValueError.
@@ -161,7 +163,7 @@ class PipelineConfig:
                 handle.write("\n")
 
     @classmethod
-    def from_file(cls, path: str) -> "PipelineConfig":
+    def from_file(cls, path: str) -> PipelineConfig:
         """Read JSON, or YAML for .yaml/.yml (needs PyYAML)."""
         with open(path) as handle:
             data = _load_yaml(handle) if _is_yaml(path) else json.load(handle)

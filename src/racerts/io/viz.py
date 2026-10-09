@@ -1,5 +1,7 @@
 """Notebook views of conformer ensembles (py3Dmol)."""
 
+from __future__ import annotations
+
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
 from rdkit import Chem
@@ -56,7 +58,7 @@ def draw_multiple_confs(
 def drawit(
     m: Chem.Mol,
     cids: Optional[List[int]] = None,
-    p: Optional["py3Dmol.view"] = None,
+    p: Optional[py3Dmol.view] = None,
     removeHs: bool = True,
     colors: Tuple[str, ...] = (
         "cyanCarbon",

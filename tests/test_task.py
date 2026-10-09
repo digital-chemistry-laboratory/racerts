@@ -17,6 +17,14 @@ def test_transition_state_freezes_the_reacting_atoms_and_neighbours(hept_1_ene_t
     assert frozen.core == (3, 4, 5)
 
 
+def test_get_frozen_atoms_logs_the_frozen_atoms_with_verbose(hept_1_ene_ts, caplog):
+    get_frozen_atoms(hept_1_ene_ts, [3, 4, 5])
+    assert "considered" not in caplog.text
+
+    get_frozen_atoms(hept_1_ene_ts, [3, 4, 5], verbose=True)
+    assert "considered: [2, 4, 14, 15, 3, 5, 16, 17, 6, 18]" in caplog.text
+
+
 def test_given_frozen_atoms_replace_the_neighbours(hept_1_ene_ts):
     frozen = TransitionState([3, 4, 5], frozen_atoms=[3, 4, 5, 6]).frozen_atoms(
         hept_1_ene_ts

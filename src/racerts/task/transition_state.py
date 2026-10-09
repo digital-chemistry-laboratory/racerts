@@ -5,6 +5,8 @@ from typing import List, Optional, Sequence
 
 from rdkit import Chem
 
+from racerts.utils.log import verbose_logging
+
 from .base import FrozenSet, check_atom_indices
 
 logger = logging.getLogger(__name__)
@@ -49,6 +51,7 @@ def get_frozen_atoms(
         mol_ts (Chem.Mol): RDKit mol object.
         reacting_atoms (List): atom indeces of reacting atoms (atoms that change connectivity during reaction)
         (Optional) frozen_atoms (List): atom indeces of atoms to be fixed, if these should not be inferred from the graph.
+        verbose (bool): Log the frozen atoms (INFO), as racerts.generate(verbose=True).
 
     Returns:
         List: atom indeces of atoms to be fixed
@@ -61,19 +64,20 @@ def get_frozen_atoms(
                 frozen_atoms_new.append(id)
         if atom_idx not in frozen_atoms_new:
             frozen_atoms_new.append(atom_idx)
-    if frozen_atoms is None or len(frozen_atoms) == 0:
-        logger.info(
-            "No frozen atoms are given by the user. The following frozen atoms are "
-            "considered: %s",
-            frozen_atoms_new,
-        )
-        frozen_atoms = frozen_atoms_new
-    else:
-        logger.info(
-            "Following frozen atoms are given by the user: %s. Detected frozen atoms "
-            "(not further used) would have been: %s",
-            frozen_atoms,
-            frozen_atoms_new,
-        )
+    with verbose_logging(verbose):
+        if frozen_atoms is None or len(frozen_atoms) == 0:
+            logger.info(
+                "No frozen atoms are given by the user. The following frozen atoms "
+                "are considered: %s",
+                frozen_atoms_new,
+            )
+            frozen_atoms = frozen_atoms_new
+        else:
+            logger.info(
+                "Following frozen atoms are given by the user: %s. Detected frozen "
+                "atoms (not further used) would have been: %s",
+                frozen_atoms,
+                frozen_atoms_new,
+            )
 
     return frozen_atoms

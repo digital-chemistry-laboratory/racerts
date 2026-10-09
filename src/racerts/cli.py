@@ -1,306 +1,255 @@
+"""
+The racerts command line.
+
+    racerts ts FILE -r ATOM [ATOM ...] [-s SMILES ...]   TS conformers
+    racerts gs SMILES                                    ground-state conformers
+    racerts FILE [options]                               legacy (or: racerts run)
+"""
+
 import argparse
 import os
+import sys
 
-from racerts import ConformerGenerator, embedders, mol_getters, optimizers
-from racerts.conformer_generator import DEFAULT_CONF_FACTOR
-from racerts.pruner import EnergyPruner, RMSDPruner
+from attrs import evolve
+
+from racerts.api import generate_gs, generate_ts
+from racerts.config import PipelineConfig
+from racerts.embed import EMBED_MODES
+from racerts.refine import REFINE_BACKENDS
+from racerts.system import GRAPH_METHODS
+from racerts.utils.log import cli_logging
+
+SUBCOMMANDS = ("ts", "gs")
+DEFAULT_OUTPUT = "conformer_ensemble.xyz"
 
 
-def main():
+def main(argv=None) -> None:
+    """The console script (its return value becomes the exit status: None)."""
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if argv and argv[0] in SUBCOMMANDS:
+        run_subcommand(argv)
+        return
+    from racerts.compat import cli  # not at the top: it imports the helpers below
+
+    cli.main(argv[1:] if argv and argv[0] == "run" else argv)
+
+
+def _subcommand_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="racerts",
-        description="Rapid conformer ensemble generation for transition states.",
+        description="Conformer ensembles with a frozen core. Without a subcommand, "
+        "racerts runs the legacy command line (`racerts FILE -h`).",
         epilog="Remember to cite the racerts paper :)",
     )
+    sub = parser.add_subparsers(dest="command", required=True)
 
-    ##### ---- Input -----
-
-    parser.add_argument(
-        "filename",
-        type=str,
-        help="xyz or sdf/mol filename containing a single transition state conformer.",
+    ts = sub.add_parser(
+        "ts",
+        help="TS conformers from a TS geometry",
+        description="TS conformers: the reacting atoms and their neighbours stay at "
+        "the TS geometry. With default settings, the same ensemble as legacy racerts.",
     )
-    parser.add_argument(
-        "-c",
-        "--charge",
-        type=int,
-        required=False,
-        default=0,
-        help="Molecule total charge.",
-    )
-    parser.add_argument(
-        "-mult",
-        "--multiplicity",
-        type=int,
-        default=None,
-        help="Spin multiplicity 2S+1 (default: the lowest for the number of electrons).",
-    )
-
-    parser.add_argument(
-        "-atoms",
-        "--reacting_atoms",
+    ts.add_argument("filename", help="TS geometry (.xyz, or .sdf/.mol with bonds).")
+    ts.add_argument(
+        "-r",
+        "--reacting-atoms",
         type=int,
         nargs="+",
-        required=False,
-        default=[],
-        help="List of reacting atom indices (e.g., --reacting_atoms 1 2 3).",
+        required=True,
+        help="0-based indices of the atoms whose bonds form or break.",
     )
-    parser.add_argument(
-        "-frozen",
-        "--frozen_atoms",
+    ts.add_argument(
+        "-s",
+        "--smiles",
+        nargs="+",
+        help="SMILES of the TS topology, one per fragment (recommended for xyz).",
+    )
+    ts.add_argument(
+        "--frozen-atoms",
         type=int,
         nargs="+",
-        default=[],
-        help="List of frozen atom indices (e.g., --frozen_atoms 4 5 6).",
+        help="Frozen atoms instead of the reacting atoms and their neighbours.",
     )
-    parser.add_argument(
-        "-smiles",
-        "--input_smiles",
-        type=str,
-        nargs="+",
-        default=[],
-        help="List of input SMILES strings (e.g., --input_smiles 'C1=CC=CC=C1' 'O=C=O').",
+    ts.add_argument(
+        "--graph",
+        choices=list(GRAPH_METHODS),
+        help="First method for the molecular graph (default: smiles).",
+    )
+    ts.add_argument("-c", "--charge", type=int, default=0, help="Total charge.")
+
+    gs = sub.add_parser(
+        "gs",
+        help="ground-state conformers from a SMILES",
+        description="Ground-state conformers (nothing frozen), embedded with ETKDGv3.",
+    )
+    gs.add_argument("smiles", help="SMILES of the molecule.")
+    gs.add_argument(
+        "-c", "--charge", type=int, default=None, help="Total charge (default: SMILES)."
     )
 
-    parser.add_argument(
-        "-n",
-        "--number_of_conformers",
-        type=int,
-        default=-1,
-        help="Number of conformers to generate (default: -1).",
-    )
-    parser.add_argument(
-        "-cf",
-        "--conf_factor",
-        type=int,
-        default=DEFAULT_CONF_FACTOR,
-        help=f"Conformer factor (default: {DEFAULT_CONF_FACTOR}).",
-    )
+    defaults = PipelineConfig()
+    for command in (ts, gs):
+        command.add_argument(
+            "--multiplicity",
+            type=int,
+            help="Spin multiplicity 2S+1 (default: the lowest for the electrons).",
+        )
+        command.add_argument(
+            "--config",
+            help="PipelineConfig as JSON or YAML; options below override it.",
+        )
+        command.add_argument(
+            "-n",
+            "--n-conformers",
+            type=int,
+            help="Conformers to embed (default: rotatable bonds * conf factor + 30).",
+        )
+        command.add_argument(
+            "--conf-factor",
+            type=int,
+            help=f"Conformers per rotatable bond (default {defaults.embed.conf_factor}).",
+        )
+        command.add_argument(
+            "--embed",
+            choices=list(EMBED_MODES),
+            help=f"Embedding mode (default {defaults.embed.mode}).",
+        )
+        command.add_argument(
+            "--etkdg",
+            action=argparse.BooleanOptionalAction,
+            default=None,
+            help="ETKDGv3 instead of plain distance geometry (default: only for gs).",
+        )
+        command.add_argument(
+            "--refine",
+            choices=list(REFINE_BACKENDS),
+            help=f"Force field (default {defaults.refine.backend}).",
+        )
+        command.add_argument(
+            "--no-fallback",
+            action="store_true",
+            help="Fail instead of falling back (graph: bonds, connectivity; "
+            "MMFF: UFF).",
+        )
+        command.add_argument(
+            "--seed", type=int, help=f"Random seed (default {defaults.seed})."
+        )
+        command.add_argument(
+            "--num-threads",
+            type=int,
+            help=f"Threads (default {defaults.num_threads}).",
+        )
+        command.add_argument(
+            "--energy-threshold",
+            type=float,
+            help=f"Energy window, kcal/mol (default {defaults.prune.energy_threshold:g}).",
+        )
+        command.add_argument(
+            "--rmsd-threshold",
+            type=float,
+            help=f"Duplicate RMSD, A (default {defaults.prune.rmsd_threshold:g}).",
+        )
+        command.add_argument(
+            "-o",
+            "--output",
+            default=DEFAULT_OUTPUT,
+            help=f"Output file (default {DEFAULT_OUTPUT}).",
+        )
+        command.add_argument(
+            "--crest-energies",
+            action="store_true",
+            help="Write only the energy (Hartree) on each comment line, as CREST does.",
+        )
+        _add_verbose(command)
+    return parser
 
-    # ------ Conformer generation setup -------
 
-    parser.add_argument(
-        "-m",
-        "--mol",
-        action="store",
-        choices=["smiles", "bonds", "connect"],
-        required=False,
-        help="RDKit method to create the mol object: 'smiles', 'bonds' 'connect'. The default is to use the SMILES template, if available, else try to use determineBonds ('bonds') or as last option determineConnectivity ('connect').",
-    )
-    parser.add_argument(
-        "-e",
-        "--embed",
-        action="store",
-        choices=["dm", "cmap"],
-        required=False,
-        help="Method for the RDKit-based embedding step: either using a distance matrix ('dm') or a coordinate mapping ('cmap'), as the default.",
-    )
-    parser.add_argument(
-        "-ff",
-        "--ff",
-        action="store",
-        choices=["mmff", "uff"],
-        required=False,
-        help="Method for the RDKit-based force-field optimization step: either MMFF ('mmff') or UFF ('uff'). The default tries the MMFF and at failure uses the UFF.",
-    )
-    parser.add_argument(
-        "-o",
-        "--output",
-        action="store",
-        type=str,
-        required=False,
-        help="Output filename.",
-    )
-    parser.add_argument(
-        "--out_energies",
-        action="store_true",
-        required=False,
-        help="Write only the energy (in Hartree) on each comment line, as in CREST ensembles, instead of the default extended XYZ line with energy (eV), charge and spin.",
-    )
-    parser.add_argument(
-        "-v", "--verbose", action="store_true", help="Output verbosity."
-    )
-
-    parser.add_argument(
-        "--num_threads",
-        type=int,
-        default=1,
-        help="Number of threads to use (default 1).",
-    )
-    parser.add_argument(
-        "--seed",
-        type=int,
-        default=12,
-        help="Random seed for reproducibility (default 12).",
-    )
-    parser.add_argument(
-        "--no_fallback",
-        action="store_false",
-        dest="fallback",
-        default=True,
-        help="Disable fallback to other methods (default: enabled).",
-    )
-
-    # ------ Mol Getter setup -------
-
-    parser.add_argument(
-        "--no_assignbonds",
-        action="store_false",
-        dest="assignBonds",
-        default=True,
-        help="Flag to control if bonds should be assigned when using the 'bonds' mol getter (default True).",
-    )
-    parser.add_argument(
-        "--disallow_charged_fragments",
-        action="store_false",
-        dest="allowChargedFragments",
-        default=True,
-        help="Flag to control if charged fragments are allowed when using the 'bonds' mol getter (default True).",
-    )
-
-    # ------ Embedder setup -------
-
-    parser.add_argument(
-        "--no_random_coords",
-        action="store_false",
-        dest="useRandomCoords",
-        default=True,
-        help="Disable the use of random coordinates if embedding fails (default: enabled).",
-    )
-
-    # ------ Optimizer setup -------
-    parser.add_argument(
-        "--force_constant",
-        type=float,
-        default=1e6,
-        help="Force constant for the distance constraints during the force-field optimization (default 1e6).",
-    )
-    # ------ Pruner setup -------
-
-    parser.add_argument(
-        "-rmsd",
-        "--rmsd_thres",
-        type=float,
-        default=0.125,
-        help="Threshold for rmsd pruning (default 0.125 A).",
-    )
-    parser.add_argument(
-        "-rmsd_hs",
-        "--rmsd_include_hs",
-        action="store_true",
-        help="Flag to control if hydrogen atoms are included for RMSD calculations (default false).",
-    )
-
-    parser.add_argument(
-        "--no_filter_energies",
-        action="store_false",
-        default=True,
-        help="Disable energy filtering during RMSD pruning (default: enabled).",
-    )
-    parser.add_argument(
-        "--no_filter_rotations",
-        action="store_false",
-        default=True,
-        help="Disable rotatable bond filtering during RMSD pruning (default: enabled).",
-    )
-    parser.add_argument(
-        "--rmsd_energy",
-        type=float,
-        default=0.1,
-        help="Energy threshold in kcal/mol for RMSD pruning to determine if two structures are likely different (default 0.1 kcal/mol).",
-    )
-    parser.add_argument(
-        "--rmsd_rot_fraction",
-        type=float,
-        default=0.03,
-        help="Rotatable bond fraction threshold for RMSD pruning to determine if two structures are likely different (default 0.03).",
-    )
-    parser.add_argument(
-        "-rmsd_match",
-        "--rmsd_max_matches",
-        type=int,
-        default=10000,
-        help="Maximum number of substructure matches to consider for calculating RMSDs (default 10000).",
-    )
-
-    # ------ Energy Pruner setup -------
-
-    parser.add_argument(
-        "-energy",
-        "--energy_thres",
-        type=float,
-        default=20.0,
-        help="Energy threshold in kcal/mol for pruning (default 20.0 kcal/mol).",
-    )
-
-    ##### ---- Parse args -----
-
-    args = parser.parse_args()
-
-    cg = ConformerGenerator(
-        verbose=args.verbose,
-        randomSeed=args.seed,
+def _config_from_args(args) -> PipelineConfig:
+    """The config file (or the defaults) with the options given on the command line."""
+    config = PipelineConfig.from_file(args.config) if args.config else PipelineConfig()
+    return _replace(
+        config,
+        seed=args.seed,
         num_threads=args.num_threads,
-    )
-
-    cg.energy_pruner = EnergyPruner(
-        threshold=args.energy_thres,
-        verbose=args.verbose,
-    )
-    cg.rmsd_pruner = RMSDPruner(
-        threshold=args.rmsd_thres,
-        verbose=args.verbose,
-        num_threads=args.num_threads,
-        include_hs=args.rmsd_include_hs,
-        filter_energies=args.no_filter_energies,
-        filter_rotations=args.no_filter_rotations,
-        energy_threshold=args.rmsd_energy,
-        rot_fraction_threshold=args.rmsd_rot_fraction,
-        maxMatches=args.rmsd_max_matches,
-    )
-
-    if args.mol:
-        cg.mol_getter = mol_getters[args.mol](
-            assignBonds=getattr(args, "assignBonds", True),
-            allowChargedFragments=getattr(args, "allowChargedFragments", True),
-        )
-
-    if args.embed:
-        cg.embedder = embedders[args.embed](
-            verbose=args.verbose,
-            num_threads=args.num_threads,
-            randomSeed=args.seed,
-            useRandomCoords=args.useRandomCoords,
-        )
-    else:  # keep the default embedder, but apply its flag
-        cg.embedder.useRandomCoords = args.useRandomCoords
-
-    if args.ff:
-        cg.optimizer = optimizers[args.ff](
-            verbose=args.verbose,
-            num_threads=args.num_threads,
-            force_constant=args.force_constant,
-        )
-    else:  # keep the default optimizer, but apply its flag
-        cg.optimizer.force_constant = args.force_constant
-
-    if not os.path.isfile(args.filename):
-        parser.error(f"'{args.filename}' does not exist or is not a valid file.")
-    else:
-        cg.generate_conformers(
-            args.filename,
-            args.charge,
-            args.reacting_atoms,
-            frozen_atoms=args.frozen_atoms,
-            input_smiles=args.input_smiles,
-            number_of_conformers=args.number_of_conformers,
+        embed=_replace(
+            config.embed,
+            n_conformers=args.n_conformers,
             conf_factor=args.conf_factor,
-            auto_fallback=args.fallback,
-            multiplicity=args.multiplicity,
-        )
+            mode=args.embed,
+            etkdg=args.etkdg,
+        ),
+        refine=_replace(
+            config.refine,
+            backend=args.refine,
+            fallback=False if args.no_fallback else None,
+        ),
+        prune=_replace(
+            config.prune,
+            energy_threshold=args.energy_threshold,
+            rmsd_threshold=args.rmsd_threshold,
+        ),
+    )
 
-    output_filename = args.output if args.output else "conformer_ensemble.xyz"
-    cg.write_xyz(output_filename, use_energy=args.out_energies)
+
+def _replace(obj, **changes):
+    """attrs.evolve with the changes that are not None (checked again)."""
+    return evolve(
+        obj, **{key: value for key, value in changes.items() if value is not None}
+    )
+
+
+def run_subcommand(argv):
+    """racerts ts / racerts gs."""
+    return _parse_and_run(_subcommand_parser(), argv, _run_subcommand)
+
+
+def _run_subcommand(parser, args):
+    config = _config_from_args(args)
+
+    if args.command == "ts":
+        _check_file(parser, args.filename)
+        ensemble = generate_ts(
+            args.filename,
+            args.reacting_atoms,
+            charge=args.charge,
+            smiles=args.smiles,
+            multiplicity=args.multiplicity,
+            frozen_atoms=args.frozen_atoms,
+            config=config,
+            mol_getter=GRAPH_METHODS[args.graph]() if args.graph else None,
+            auto_fallback=not args.no_fallback,
+        )
+    else:
+        ensemble = generate_gs(
+            args.smiles,
+            charge=args.charge,
+            multiplicity=args.multiplicity,
+            config=config,
+        )
+    ensemble.write_xyz(args.output, use_energy=args.crest_energies)
+    return ensemble
+
+
+def _add_verbose(parser) -> None:
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="count",
+        default=0,
+        help="Log progress to stderr (-v: INFO, -vv: DEBUG).",
+    )
+
+
+def _check_file(parser, path: str) -> None:
+    if not os.path.isfile(path):
+        parser.error(f"'{path}' does not exist or is not a valid file.")
+
+
+def _parse_and_run(parser, argv, run):
+    """Parse argv, then run(parser, args) with logging to stderr as asked (-v, -vv)."""
+    args = parser.parse_args(argv)
+    with cli_logging(args.verbose):
+        return run(parser, args)
 
 
 if __name__ == "__main__":

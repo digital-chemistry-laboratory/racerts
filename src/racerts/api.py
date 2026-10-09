@@ -120,7 +120,9 @@ def generate_gs(
     the input are kept.
     """
     if not isinstance(smiles, (str, Chem.Mol)):
-        raise TypeError(f"Expected SMILES string or RDKit Mol, got {type(smiles).__name__}: {smiles!r}")
+        raise TypeError(
+            f"Expected SMILES string or RDKit Mol, got {type(smiles).__name__}: {smiles!r}"
+        )
     mol = Chem.MolFromSmiles(smiles) if isinstance(smiles, str) else smiles
     if mol is None:
         raise ValueError(f"Invalid SMILES: {smiles}")

@@ -5,9 +5,11 @@ from __future__ import annotations
 import json
 import os
 import re
-import typing
-from dataclasses import asdict, dataclass, field, fields
 from typing import Any, Dict, Optional
+
+import attrs
+from attrs import define, field
+from attrs.validators import optional
 
 from racerts.embed import DEFAULT_CONF_FACTOR, EMBED_MODES, Embed, default_embedder
 from racerts.pipeline import Pipeline
@@ -15,9 +17,19 @@ from racerts.prune import EnergyPruner, PruneEnergy, PruneRMSD, RMSDPruner
 from racerts.refine import REFINE_BACKENDS, Refine
 from racerts.task import Task
 from racerts.utils.optional import require
+from racerts.utils.validators import (
+    choice,
+    flag,
+    integer,
+    is_bool,
+    non_negative,
+    number,
+    positive,
+    positive_or,
+)
 
 
-@dataclass
+@define
 class EmbedConfig:
     """
     Attributes:
@@ -30,23 +42,16 @@ class EmbedConfig:
         use_random_coords: Start embedding from random coordinates.
     """
 
-    mode: str = "cmap"
-    n_conformers: int = -1
-    conf_factor: int = DEFAULT_CONF_FACTOR
-    etkdg: Optional[bool] = None
-    use_random_coords: bool = True
+    _section = "embed"
 
-    def __post_init__(self):
-        _check_types(self, "embed")
-        if self.mode not in EMBED_MODES:
-            raise ValueError(f"embed.mode must be one of {sorted(EMBED_MODES)}.")
-        if self.n_conformers != -1 and self.n_conformers < 1:
-            raise ValueError("embed.n_conformers must be -1 (default count) or > 0.")
-        if self.conf_factor < 0:
-            raise ValueError("embed.conf_factor must not be negative.")
+    mode: str = choice("cmap", EMBED_MODES)
+    n_conformers: int = integer(-1, positive_or(-1, "default count"))
+    conf_factor: int = integer(DEFAULT_CONF_FACTOR, non_negative)
+    etkdg: Optional[bool] = field(default=None, validator=optional(is_bool))
+    use_random_coords: bool = flag(True)
 
 
-@dataclass
+@define
 class RefineConfig:
     """
     Attributes:
@@ -55,21 +60,14 @@ class RefineConfig:
         force_constant: Force constant (kcal/mol/A^2) that holds the frozen atoms.
     """
 
-    backend: str = "mmff"
-    fallback: bool = True
-    force_constant: float = 1e6
+    _section = "refine"
 
-    def __post_init__(self):
-        _check_types(self, "refine")
-        if self.backend not in REFINE_BACKENDS:
-            raise ValueError(
-                f"refine.backend must be one of {sorted(REFINE_BACKENDS)}."
-            )
-        if self.force_constant <= 0:
-            raise ValueError("refine.force_constant must be positive.")
+    backend: str = choice("mmff", REFINE_BACKENDS)
+    fallback: bool = flag(True)
+    force_constant: float = number(1e6, positive)
 
 
-@dataclass
+@define
 class PruneConfig:
     """
     Attributes:
@@ -84,34 +82,32 @@ class PruneConfig:
         max_matches: Maximum number of symmetry-equivalent atom maps for the RMSD.
     """
 
-    energy_threshold: float = 20.0
-    eht_energies: bool = False
-    rmsd_threshold: float = 0.125
-    include_hs: bool = False
-    filter_energies: bool = True
-    filter_rotations: bool = True
-    rmsd_energy_threshold: float = 0.1
-    rot_fraction_threshold: float = 0.03
-    max_matches: int = 10000
+    _section = "prune"
 
-    def __post_init__(self):
-        _check_types(self, "prune")
-        for name in (
-            "energy_threshold",
-            "rmsd_threshold",
-            "rmsd_energy_threshold",
-            "rot_fraction_threshold",
-        ):
-            if getattr(self, name) < 0:
-                raise ValueError(f"prune.{name} must not be negative.")
-        if self.max_matches < 1:
-            raise ValueError("prune.max_matches must be positive.")
+    energy_threshold: float = number(20.0, non_negative)
+    eht_energies: bool = flag(False)
+    rmsd_threshold: float = number(0.125, non_negative)
+    include_hs: bool = flag(False)
+    filter_energies: bool = flag(True)
+    filter_rotations: bool = flag(True)
+    rmsd_energy_threshold: float = number(0.1, non_negative)
+    rot_fraction_threshold: float = number(0.03, non_negative)
+    max_matches: int = integer(10000, positive)
 
 
-_SECTIONS = {"embed": EmbedConfig, "refine": RefineConfig, "prune": PruneConfig}
+def _section_field(cls):
+    """A section setting: an instance of cls, or a mapping of its settings."""
+
+    def convert(value):
+        if isinstance(value, cls):
+            return value
+        _check_keys(value, cls, cls._section)
+        return cls(**value)
+
+    return field(factory=cls, converter=convert)
 
 
-@dataclass
+@define
 class PipelineConfig:
     """
     Settings of the default pipeline (Embed, Refine, PruneEnergy, PruneRMSD). The
@@ -122,26 +118,14 @@ class PipelineConfig:
         num_threads: Threads for embedding, force-field refinement and RMSDs.
     """
 
-    seed: int = 12
-    num_threads: int = 1
-    embed: EmbedConfig = field(default_factory=EmbedConfig)
-    refine: RefineConfig = field(default_factory=RefineConfig)
-    prune: PruneConfig = field(default_factory=PruneConfig)
-
-    def __post_init__(self):
-        _check_types(self, "")
-        for key, section in _SECTIONS.items():
-            value = getattr(self, key)
-            if isinstance(value, dict):
-                _check_keys(value, section, key)
-                setattr(self, key, section(**value))
-            elif not isinstance(value, section):
-                raise ValueError(
-                    f"{key} must be a mapping, not {type(value).__name__}."
-                )
+    seed: int = integer(12)
+    num_threads: int = integer(1)
+    embed: EmbedConfig = _section_field(EmbedConfig)
+    refine: RefineConfig = _section_field(RefineConfig)
+    prune: PruneConfig = _section_field(PruneConfig)
 
     def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+        return attrs.asdict(self)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> PipelineConfig:
@@ -209,36 +193,10 @@ class PipelineConfig:
         )
 
 
-_KINDS = {bool: "true or false", int: "an integer", float: "a number", str: "a string"}
-
-
-def _check_types(obj, section: str) -> None:
-    """Check the fields of a config dataclass against their annotations."""
-    hints = typing.get_type_hints(type(obj))
-    for f in fields(obj):
-        kind = hints[f.name]
-        if kind in _KINDS or typing.get_origin(kind) is typing.Union:
-            name = f"{section}.{f.name}" if section else f.name
-            setattr(obj, f.name, _convert(getattr(obj, f.name), kind, name))
-
-
-def _convert(value, kind, name: str):
-    if typing.get_origin(kind) is typing.Union:  # Optional[...]
-        if value is None:
-            return None
-        kind = next(arg for arg in typing.get_args(kind) if arg is not type(None))
-    if isinstance(value, bool) == (kind is bool):  # True/False are ints in Python
-        if kind is float and isinstance(value, int):
-            return float(value)
-        if isinstance(value, kind):
-            return value
-    raise ValueError(f"{name} must be {_KINDS[kind]}, not {value!r}.")
-
-
 def _check_keys(data, cls, where: str) -> None:
     if not isinstance(data, dict):
         raise ValueError(f"{where} must be a mapping, not {type(data).__name__}.")
-    unknown = set(data) - {f.name for f in fields(cls)}
+    unknown = set(data) - {a.name for a in attrs.fields(cls)}
     if unknown:
         raise ValueError(f"Unknown keys in {where}: {sorted(unknown)}.")
 

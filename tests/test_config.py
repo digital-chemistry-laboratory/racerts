@@ -121,6 +121,18 @@ def test_sections_can_be_given_as_mappings():
     assert config.embed.mode == "bounds" and config.refine.backend == "uff"
 
 
+def test_changed_settings_are_checked_too():
+    config = PipelineConfig()
+    config.prune = {"rmsd_threshold": 0.2}
+    config.prune.energy_threshold = 10
+
+    assert config.prune.rmsd_threshold == 0.2 and config.prune.energy_threshold == 10.0
+    with pytest.raises(ValueError, match="prune.rmsd_threshold must not be negative"):
+        config.prune.rmsd_threshold = -1
+    with pytest.raises(ValueError, match="embed.mode must be one of"):
+        config.embed.mode = "dm"
+
+
 def test_a_failed_yaml_write_leaves_the_file_alone(tmp_path, monkeypatch):
     import racerts.config
 

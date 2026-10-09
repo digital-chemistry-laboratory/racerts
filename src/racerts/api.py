@@ -1,8 +1,8 @@
 """generate conformer ensembles for a task."""
 
-from dataclasses import replace
 from typing import Optional, Sequence, Union
 
+from attrs import evolve
 from rdkit import Chem
 
 from racerts.config import PipelineConfig
@@ -83,7 +83,7 @@ def generate_ts(
         smiles = [smiles]
     config = config if config is not None else PipelineConfig()
     if not auto_fallback:
-        config = replace(config, refine=replace(config.refine, fallback=False))
+        config = evolve(config, refine=evolve(config.refine, fallback=False))
     with verbose_logging(verbose):
         mol = build_mol(
             file_name,

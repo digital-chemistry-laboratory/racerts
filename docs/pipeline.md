@@ -44,8 +44,9 @@ ensemble = racerts.generate(mol, racerts.Constrained(hard=[0, 1, 2, 3]))
 ## Settings
 
 `PipelineConfig` holds the settings of the default pipeline as plain data; it can be
-written to and read from JSON or YAML files. Values are checked when the config is made:
-unknown keys and values of the wrong type raise `ValueError`. In YAML files, numbers such
+written to and read from JSON or YAML files. Values are checked when the config is made
+and when a setting is changed: unknown keys, values of the wrong type and values out of
+range raise `ValueError`. In YAML files, numbers such
 as `1e6` are read as numbers (as in YAML 1.2).
 
 ```python

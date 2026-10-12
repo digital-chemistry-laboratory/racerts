@@ -3,8 +3,10 @@ The staged workflow: levels of refinement from cheap to expensive, each with its
 energy window and RMSD pruning, and optionally a search (Exploit).
 """
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Any, Mapping, Optional, Union
+
+from attrs import evolve
 
 from racerts.config import PipelineConfig
 from racerts.embed import Embed
@@ -112,7 +114,7 @@ class _DefaultEmbed:
         self.config = config
 
     def run(self, ctx, ensemble=None):
-        config = replace(self.config, seed=ctx.seed)
+        config = evolve(self.config, seed=ctx.seed)
         return config.embed_stage(ctx.task).run(ctx, ensemble)
 
 

@@ -12,7 +12,8 @@ import json
 import logging
 import os
 import sys
-from dataclasses import replace
+
+from attrs import evolve
 
 from racerts.api import generate_gs, generate_ts
 from racerts.config import PipelineConfig
@@ -533,8 +534,8 @@ def _config_from_args(args) -> PipelineConfig:
 
 
 def _replace(obj, **changes):
-    """dataclasses.replace with the changes that are not None (checked again)."""
-    return replace(
+    """attrs.evolve with the changes that are not None (checked again)."""
+    return evolve(
         obj, **{key: value for key, value in changes.items() if value is not None}
     )
 

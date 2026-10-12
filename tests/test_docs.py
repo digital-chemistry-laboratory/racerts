@@ -1,10 +1,10 @@
 """The documentation names every setting and every option: a new one needs its row."""
 
 import re
-from dataclasses import fields
 from pathlib import Path
 
 import pytest
+from attrs import fields
 
 from racerts import cli
 from racerts.config import PipelineConfig
@@ -21,14 +21,14 @@ def test_every_setting_has_its_row():
     sections = {"embed", "refine", "prune", "restraints"}
     missing = [
         f.name
-        for f in fields(config)
+        for f in fields(PipelineConfig)
         if f.name not in sections and f"`{f.name}`" not in settings
     ]
     for section in sorted(sections):
         page = restraints if section == "restraints" else settings
         missing += [
             f"{section}.{f.name}"
-            for f in fields(getattr(config, section))
+            for f in fields(type(getattr(config, section)))
             if f"`{f.name}`" not in page
         ]
     assert missing == []

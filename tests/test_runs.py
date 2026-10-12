@@ -1,10 +1,10 @@
 """Independent runs of a search: merged, and compared (do they agree?)."""
 
 import math
-from dataclasses import replace
 
 import numpy as np
 import pytest
+from attrs import evolve
 from rdkit import Chem
 from rdkit.Chem import AllChem, rdMolTransforms
 
@@ -132,7 +132,7 @@ def test_generate_runs_and_what_it_refuses(sn2_ts):
     assert result.seeds == [1, 2, 3] and len(result.ensembles) == 3
     assert result.report.labels == [1, 2, 3]
     # Each run is what generate gives for its seed.
-    single = racerts.generate(mol, GroundState(), config=replace(config, seed=2))
+    single = racerts.generate(mol, GroundState(), config=evolve(config, seed=2))
     assert np.allclose(single.energies(), result.ensembles[1].energies())
     # The merged ensemble: no more conformers than the runs together, each from a run.
     assert max(map(len, result.ensembles)) <= len(result.merged)

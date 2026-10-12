@@ -3,12 +3,12 @@
 import json
 import os
 import re
-import typing
-from dataclasses import asdict, dataclass, field, fields
 from numbers import Real
 from typing import Any, Dict, Optional
 
-import numpy as np
+import attrs
+from attrs import define, field
+from attrs.validators import optional
 
 from racerts.embed import (
     CHIRALITY_FALLBACK_MODES,
@@ -41,10 +41,22 @@ from racerts.system.roles import ROLE_OVERRIDES
 from racerts.task import Task
 from racerts.utils.checks import is_integer
 from racerts.utils.optional import require
+from racerts.utils.validators import (
+    choice,
+    current,
+    flag,
+    integer,
+    is_bool,
+    must,
+    non_negative,
+    number,
+    positive,
+    to_bool,
+)
 from racerts.validate import AttackFace, Connectivity, Validate
 
 
-@dataclass
+@define
 class EmbedConfig:
     """
     Attributes:
@@ -71,37 +83,32 @@ class EmbedConfig:
             ("fallback"), "always", or "never" (legacy racerts).
     """
 
-    mode: str = "cmap"
-    n_conformers: int = -1
-    conf_factor: int = DEFAULT_CONF_FACTOR
-    etkdg: Optional[bool] = None
-    use_random_coords: bool = True
-    count_policy: str = "fragments"
-    sequential_seeds: bool = True
-    chirality_fallback: str = "frozen_first"
-    reference_bounds: str = "fallback"
+    _section = "embed"
 
-    def __post_init__(self):
-        _check_types(self, "embed")
-        if self.reference_bounds not in REFERENCE_BOUNDS:
-            raise ValueError(
-                f"embed.reference_bounds must be one of {REFERENCE_BOUNDS}."
-            )
-        if self.mode not in EMBED_MODES:
-            raise ValueError(f"embed.mode must be one of {sorted(EMBED_MODES)}.")
-        if self.count_policy not in COUNT_POLICIES:
-            raise ValueError(f"embed.count_policy must be one of {COUNT_POLICIES}.")
-        if self.chirality_fallback not in CHIRALITY_FALLBACK_MODES:
-            raise ValueError(
-                f"embed.chirality_fallback must be one of {CHIRALITY_FALLBACK_MODES}."
-            )
-        if self.n_conformers != -1 and self.n_conformers < 1:
-            raise ValueError("embed.n_conformers must be -1 (default count) or > 0.")
-        if self.conf_factor < 0:
-            raise ValueError("embed.conf_factor must not be negative.")
+    mode: str = choice("cmap", EMBED_MODES)
+    n_conformers: int = integer(
+        -1, must(lambda n: n == -1 or n > 0, "be -1 (default count) or > 0")
+    )
+    conf_factor: int = integer(DEFAULT_CONF_FACTOR, non_negative)
+    etkdg: Optional[bool] = field(
+        default=None, converter=to_bool, validator=optional(is_bool)
+    )
+    use_random_coords: bool = flag(True)
+    count_policy: str = choice("fragments", COUNT_POLICIES)
+    sequential_seeds: bool = flag(True)
+    chirality_fallback: str = choice("frozen_first", CHIRALITY_FALLBACK_MODES)
+    reference_bounds: str = choice("fallback", REFERENCE_BOUNDS)
 
 
-@dataclass
+def _dielectric_for_mmff(instance, attribute, value) -> None:
+    backend, model, constant = current(
+        instance, attribute, value, "backend", "dielectric_model", "dielectric_constant"
+    )
+    if backend != "mmff" and (model, constant) != ("constant", 1.0):
+        raise ValueError("The dielectric settings apply to MMFF only.")
+
+
+@define
 class RefineConfig:
     """
     Attributes:
@@ -120,39 +127,30 @@ class RefineConfig:
             large molecule.
     """
 
-    backend: str = "mmff"
-    fallback: bool = True
-    force_constant: float = 1e6
-    converge: bool = False
-    energies_without_anchors: bool = True
-    dielectric_model: str = "constant"
-    dielectric_constant: float = 1.0
-    num_workers: int = 1
+    _section = "refine"
 
-    def __post_init__(self):
-        _check_types(self, "refine")
-        if self.backend not in REFINE_BACKENDS:
-            raise ValueError(
-                f"refine.backend must be one of {sorted(REFINE_BACKENDS)}."
-            )
-        if self.force_constant <= 0:
-            raise ValueError("refine.force_constant must be positive.")
-        if self.dielectric_model not in DIELECTRIC_MODELS:
-            raise ValueError(
-                f"refine.dielectric_model must be one of {sorted(DIELECTRIC_MODELS)}."
-            )
-        if self.dielectric_constant <= 0:
-            raise ValueError("refine.dielectric_constant must be positive.")
-        if self.num_workers < 1:
-            raise ValueError("refine.num_workers must be positive.")
-        if self.backend != "mmff" and (
-            self.dielectric_model,
-            self.dielectric_constant,
-        ) != ("constant", 1.0):
-            raise ValueError("The dielectric settings apply to MMFF only.")
+    backend: str = choice("mmff", REFINE_BACKENDS, _dielectric_for_mmff)
+    fallback: bool = flag(True)
+    force_constant: float = number(1e6, positive)
+    converge: bool = flag(False)
+    energies_without_anchors: bool = flag(True)
+    dielectric_model: str = choice("constant", DIELECTRIC_MODELS, _dielectric_for_mmff)
+    dielectric_constant: float = number(1.0, positive, _dielectric_for_mmff)
+    num_workers: int = integer(1, positive)
 
 
-@dataclass
+def _polar_without_prefilters(instance, attribute, value) -> None:
+    hydrogens, energies, rotations = current(
+        instance, attribute, value, "hydrogens", "filter_energies", "filter_rotations"
+    )
+    if hydrogens == "polar" and (energies or rotations):
+        raise ValueError(
+            "prune.hydrogens 'polar' needs prune.filter_energies and "
+            "prune.filter_rotations off."
+        )
+
+
+@define
 class PruneConfig:
     """
     Attributes:
@@ -184,48 +182,75 @@ class PruneConfig:
         cluster_threshold: Cluster distance (A, heavy-atom RMSD after superposition).
     """
 
-    energy_threshold: float = 20.0
-    rmsd_threshold: float = 0.125
-    hydrogens: str = "polar"
-    filter_energies: bool = False
-    filter_rotations: bool = False
-    rmsd_energy_threshold: float = 0.1
-    rot_fraction_threshold: float = 0.03
-    max_matches: int = 100
-    check_stereo: bool = True
-    method: str = "rmsd"
-    cluster_method: str = "butina"
-    cluster_threshold: float = 1.5
+    _section = "prune"
 
-    def __post_init__(self):
-        _check_types(self, "prune")
-        if self.method not in ("rmsd", "cluster"):
-            raise ValueError("prune.method must be 'rmsd' or 'cluster'.")
-        if self.cluster_method not in CLUSTER_METHODS:
-            raise ValueError(f"prune.cluster_method must be one of {CLUSTER_METHODS}.")
-        if self.hydrogens not in HYDROGENS:
-            raise ValueError(f"prune.hydrogens must be one of {HYDROGENS}.")
-        if self.hydrogens == "polar" and (
-            self.filter_energies or self.filter_rotations
-        ):
+    energy_threshold: float = number(20.0, non_negative)
+    rmsd_threshold: float = number(0.125, non_negative)
+    hydrogens: str = choice("polar", HYDROGENS, _polar_without_prefilters)
+    filter_energies: bool = flag(False, _polar_without_prefilters)
+    filter_rotations: bool = flag(False, _polar_without_prefilters)
+    rmsd_energy_threshold: float = number(0.1, non_negative)
+    rot_fraction_threshold: float = number(0.03, non_negative)
+    max_matches: int = integer(100, positive)
+    check_stereo: bool = flag(True)
+    method: str = choice("rmsd", ("rmsd", "cluster"))
+    cluster_method: str = choice("butina", CLUSTER_METHODS)
+    cluster_threshold: float = number(1.5, non_negative)
+
+
+def _is_restraint_item(item, size: int) -> bool:
+    """[atom, atom] or [atom, atom, distance] with integer atoms and a number."""
+
+    if not isinstance(item, (list, tuple)) or len(item) != size:
+        return False
+    if not (is_integer(item[0]) and is_integer(item[1])):
+        return False
+    return size == 2 or (isinstance(item[2], Real) and not isinstance(item[2], bool))
+
+
+def _as_lists(items):
+    """Restraint items as lists (e.g. tuples from Python); the rest is left to the check."""
+    if isinstance(items, (list, tuple)) and all(
+        isinstance(item, (list, tuple)) for item in items
+    ):
+        return [list(item) for item in items]
+    return items
+
+
+def _restraint_items(size: int):
+    """A list of [atom, atom] (size 2) or [atom, atom, distance] (size 3) items."""
+    shape = "[atom, atom, distance]" if size == 3 else "[atom, atom]"
+    check = must(
+        lambda items: (
+            isinstance(items, list)
+            and all(_is_restraint_item(item, size) for item in items)
+        ),
+        f"be a list of {shape} lists (atom indices as integers)",
+    )
+    return field(factory=list, converter=_as_lists, validator=check)
+
+
+def _roles(roles) -> dict:
+    """{atom: role} with integer atoms (JSON and YAML keys can be strings)."""
+    if not isinstance(roles, dict):
+        raise ValueError("restraints.roles must be a mapping {atom: role}.")
+    checked = {}
+    for atom, role in roles.items():
+        try:
+            index = int(atom)
+        except (TypeError, ValueError):
             raise ValueError(
-                "prune.hydrogens 'polar' needs prune.filter_energies and "
-                "prune.filter_rotations off."
+                f"restraints.roles: {atom!r} is not an atom index."
+            ) from None
+        if role not in ROLE_OVERRIDES:
+            raise ValueError(
+                f"restraints.roles: unknown role {role!r} (use {ROLE_OVERRIDES})."
             )
-        for name in (
-            "energy_threshold",
-            "rmsd_threshold",
-            "rmsd_energy_threshold",
-            "rot_fraction_threshold",
-            "cluster_threshold",
-        ):
-            if getattr(self, name) < 0:
-                raise ValueError(f"prune.{name} must not be negative.")
-        if self.max_matches < 1:
-            raise ValueError("prune.max_matches must be positive.")
+        checked[index] = role
+    return checked
 
 
-@dataclass
+@define
 class RestraintConfig:
     """
     Distance restraints (see [racerts.restraints.build_restraints][]): windows in the
@@ -256,49 +281,27 @@ class RestraintConfig:
             "contained", "free"; see racerts.system.roles).
     """
 
-    user: list = field(default_factory=list)
-    half_width: float = DEFAULT_HALF_WIDTH
-    force_constant: float = DEFAULT_FORCE_CONSTANT
-    hbonds: bool = False
-    contacts: list = field(default_factory=list)
-    keep_fragments: bool = False
-    fragment_links: list = field(default_factory=list)
-    link_fragments: bool = False
-    hints: bool = False
-    max_hints: int = MAX_HINTS
-    hint_share: float = DEFAULT_HINT_SHARE
-    hint_attempts: int = HINT_ATTEMPTS
-    contain: float = 0.0
-    fraction: float = 1.0
-    roles: dict = field(default_factory=dict)
+    _section = "restraints"
 
-    def __post_init__(self):
-        _check_types(self, "restraints")
-        if self.contain < 0:
-            raise ValueError("restraints.contain must be a radius >= 0 (0: none).")
-        if not 0 < self.fraction <= 1:
-            raise ValueError("restraints.fraction must be in (0, 1].")
-        self.roles = _roles(self.roles)
-        if not 0 <= self.hint_share <= 1:
-            raise ValueError("restraints.hint_share must be between 0 and 1.")
-        if self.hint_attempts < 0:
-            raise ValueError("restraints.hint_attempts must not be negative.")
-        if self.max_hints < 1:
-            raise ValueError("restraints.max_hints must be positive.")
-        for name, size in (("user", 3), ("contacts", 2), ("fragment_links", 2)):
-            items = getattr(self, name)
-            if not isinstance(items, (list, tuple)) or not all(
-                _is_restraint_item(item, size) for item in items
-            ):
-                shape = "[atom, atom, distance]" if size == 3 else "[atom, atom]"
-                raise ValueError(
-                    f"restraints.{name} must be a list of {shape} lists (atom "
-                    "indices as integers)."
-                )
-            setattr(self, name, [list(item) for item in items])
-        for name in ("half_width", "force_constant"):
-            if getattr(self, name) <= 0:
-                raise ValueError(f"restraints.{name} must be positive.")
+    user: list = _restraint_items(3)
+    half_width: float = number(DEFAULT_HALF_WIDTH, positive)
+    force_constant: float = number(DEFAULT_FORCE_CONSTANT, positive)
+    hbonds: bool = flag(False)
+    contacts: list = _restraint_items(2)
+    keep_fragments: bool = flag(False)
+    fragment_links: list = _restraint_items(2)
+    link_fragments: bool = flag(False)
+    hints: bool = flag(False)
+    max_hints: int = integer(MAX_HINTS, positive)
+    hint_share: float = number(
+        DEFAULT_HINT_SHARE, must(lambda share: 0 <= share <= 1, "be between 0 and 1")
+    )
+    hint_attempts: int = integer(HINT_ATTEMPTS, non_negative)
+    contain: float = number(
+        0.0, must(lambda radius: radius >= 0, "be a radius >= 0 (0: none)")
+    )
+    fraction: float = number(1.0, must(lambda share: 0 < share <= 1, "be in (0, 1]"))
+    roles: dict = field(factory=dict, converter=_roles)
 
     def __bool__(self) -> bool:
         return bool(
@@ -332,45 +335,19 @@ class RestraintConfig:
         )
 
 
-def _is_restraint_item(item, size: int) -> bool:
-    """[atom, atom] or [atom, atom, distance] with integer atoms and a number."""
+def _section_field(cls):
+    """A section setting: an instance of cls, or a mapping of its settings."""
 
-    if not isinstance(item, (list, tuple)) or len(item) != size:
-        return False
-    if not (is_integer(item[0]) and is_integer(item[1])):
-        return False
-    return size == 2 or (isinstance(item[2], Real) and not isinstance(item[2], bool))
+    def convert(value):
+        if isinstance(value, cls):
+            return value
+        _check_keys(value, cls, cls._section)
+        return cls(**value)
 
-
-def _roles(roles) -> dict:
-    """{atom: role} with integer atoms (JSON and YAML keys can be strings)."""
-    if not isinstance(roles, dict):
-        raise ValueError("restraints.roles must be a mapping {atom: role}.")
-    checked = {}
-    for atom, role in roles.items():
-        try:
-            index = int(atom)
-        except (TypeError, ValueError):
-            raise ValueError(
-                f"restraints.roles: {atom!r} is not an atom index."
-            ) from None
-        if role not in ROLE_OVERRIDES:
-            raise ValueError(
-                f"restraints.roles: unknown role {role!r} (use {ROLE_OVERRIDES})."
-            )
-        checked[index] = role
-    return checked
+    return field(factory=cls, converter=convert)
 
 
-_SECTIONS = {
-    "embed": EmbedConfig,
-    "refine": RefineConfig,
-    "prune": PruneConfig,
-    "restraints": RestraintConfig,
-}
-
-
-@dataclass
+@define
 class PipelineConfig:
     """
     Settings of the default pipeline (Embed, Refine, a stereo check, PruneEnergy,
@@ -386,24 +363,12 @@ class PipelineConfig:
             gains little: RDKit's minimizer does not release Python's lock).
     """
 
-    seed: int = 12
-    num_threads: int = 1
-    embed: EmbedConfig = field(default_factory=EmbedConfig)
-    refine: RefineConfig = field(default_factory=RefineConfig)
-    prune: PruneConfig = field(default_factory=PruneConfig)
-    restraints: RestraintConfig = field(default_factory=RestraintConfig)
-
-    def __post_init__(self):
-        _check_types(self, "")
-        for key, section in _SECTIONS.items():
-            value = getattr(self, key)
-            if isinstance(value, dict):
-                _check_keys(value, section, key)
-                setattr(self, key, section(**value))
-            elif not isinstance(value, section):
-                raise ValueError(
-                    f"{key} must be a mapping, not {type(value).__name__}."
-                )
+    seed: int = integer(12)
+    num_threads: int = integer(1)
+    embed: EmbedConfig = _section_field(EmbedConfig)
+    refine: RefineConfig = _section_field(RefineConfig)
+    prune: PruneConfig = _section_field(PruneConfig)
+    restraints: RestraintConfig = _section_field(RestraintConfig)
 
     @classmethod
     def legacy(cls, **settings) -> "PipelineConfig":
@@ -435,7 +400,7 @@ class PipelineConfig:
         return cls(**settings)
 
     def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+        return attrs.asdict(self)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "PipelineConfig":
@@ -578,44 +543,10 @@ class PipelineConfig:
         )
 
 
-_KINDS = {bool: "true or false", int: "an integer", float: "a number", str: "a string"}
-
-
-def _check_types(obj, section: str) -> None:
-    """Check the fields of a config dataclass against their annotations."""
-    hints = typing.get_type_hints(type(obj))
-    for f in fields(obj):
-        kind = hints[f.name]
-        if kind in _KINDS or typing.get_origin(kind) is typing.Union:
-            name = f"{section}.{f.name}" if section else f.name
-            setattr(obj, f.name, _convert(getattr(obj, f.name), kind, name))
-
-
-def _convert(value, kind, name: str):
-    if typing.get_origin(kind) is typing.Union:  # Optional[...]
-        if value is None:
-            return None
-        kind = next(arg for arg in typing.get_args(kind) if arg is not type(None))
-    # NumPy numbers count as numbers of their kind (e.g. a seed from numpy.random) and
-    # become Python numbers, which the config files can hold.
-    if kind is bool:
-        if isinstance(value, (bool, np.bool_)):
-            return bool(value)
-    elif kind is int:
-        if is_integer(value):
-            return int(value)
-    elif kind is float:
-        if is_integer(value) or isinstance(value, (float, np.floating)):
-            return float(value)
-    elif isinstance(value, kind):
-        return value
-    raise ValueError(f"{name} must be {_KINDS[kind]}, not {value!r}.")
-
-
 def _check_keys(data, cls, where: str) -> None:
     if not isinstance(data, dict):
         raise ValueError(f"{where} must be a mapping, not {type(data).__name__}.")
-    unknown = set(data) - {f.name for f in fields(cls)}
+    unknown = set(data) - {a.name for a in attrs.fields(cls)}
     if unknown:
         raise ValueError(f"Unknown keys in {where}: {sorted(unknown)}.")
 

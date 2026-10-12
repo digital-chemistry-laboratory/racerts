@@ -314,3 +314,6 @@ permuted in the atom matching.
   2025.03.2.
 - Docs: an API reference generated from the docstrings (mkdocstrings), one page per
   public package; "see X" in docstrings links there.
+- `PipelineConfig` and its sections are attrs classes: each setting carries its checks
+  (`racerts.utils.validators`), which also run when a setting is changed. New
+  dependency: `attrs`.

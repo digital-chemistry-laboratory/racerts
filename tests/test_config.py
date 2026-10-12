@@ -350,3 +350,24 @@ def test_new_settings_are_checked(section, settings, message):
 def test_restraint_items_are_checked_when_the_config_is_made(restraints, message):
     with pytest.raises(ValueError, match=message):
         PipelineConfig.from_dict({"restraints": restraints})
+
+
+def test_changed_settings_are_checked_too():
+    config = PipelineConfig()
+    config.seed = np.int64(5)
+    config.prune = {"rmsd_threshold": 0.2}
+    config.restraints.contacts = [(0, 1)]
+
+    assert (config.seed, type(config.seed)) == (5, int)
+    assert config.prune.rmsd_threshold == 0.2 and config.restraints.contacts == [[0, 1]]
+    with pytest.raises(ValueError, match="prune.rmsd_threshold must not be negative"):
+        config.prune.rmsd_threshold = -1
+    with pytest.raises(ValueError, match="embed.mode must be one of"):
+        config.embed.mode = "dm"
+    # the checks that span settings see the new value too
+    with pytest.raises(ValueError, match="polar"):
+        config.prune.filter_energies = True
+    config.refine.dielectric_constant = 4.0
+    with pytest.raises(ValueError, match="MMFF only"):
+        config.refine.backend = "uff"
+    assert config.refine.backend == "mmff"

@@ -19,8 +19,11 @@ class Context:
     Attributes:
         mol: The molecular graph with its charge and multiplicity as properties; its
             conformer (if any) is the reference geometry.
-        task: What is kept fixed.
-        frozen: The FrozenSet of the task for mol.
+        task: What is kept fixed. Stages ask it for what depends on the kind of
+            search (e.g. Embed for the default embedder of the task).
+        frozen: What the task freezes in mol, i.e. task.frozen_atoms(mol), determined
+            and checked against mol once, in create: stages read these sets and do
+            not ask the task again.
         seed: The random seed; embedders that stages create use it as their RDKit
             seed (-1: random).
     """

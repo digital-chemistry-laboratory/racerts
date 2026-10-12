@@ -76,7 +76,7 @@ class PruneRMSD(_Prune):
 
 class PruneCluster(_Prune):
     """
-    Keeps one conformer per cluster (see ClusterPruner).
+    Keeps one conformer per cluster (see [ClusterPruner][racerts.prune.ClusterPruner]).
 
     Args:
         pruner: Any BasePruner; default ClusterPruner() (Butina at 1.5 A, the

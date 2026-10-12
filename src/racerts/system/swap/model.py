@@ -146,7 +146,7 @@ class SwapResult:
         fragment_map: Fragment index -> new index of its atoms (not the dummies).
         replaced: Removed atom (reference index) -> the new atom that took its bonds
             to kept atoms, if it is one atom; it takes the removed atom's role in a
-            task (see index_map).
+            task (see [index_map][racerts.system.swap.SwapResult.index_map]).
         restraints, lost_contacts: The restraints given to apply_swap between kept
             atoms, in new indices, and the labels of the others.
     """

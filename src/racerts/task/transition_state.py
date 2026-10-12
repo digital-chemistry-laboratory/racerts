@@ -359,8 +359,11 @@ class TransitionState:
     def active_lengths(
         self, mol: Chem.Mol, conf_id: int, pairs: Sequence[Tuple[int, int]]
     ) -> Dict[str, float]:
-        """The lengths of the active bonds pairs (see active_pairs of the reference)
-        in a conformer ("a-b": A)."""
+        """
+        The lengths of the active bonds pairs (see
+        [active_pairs][racerts.task.TransitionState.active_pairs] of the reference) in a
+        conformer ("a-b": A).
+        """
         positions = mol.GetConformer(conf_id).GetPositions()
         return {f"{a}-{b}": round(_length(positions, (a, b)), 4) for a, b in pairs}
 

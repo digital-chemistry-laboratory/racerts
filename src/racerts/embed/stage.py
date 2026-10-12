@@ -96,7 +96,8 @@ def default_embedder(
         mode: "cmap" (CmapEmbedder) or "bounds" (BoundsMatrixEmbedder).
         etkdg: Overrides the choice between ETKDGv3 and plain distance geometry.
         chirality_fallback: The fallback for tasks with atoms held at a reference
-            ("legacy" or "frozen_first", see DistanceGeometryEmbedder).
+            ("legacy" or "frozen_first", see
+            [DistanceGeometryEmbedder][racerts.embed.DistanceGeometryEmbedder]).
         settings: Further arguments of the embedder, e.g. num_threads.
     """
     if mode not in EMBED_MODES:
@@ -131,7 +132,8 @@ class Embed:
             the context's seed.
         n_conformers: Number of conformers to embed; -1 for the count of the policy.
         conf_factor: Conformers per rotatable bond for the default count.
-        count_policy: How -1 is counted (see conformer_count), default "legacy"
+        count_policy: How -1 is counted (see
+            [conformer_count][racerts.embed.conformer_count]), default "legacy"
             (rotatable bonds * conf_factor + 30).
         references: With several reference geometries (conformers of the context's
             molecule, e.g. TSs from a TS search): "all", or a list of their conformer

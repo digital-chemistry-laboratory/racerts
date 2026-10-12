@@ -183,7 +183,7 @@ class ConformerEnsemble:
 
         atom_order[i] is the index in the frames of template atom i (default: the
         same order). The elements (for Atoms) and finite, isolated, unconstrained
-        frames are checked; no chemistry or stereo is (see racerts.validate).
+        frames are checked; no chemistry or stereo is (see [racerts.validate][]).
         Energies and other results of the frames are not taken over; the provenance
         records source "external" and the frame number. The template keeps its graph
         and its charge and multiplicity properties; its conformers and other
@@ -219,7 +219,10 @@ class ConformerEnsemble:
     def write_xyz(
         self, file_name: str, use_energy: bool = False, comment: Optional[str] = None
     ) -> None:
-        """Write all conformers to a multi-structure xyz file (see io.xyz.write_xyz)."""
+        """
+        Write all conformers to a multi-structure xyz file (see
+        [io.xyz.write_xyz][racerts.io.xyz.write_xyz]).
+        """
         write_xyz(self.mol, file_name, use_energy=use_energy, comment=comment)
 
     def write_sdf(self, file_name: str) -> None:

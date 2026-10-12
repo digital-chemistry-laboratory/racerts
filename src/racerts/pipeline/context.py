@@ -23,15 +23,16 @@ class Context:
     Attributes:
         mol: The molecular graph with its charge and multiplicity as properties; its
             conformer (if any) is the reference geometry. With several conformers
-            (several references, see Embed(references=...)), the first is the
-            reference unless a conformer's provenance names another.
+            (several references, see [Embed(references=...)][racerts.embed.Embed]), the
+            first is the reference unless a conformer's provenance names another.
         task: What is kept fixed.
         frozen: The FrozenSet of the task for mol.
         seed: The random seed; embedders that stages create use it as their RDKit
             seed (-1: random).
         restraints: Distance windows for embedding and refinement (see
             racerts.restraints).
-        roles: {atom: role} overrides of the fragment roles (see fragments).
+        roles: {atom: role} overrides of the fragment roles (see
+            [fragments][racerts.pipeline.Context.fragments]).
     """
 
     mol: Chem.Mol
@@ -66,8 +67,8 @@ class Context:
     def by_reference(self, ensemble) -> List[Tuple[Optional[Chem.Mol], List[int]]]:
         """
         (reference, conformer ids) pairs: the conformers embedded from each reference
-        (provenance "reference", see Embed(references=...)), or all conformers with
-        the reference.
+        (provenance "reference", see [Embed(references=...)][racerts.embed.Embed]), or
+        all conformers with the reference.
         """
         conf_ids = ensemble.conf_ids
         if self.mol.GetNumConformers() <= 1:
@@ -102,11 +103,13 @@ class Context:
     ) -> "Context":
         """
         A context for a copy of mol: charge and multiplicity are settled and stored as
-        properties of the copy (see set_charge_and_multiplicity; without a given
-        multiplicity the task is asked first, see Task), then the frozen atoms
-        of the task are determined and checked. Restraints between two frozen atoms
-        are left out (their distance is fixed), with a warning. roles: overrides of
-        the fragment roles (see fragments).
+        properties of the copy (see
+        [set_charge_and_multiplicity][racerts.system.set_charge_and_multiplicity];
+        without a given multiplicity the task is asked first, see
+        [Task][racerts.task.Task]), then the frozen atoms of the task are determined and
+        checked. Restraints between two frozen atoms are left out (their distance is
+        fixed), with a warning. roles: overrides of the fragment roles (see
+        [fragments][racerts.pipeline.Context.fragments]).
         """
         if not isinstance(mol, Chem.Mol):
             raise TypeError(f"Expected an RDKit Mol, not {type(mol).__name__}.")

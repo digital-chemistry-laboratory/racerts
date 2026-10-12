@@ -50,9 +50,10 @@ def saddles(
         tolerance: Of ReactionCore (A).
         hessian: Instead of the finite differences (6 N force calls per conformer): a
             function of ASE Atoms that returns the Hessian in eV/A^2, e.g. an
-            analytical one of the calculator (see ImaginaryModes).
+            analytical one of the calculator (see
+            [ImaginaryModes][racerts.validate.ImaginaryModes]).
         checks: Further validators after the built-in ones, e.g. one that follows the
-            imaginary mode downhill to both sides (see racerts.validate.Validator).
+            imaginary mode downhill to both sides (see [racerts.validate.Validator][]).
     """
     if pool_by not in POOLS:
         raise ValueError(f"pool_by must be one of {POOLS}, not {pool_by!r}.")

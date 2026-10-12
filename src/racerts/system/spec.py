@@ -44,8 +44,9 @@ def set_charge_and_multiplicity(
     mol: Chem.Mol, charge: Optional[int] = None, multiplicity: Optional[int] = None
 ) -> None:
     """
-    Settle charge and multiplicity of mol (see infer_charge_and_multiplicity) and store
-    them as its properties "charge" and "multiplicity", for later steps (ASE,
+    Settle charge and multiplicity of mol (see
+    [infer_charge_and_multiplicity][racerts.system.infer_charge_and_multiplicity]) and
+    store them as its properties "charge" and "multiplicity", for later steps (ASE,
     write_xyz), also for graphs without formal charges (connectivity only).
 
     A multiplicity that does not fit the number of electrons, and an odd number of

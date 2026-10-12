@@ -63,10 +63,10 @@ def swap(
         conserve: What happens to the kept atoms:
             - "hard": nothing is sampled; the fragment is grafted rigidly on each
               reference (single attachments only);
-            - "soft": the kept atoms outside the junction (see SwapResult) start at
-              the reference and are held near it by position restraints (0.3 A, k 5
-              kcal/(mol A^2)) in MMFF/UFF refinement; the junction and the new atoms
-              are sampled;
+            - "soft": the kept atoms outside the junction (see
+              [SwapResult][racerts.system.swap.SwapResult]) start at the reference and
+              are held near it by position restraints (0.3 A, k 5 kcal/(mol A^2)) in
+              MMFF/UFF refinement; the junction and the new atoms are sampled;
             - "free": only the hard atoms of the task are held (full resampling).
         n_conformers: Distance-geometry conformers per reference (-1: as
             config.embed.n_conformers, by default the count for the molecule).
@@ -81,7 +81,7 @@ def swap(
         config: Settings of the embedding, refinement and pruning; embedding uses the
             coordinate map and the "frozen_first" chirality fallback. config.restraints
             must be empty: the restraints of the reference go into restraints.
-        charge, multiplicity, verbose: See generate.
+        charge, multiplicity, verbose: See [generate][racerts.api.generate].
         restraints: Distance restraints of the reference (reference indices), e.g. its
             hydrogen bonds: those between kept atoms hold in embedding and refinement;
             the others are left out with a warning and listed in the molecule

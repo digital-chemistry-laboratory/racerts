@@ -185,15 +185,17 @@ def generate_ts(
             files; without, the bonds are perceived from the geometry.
         multiplicity: Spin multiplicity (default: the lowest for the electrons).
         frozen_atoms: Frozen atoms instead of the reacting atoms and neighbours.
-        config, pipeline: See generate.
-        mol_getter: The first method to build the graph (see build_mol).
+        config, pipeline: See [generate][racerts.api.generate].
+        mol_getter: The first method to build the graph (see
+            [build_mol][racerts.system.build_mol]).
         auto_fallback: As in legacy racerts: fall back to perceived bonds or
             connectivity if the graph cannot be built from the SMILES, and from MMFF
             to UFF (config.refine.fallback) in the default pipeline.
         verbose: Log progress (INFO) during the call.
-        restraints: Distance restraints (see generate).
+        restraints: Distance restraints (see [generate][racerts.api.generate]).
         active_window, active_bonds, stratify, neighbor_window: Sample the lengths
-            of the forming bonds in a window (see TransitionState).
+            of the forming bonds in a window (see
+            [TransitionState][racerts.task.TransitionState]).
     """
     if isinstance(smiles, str):
         smiles = [smiles]

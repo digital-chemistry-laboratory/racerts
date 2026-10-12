@@ -277,7 +277,7 @@ DIELECTRIC_MODELS = {"constant": 1, "distance": 2}  # RDKit's numbering
 
 class MMFFOptimizer(ForceFieldOptimizer):
     """
-    MMFF94 refinement (see ForceFieldOptimizer).
+    MMFF94 refinement (see [ForceFieldOptimizer][racerts.refine.ForceFieldOptimizer]).
 
     Args:
         dielectric_model: "constant" or "distance" (distance-dependent).

@@ -13,7 +13,7 @@ class Constrained:
     taken from another structure. In the bounds-matrix embedder, all distances between
     the hard atoms are fixed (between the core atoms and the hard atoms, if a core is
     given). Soft atoms start at the reference coordinates and are held near them by
-    position restraints in refinement (see FrozenSet).
+    position restraints in refinement (see [FrozenSet][racerts.task.FrozenSet]).
     """
 
     needs_reference = True

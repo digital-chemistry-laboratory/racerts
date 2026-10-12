@@ -211,8 +211,8 @@ def _max_deviation(positions: np.ndarray, reference: np.ndarray) -> float:
 
 class IdentityFilter(Validate):
     """
-    Drops conformers that are no longer the molecule of the graph (see Connectivity);
-    raises if none is left.
+    Drops conformers that are no longer the molecule of the graph (see
+    [Connectivity][racerts.validate.Connectivity]); raises if none is left.
     """
 
     name = "identity_filter"
@@ -408,9 +408,10 @@ def first_clash(positions, pairs) -> Optional[str]:
 class Clash:
     """
     Whether heavy atoms clash: closer than factor times their vdW sum while more than
-    three bonds apart or in different fragments (see clash_limits). Pairs of hard and
-    core atoms of the task keep the reference geometry (e.g. a forming bond) and are not
-    checked; pairs that close in the reference only count if they come closer.
+    three bonds apart or in different fragments (see
+    [clash_limits][racerts.validate.clash_limits]). Pairs of hard and core atoms of the
+    task keep the reference geometry (e.g. a forming bond) and are not checked; pairs
+    that close in the reference only count if they come closer.
     """
 
     name = "clash"
@@ -446,9 +447,10 @@ class RestraintViolation:
     """
     Whether the restraints that refinement holds are kept: no distance window of the
     context (stage "refine" or "both"; of the optional ones only those of the
-    conformer's embedding batch, see restraints.applying) and no soft atom (held near
-    its reference position) may be violated by more than tolerance (A). Meant for
-    contacts that broke, not for the small excess that flat-bottom terms allow.
+    conformer's embedding batch, see [restraints.applying][racerts.restraints.applying])
+    and no soft atom (held near its reference position) may be violated by more than
+    tolerance (A). Meant for contacts that broke, not for the small excess that
+    flat-bottom terms allow.
     """
 
     name = "restraints"

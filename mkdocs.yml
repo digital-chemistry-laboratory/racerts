@@ -20,6 +20,21 @@ plugins:
   - redirects:
       redirect_maps:
         'index.md': 'getting-started.md'
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            docstring_style: google
+            members_order: source
+            merge_init_into_class: true
+            show_root_heading: true
+            show_root_full_path: true
+            show_source: false
+            filters: public
+            docstring_options:
+              warn_unknown_params: false
+              warn_missing_types: false
 
 markdown_extensions:
   - admonition
@@ -49,6 +64,25 @@ nav:
       - Embedders: modules/embedder.md
       - Optimizers: modules/ff_optimizer.md
       - Pruners: modules/pruner.md
+  - API reference:
+      - racerts.api: api/api.md
+      - racerts.config: api/config.md
+      - racerts.task: api/task.md
+      - racerts.pipeline: api/pipeline.md
+      - racerts.embed: api/embed.md
+      - racerts.refine: api/refine.md
+      - racerts.prune: api/prune.md
+      - racerts.restraints: api/restraints.md
+      - racerts.system: api/system.md
+      - racerts.system.swap: api/system_swap.md
+      - racerts.validate: api/validate.md
+      - racerts.exploit: api/exploit.md
+      - racerts.recipes: api/recipes.md
+      - racerts.io: api/io.md
+      - racerts.errors: api/errors.md
+      - racerts.symmetry: api/symmetry.md
+      - racerts.geometry: api/geometry.md
+      - racerts.swaps: api/swaps.md
   - Legacy racerts:
       - Migrating from legacy racerts: migration.md
       - conformer_generator: modules/conformer_generator.md

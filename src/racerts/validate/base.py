@@ -65,8 +65,8 @@ class Validate:
     ("validation": {validator name: "ok" or the reason}).
 
     Args:
-        validators: Validator objects (see Validator; e.g. Connectivity, FrozenCore,
-            ImaginaryModes, or validator(function)).
+        validators: Validator objects (see [Validator][racerts.validate.Validator]; e.g.
+            Connectivity, FrozenCore, ImaginaryModes, or validator(function)).
         on_fail: "drop" removes the conformers that fail any validator; "flag" keeps
             them with the reasons in their provenance.
         require_any: With "drop", raise NoConformersError if no conformer passes.

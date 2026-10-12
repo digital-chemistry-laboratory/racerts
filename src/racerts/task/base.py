@@ -22,7 +22,7 @@ class FrozenSet:
             ReactionCore compares their distances with the reference.
         soft: Atoms placed at the reference coordinates in embedding (coordinate map,
             like hard atoms) and held near them in MMFF/UFF refinement by a flat-bottom
-            position restraint (see racerts.restraints.PositionRestraint), e.g. the
+            position restraint (see [racerts.restraints.PositionRestraint][]), e.g. the
             kept atoms of a swap.
     """
 

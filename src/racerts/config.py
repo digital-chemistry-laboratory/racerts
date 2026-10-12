@@ -179,7 +179,7 @@ class PruneConfig:
             legacy fallback, which drops the chiral tags, there is nothing left to
             check: use embed.chirality_fallback "frozen_first". On by default.
         method: "rmsd" (duplicates by RMSD, as legacy racerts) or "cluster" (one
-            conformer per cluster, see ClusterPruner).
+            conformer per cluster, see [ClusterPruner][racerts.prune.ClusterPruner]).
         cluster_method: "butina", "hierarchical" or "leader".
         cluster_threshold: Cluster distance (A, heavy-atom RMSD after superposition).
     """
@@ -228,7 +228,7 @@ class PruneConfig:
 @dataclass
 class RestraintConfig:
     """
-    Distance restraints (see racerts.restraints.build_restraints): windows in the
+    Distance restraints (see [racerts.restraints.build_restraints][]): windows in the
     embedding and flat-bottom terms in refinement (MMFF/UFF and ASE calculators);
     reported energies leave them out.
 
@@ -245,7 +245,8 @@ class RestraintConfig:
         hints: Candidate hydrogen bonds from the graph (at most max_hints) as
             embedding-only windows, used in a share hint_share of the conformers. A
             hint that gives no conformer within hint_attempts RDKit attempts per
-            conformer is dropped (see Embed); 0: RDKit's own limit.
+            conformer is dropped (see [Embed][racerts.embed.Embed]); 0: RDKit's own
+            limit.
         contain: Radius (A) of a containment restraint for every fragment that no
             restraint anchors (e.g. a counterion near the core); 0: none.
         fraction: The probability with which an embedding batch takes each restraint

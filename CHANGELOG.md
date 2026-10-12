@@ -312,3 +312,5 @@ permuted in the atom matching.
   `examples/` run). Markers: `ase` (needs ASE) and `xtb` (needs tblite).
 - CI: ruff, the default and ASE suites on the latest RDKit, a baseline job on RDKit
   2025.03.2.
+- Docs: an API reference generated from the docstrings (mkdocstrings), one page per
+  public package; "see X" in docstrings links there.

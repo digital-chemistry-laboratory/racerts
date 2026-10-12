@@ -155,16 +155,18 @@ def compare_runs(
     rmsd: float = 0.25,
 ) -> ConvergenceReport:
     """
-    How well independent runs of one search agree (see ConvergenceReport), e.g. the
-    ensembles of several seeds. The energies must compare: one method, every conformer
-    with an energy, no active bonds held at targets (compare after the free refinement).
+    How well independent runs of one search agree (see
+    [ConvergenceReport][racerts.pipeline.ConvergenceReport]), e.g. the ensembles of
+    several seeds. The energies must compare: one method, every conformer with an
+    energy, no active bonds held at targets (compare after the free refinement).
 
     Args:
         ensembles: One ensemble per run, of the same molecule.
         labels: Names of the runs (default 0, 1, ...).
         window: found_again counts the conformers within this of a run's minimum.
         temperature: Of the populations and free energies (K).
-        energy_tolerance, rmsd: When two conformers are the same (see merge_runs).
+        energy_tolerance, rmsd: When two conformers are the same (see
+            [merge_runs][racerts.pipeline.merge_runs]).
     """
     rows, matcher, labels = _rows(ensembles, labels, energy_tolerance, rmsd)
     rt = KB * temperature

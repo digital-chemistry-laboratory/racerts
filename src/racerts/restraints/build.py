@@ -58,7 +58,8 @@ def build_restraints(
             windows never widen.
         hints: Candidate hydrogen bonds from the graph (sources.graph_hints, at most
             max_hints) as embedding-only windows (source "hint", stage "embed"): Embed
-            uses them in some batches only (see Embed hint_share).
+            uses them in some batches only (see [Embed][racerts.embed.Embed]
+            hint_share).
         contain: Radius (A) of a containment restraint (racerts.system.roles.
             containment) for every fragment that no other restraint anchors; 0: none.
 

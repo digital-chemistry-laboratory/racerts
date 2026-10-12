@@ -69,7 +69,8 @@ def rmsd(
         positions_a, positions_b: (n_atoms, 3) coordinates.
         atoms: The atoms compared and superposed (default: all), e.g. heavy_atoms(mol).
         maps: Atom maps to minimise over, e.g. symmetry_maps(mol).maps: rows of
-            indices into atoms; row m pairs atoms[i] of a with atoms[maps[m][i]] of b.
+            indices into atoms; row m pairs `atoms[i]` of a with `atoms[maps[m][i]]` of
+            b.
             Default: every atom with itself.
         align: Superpose first, by translation and proper rotation (Kabsch), so that
             mirror images stay apart. False compares the coordinates as they are, e.g.

@@ -337,7 +337,8 @@ class Prepared(NamedTuple):
 
 class SymmetricRMSD:
     """
-    The symmetry-minimised RMSD of conformers of mol over atoms (see the module text).
+    The symmetry-minimised RMSD of conformers of mol over atoms (see
+    [the module text][racerts.symmetry]).
 
     Args:
         mol: The molecule (its graph; a conformer is needed to choose a level unless
@@ -1067,9 +1068,10 @@ class SymmetricRMSD:
     ):
         """
         The RMSD of the best automorphism found: exact if nothing is stripped (level
-        0), else an upper bound of the symmetry-minimised RMSD (see the module text).
-        With return_map also the map over the graph atoms (index, weight): atom
-        index[i] of a is paired with atom index[map[i]] of b.
+        0), else an upper bound of the symmetry-minimised RMSD (see
+        [the module text][racerts.symmetry]). With return_map also the map over the
+        graph atoms (index, weight): atom index[i] of a is paired with atom
+        index[map[i]] of b.
         """
         pa, pb = self.prepare(positions_a, align), self.prepare(positions_b, align)
         self.stats["pairs"] += 1

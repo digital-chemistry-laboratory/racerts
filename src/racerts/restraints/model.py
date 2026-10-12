@@ -125,9 +125,9 @@ def applying(restraints, provenance) -> list:
     """
     The restraints that apply to a conformer: all of them, but of the optional ones
     (OPTIONAL_SOURCES) only those of its embedding batch, if its provenance lists
-    them ("restraint_subset", see Embed restraint_fraction), and only the windows of
-    the task (WINDOW_SOURCES) if its last refinement released the restraints
-    ("restraints_released", see Refine restraints).
+    them ("restraint_subset", see [Embed][racerts.embed.Embed] restraint_fraction), and
+    only the windows of the task (WINDOW_SOURCES) if its last refinement released the
+    restraints ("restraints_released", see [Refine][racerts.refine.Refine] restraints).
     """
     if provenance.get("restraints_released"):
         restraints = [

@@ -157,7 +157,8 @@ def run_optimization(
 ) -> OptimizationResult:
     """Relax one structure and return its id, positions, energy, convergence and error.
 
-    See optimize_one, which also returns the number of steps and the time.
+    See [optimize_one][racerts.refine.optimize_one], which also returns the number of
+    steps and the time.
     """
     return optimize_one(calculator, config, task).as_tuple()
 

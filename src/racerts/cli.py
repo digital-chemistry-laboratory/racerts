@@ -3,6 +3,7 @@ The racerts command line.
 
     racerts ts FILE -r ATOM [ATOM ...] [-s SMILES ...]   TS conformers
     racerts gs SMILES                                    ground-state conformers
+    racerts constrained FILE --hard ATOM [ATOM ...]      conformers around held atoms
     racerts FILE [options]                               legacy (or: racerts run)
 """
 
@@ -12,14 +13,15 @@ import sys
 
 from attrs import evolve
 
-from racerts.api import generate_gs, generate_ts
+from racerts.api import generate, generate_gs, generate_ts
 from racerts.config import PipelineConfig
 from racerts.embed import EMBED_MODES
 from racerts.refine import REFINE_BACKENDS
-from racerts.system import GRAPH_METHODS
+from racerts.system import GRAPH_METHODS, build_mol
+from racerts.task import Constrained
 from racerts.utils.log import cli_logging
 
-SUBCOMMANDS = ("ts", "gs")
+SUBCOMMANDS = ("ts", "gs", "constrained")
 DEFAULT_OUTPUT = "conformer_ensemble.xyz"
 
 
@@ -59,23 +61,44 @@ def _subcommand_parser() -> argparse.ArgumentParser:
         help="0-based indices of the atoms whose bonds form or break.",
     )
     ts.add_argument(
-        "-s",
-        "--smiles",
-        nargs="+",
-        help="SMILES of the TS topology, one per fragment (recommended for xyz).",
-    )
-    ts.add_argument(
         "--frozen-atoms",
         type=int,
         nargs="+",
         help="Frozen atoms instead of the reacting atoms and their neighbours.",
     )
-    ts.add_argument(
-        "--graph",
-        choices=list(GRAPH_METHODS),
-        help="First method for the molecular graph (default: smiles).",
+
+    constrained = sub.add_parser(
+        "constrained",
+        help="conformers around atoms held at the geometry of a file",
+        description="Conformers of a structure in which the --hard atoms stay where "
+        "they are in the file, e.g. a binding motif or a core.",
     )
-    ts.add_argument("-c", "--charge", type=int, default=0, help="Total charge.")
+    constrained.add_argument(
+        "filename", help="Structure (.xyz, or .sdf/.mol with bonds)."
+    )
+    constrained.add_argument(
+        "--hard",
+        type=int,
+        nargs="+",
+        required=True,
+        help="0-based indices of the atoms held at the geometry of the file.",
+    )
+
+    for command, graph in ((ts, "TS topology"), (constrained, "molecule")):
+        command.add_argument(
+            "-s",
+            "--smiles",
+            nargs="+",
+            help=f"SMILES of the {graph}, one per fragment (recommended for xyz).",
+        )
+        command.add_argument(
+            "--graph",
+            choices=list(GRAPH_METHODS),
+            help="First method for the molecular graph (default: smiles).",
+        )
+        command.add_argument(
+            "-c", "--charge", type=int, default=0, help="Total charge."
+        )
 
     gs = sub.add_parser(
         "gs",
@@ -88,7 +111,7 @@ def _subcommand_parser() -> argparse.ArgumentParser:
     )
 
     defaults = PipelineConfig()
-    for command in (ts, gs):
+    for command in (ts, gs, constrained):
         command.add_argument(
             "--multiplicity",
             type=int,
@@ -199,7 +222,7 @@ def _replace(obj, **changes):
 
 
 def run_subcommand(argv):
-    """racerts ts / racerts gs."""
+    """racerts ts / racerts gs / racerts constrained."""
     return _parse_and_run(_subcommand_parser(), argv, _run_subcommand)
 
 
@@ -218,6 +241,24 @@ def _run_subcommand(parser, args):
             config=config,
             mol_getter=GRAPH_METHODS[args.graph]() if args.graph else None,
             auto_fallback=not args.no_fallback,
+        )
+    elif args.command == "constrained":
+        _check_file(parser, args.filename)
+        mol = build_mol(
+            args.filename,
+            args.charge,
+            [],  # no reacting atoms: the graph of the file as it is
+            input_smiles=args.smiles,
+            mol_getter=GRAPH_METHODS[args.graph]() if args.graph else None,
+            auto_fallback=not args.no_fallback,
+        )
+        if mol is None:
+            parser.error(f"No molecule could be built from '{args.filename}'.")
+        ensemble = generate(
+            mol,
+            Constrained(args.hard),
+            config=config,
+            multiplicity=args.multiplicity,
         )
     else:
         ensemble = generate_gs(

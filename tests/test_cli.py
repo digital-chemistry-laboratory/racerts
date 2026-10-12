@@ -1,8 +1,11 @@
-"""The subcommands racerts ts and racerts gs (the legacy form: tests/legacy)."""
+"""The subcommands racerts ts, gs and constrained (the legacy form: tests/legacy)."""
 
 import os
 
+import numpy as np
 import pytest
+from rdkit import Chem
+from rdkit.Chem import AllChem
 
 from racerts import PipelineConfig
 from racerts.cli import main, run_subcommand
@@ -50,6 +53,42 @@ def test_ts_rejects_invalid_settings(tmp_path):
         main(["ts", EX, "-r", "3", "4", "5", "--config", str(config)])
     with pytest.raises(SystemExit):
         main(["ts", EX])  # the reacting atoms are required
+
+
+def test_constrained_keeps_the_hard_atoms_at_the_geometry_of_the_file(tmp_path):
+    mol = Chem.AddHs(Chem.MolFromSmiles("CCCC(C)O"))
+    AllChem.EmbedMolecule(mol, randomSeed=3)
+    held = mol.GetConformer().GetPositions()[[3, 4, 5]]  # the C(C)O end
+    options = ["--hard", "3", "4", "5", "-n", "10", "--seed", "3"]
+    out = tmp_path / "constrained.xyz"
+
+    # -- a file with bonds
+    with_bonds = tmp_path / "pentan-2-ol.mol"
+    Chem.MolToMolFile(mol, str(with_bonds))
+    ensemble = run_subcommand(
+        ["constrained", str(with_bonds), *options, "-o", str(out)]
+    )
+
+    assert len(_frames(out)) == len(ensemble) > 1
+    for conf in ensemble.mol.GetConformers():
+        assert np.abs(conf.GetPositions()[[3, 4, 5]] - held).max() < 1e-3
+
+    # -- an xyz file takes its bonds from the SMILES, as racerts ts does
+    xyz = tmp_path / "pentan-2-ol.xyz"
+    Chem.MolToXYZFile(mol, str(xyz))
+    from_xyz = run_subcommand(
+        ["constrained", str(xyz), "-s", "CCCC(C)O", *options, "-o", str(out)]
+    )
+
+    assert from_xyz.mol.GetNumBonds() == mol.GetNumBonds() and len(from_xyz) > 1
+    for conf in from_xyz.mol.GetConformers():
+        assert np.abs(conf.GetPositions()[[3, 4, 5]] - held).max() < 1e-3
+
+    # -- the atoms to hold are required, and checked against the molecule
+    with pytest.raises(SystemExit):
+        main(["constrained", str(with_bonds)])
+    with pytest.raises(ValueError, match="frozen atoms"):
+        main(["constrained", str(with_bonds), "--hard", "99", "-o", str(out)])
 
 
 def test_legacy_help_points_to_the_subcommands(capsys):

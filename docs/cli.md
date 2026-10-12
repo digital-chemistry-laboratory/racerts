@@ -1,25 +1,31 @@
 # Command-line interface
 
-The `racerts` CLI mirrors the core functionality of the Python API. It has two
-subcommands, `racerts ts` and `racerts gs`, and keeps the legacy racerts form
+The `racerts` CLI mirrors the core functionality of the Python API. It has three
+subcommands, `racerts ts`, `racerts gs` and `racerts constrained`, and keeps the legacy racerts form
 `racerts filename.xyz [options]` (also `racerts run filename.xyz [options]`), which is
 described in the rest of this page. With the same settings, `racerts ts` and the legacy form
 write the same ensemble.
 
-## racerts ts / racerts gs
+## racerts ts / racerts gs / racerts constrained
 
 ```bash
 $ racerts ts ts.xyz --reacting-atoms 3 4 5 --smiles "CCCCCC=C" [options]
 $ racerts gs "OC(=O)[C@@H]1CCCN1C(C)=C" [options]
+$ racerts constrained complex.xyz --hard 0 1 2 3 [options]
 ```
+
+`racerts constrained` samples a structure around atoms that stay where they are in the
+file, e.g. a binding motif or a core (the task `Constrained` of the
+[Python API](pipeline.md#tasks)).
 
 | Option | Explanation |
 | --- | --- |
 | `-r`, `--reacting-atoms` (ts) | 0-based indices of the atoms whose bonds form or break |
-| `-s`, `--smiles` (ts) | SMILES of the TS topology, one per fragment |
 | `--frozen-atoms` (ts) | frozen atoms instead of the reacting atoms and their neighbours |
-| `--graph` (ts) | first method for the graph: `smiles`, `bonds` or `connect` |
-| `-c`, `--charge` | total charge (ts: default 0; gs: from the SMILES) |
+| `--hard` (constrained) | 0-based indices of the atoms held at the geometry of the file |
+| `-s`, `--smiles` (ts, constrained) | SMILES of the TS topology or of the molecule, one per fragment |
+| `--graph` (ts, constrained) | first method for the graph: `smiles`, `bonds` or `connect` |
+| `-c`, `--charge` | total charge (ts, constrained: default 0; gs: from the SMILES) |
 | `--multiplicity` | spin multiplicity (default: the lowest for the electrons) |
 | `--config` | [PipelineConfig](pipeline.md#settings) as JSON or YAML; the options below override it |
 | `-n`, `--n-conformers`, `--conf-factor` | conformers to embed |

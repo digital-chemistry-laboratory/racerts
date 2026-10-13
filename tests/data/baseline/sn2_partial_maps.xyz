@@ -1,0 +1,8 @@
+6
+Properties=species:S:1:pos:R:3 racerts_energy=1.92986052 charge=-1 spin=1 multiplicity=1 energy_method=MMFFOptimizer pbc="F F F"
+C      0.000000    0.000000    0.000165
+Cl     0.000000    0.000000    2.149986
+Cl     0.000000    0.000000   -2.500099
+H      1.070012    0.000000    0.099983
+H     -0.535006    0.926657    0.099983
+H     -0.535006   -0.926657    0.099983

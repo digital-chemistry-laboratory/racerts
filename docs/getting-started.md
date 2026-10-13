@@ -14,16 +14,18 @@ This documentation covers how to install and use racer<sup>TS</sup>, the command
 
 ## Installation
 
-- Python 3.9+
-- RDKit >= 2023.9.5 (installed automatically via pip dependency)
+- Python 3.10+
+- RDKit >= 2023.9.6 (installed automatically via pip dependency)
 
 ```bash
 pip install racerts
+pip install "racerts[ase]"   # optional: refinement with ASE calculators (xTB, MLIPs, ...)
+pip install "racerts[yaml]"  # optional: pipeline settings as YAML files
 ```
 
 ## Input format
 
-- Input geometry must be an .xyz file of a TS structure
+- Input geometry must be an .xyz file of a TS structure (or .sdf/.mol with bonds)
 - Reacting atoms are the atoms whose connectivity changes in the reaction
 - Overall molecular charge
 - Optionally, a SMILES for either product or starting material can be provided to define the topology around the TS
@@ -32,10 +34,26 @@ pip install racerts
 ## Quickstart (Python)
 
 ```python
+import racerts
+
+# example.xyz is a single-geometry TS structure; reacting atoms are 0-based indices
+ensemble = racerts.generate_ts("example.xyz", reacting_atoms=[2, 3, 4], charge=0)
+ensemble.write_xyz("ensemble.xyz")
+print(ensemble.summary())
+```
+
+`generate_ts` returns a [`ConformerEnsemble`](pipeline.md#conformer-ensembles): the RDKit
+molecule with its conformers (`ensemble.mol`), their energies and provenance. Settings
+are passed as a [`PipelineConfig`](pipeline.md#settings); tasks other than transition
+states (ground states, constrained cores) are described in [Pipelines and
+tasks](pipeline.md).
+
+The legacy racerts API still works and gives the same ensembles:
+
+```python
 from racerts import ConformerGenerator
 
 cg = ConformerGenerator()
-# example.xyz is a single-geometry TS structure; reacting atoms are 0-based indices
 mol = cg.generate_conformers(file_name="example.xyz", charge=0, reacting_atoms=[2,3,4])
 cg.write_xyz("ensemble.xyz")
 ```
@@ -43,7 +61,11 @@ cg.write_xyz("ensemble.xyz")
 ## Quickstart (CLI)
 
 ```bash
-racerts example.xyz --charge 0 --reacting_atoms 2 3 4
+racerts ts example.xyz --reacting-atoms 2 3 4 --charge 0
+racerts example.xyz --charge 0 --reacting_atoms 2 3 4   # legacy racerts form, same result
 ```
 
 This will generate a pruned ensemble and write `conformer_ensemble.xyz` in the current directory by default.
+
+Messages go through Python's `logging` (logger `racerts`): warnings are shown by
+default; `verbose=True` (or `-v`, `-vv` on the command line) also shows progress.

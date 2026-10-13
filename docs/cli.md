@@ -1,7 +1,54 @@
 # Command-line interface
 
-The `racerts` CLI mirrors the core functionality of the Python API.
-The command is always:
+The `racerts` CLI mirrors the core functionality of the Python API. It has three
+subcommands, `racerts ts`, `racerts gs` and `racerts constrained`, and keeps the legacy racerts form
+`racerts filename.xyz [options]` (also `racerts run filename.xyz [options]`), which is
+described in the rest of this page. With the same settings, `racerts ts` and the legacy form
+write the same ensemble.
+
+## racerts ts / racerts gs / racerts constrained
+
+```bash
+$ racerts ts ts.xyz --reacting-atoms 3 4 5 --smiles "CCCCCC=C" [options]
+$ racerts gs "OC(=O)[C@@H]1CCCN1C(C)=C" [options]
+$ racerts gs molecule.xyz [options]
+$ racerts constrained complex.xyz --hard 0 1 2 3 [options]
+```
+
+`racerts constrained` samples a structure around atoms that stay where they are in the
+file, e.g. a binding motif or a core (the task `Constrained` of the
+[Python API](pipeline.md#tasks)).
+
+`racerts gs` takes the molecule as a SMILES or as a structure file. From a file it keeps
+the configuration of the geometry (stereocentres and double bonds). The graph of an xyz
+file comes from the SMILES (`-s`) if given, then from the perceived bonds, and from the
+connectivity alone only with `--graph connect`: without bond orders the search would run
+on a different molecule.
+
+| Option | Explanation |
+| --- | --- |
+| `-r`, `--reacting-atoms` (ts) | 0-based indices of the atoms whose bonds form or break |
+| `--frozen-atoms` (ts) | frozen atoms instead of the reacting atoms and their neighbours |
+| `--hard` (constrained) | 0-based indices of the atoms held at the geometry of the file |
+| `-s`, `--smiles` (ts, constrained, gs with a file) | SMILES of the TS topology or of the molecule, one per fragment |
+| `--graph` (ts, constrained, gs with a file) | first method for the graph: `smiles`, `bonds` or `connect` |
+| `-c`, `--charge` | total charge (default 0; gs with a SMILES: from the SMILES) |
+| `--multiplicity` | spin multiplicity (default: the lowest for the electrons) |
+| `--config` | [PipelineConfig](pipeline.md#settings) as JSON or YAML; the options below override it |
+| `-n`, `--n-conformers`, `--conf-factor` | conformers to embed |
+| `--embed` | `cmap` or `bounds` |
+| `--etkdg`, `--no-etkdg` | ETKDGv3 instead of plain distance geometry (default: only for gs) |
+| `--refine` | `mmff` or `uff` |
+| `--no-fallback` | no fallback for the graph (bonds, connectivity) or MMFF (UFF) |
+| `--seed`, `--num-threads` | |
+| `--energy-threshold`, `--rmsd-threshold` | pruning |
+| `-o`, `--output` | output file (default `conformer_ensemble.xyz`) |
+| `--crest-energies` | only the energy (Hartree) on each comment line, as CREST does |
+| `-v`, `-vv` | progress (INFO) or details (DEBUG) on stderr |
+
+## racerts filename.xyz (legacy)
+
+The command is:
 ```bash
 $ racerts filename.xyz [options]
 ```
@@ -40,7 +87,7 @@ where the `filename.xyz` is the path to an .xyz file containing a single TS conf
 | --- | --- | --- |
 | `-o`<br>`--output` | &lt;STR&gt; [conformer_ensemble.xyz] | Output .xyz filename; the comment lines are in extended XYZ format<br>(energy in eV, charge, spin; readable with `ase.io.read`) |
 | `--out_energies` | - | Instead, write only the energy in E<sub>h</sub> on each comment line (as in CREST ensembles);<br>conformer property remains in kcal/mol |
-| `-v`<br>`--verbose` | - | Verbose output |
+| `-v`<br>`--verbose` | - | Progress on stderr (`-vv`: details) |
 
 ### Performance and reproducibility
 

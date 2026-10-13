@@ -17,8 +17,9 @@ class ImaginaryModes:
     (ASEOptimizer with Sella).
 
     Args:
-        calculator: An ASE calculator, or a callable that returns one: the Hessian is
-            then by finite differences of its forces (6 N force calls per conformer).
+        calculator: An ASE calculator, or a callable that returns a calculator. The
+            Hessian is computed by finite differences of its forces (6 N force calls
+            per conformer).
         expected: The number of imaginary modes.
         threshold: Imaginary modes with |frequency| below this (cm^-1) are noise.
         delta: Displacement of the finite differences (A).
@@ -26,7 +27,8 @@ class ImaginaryModes:
             3N x 3N) of ASE Atoms, which carry the charge and the multiplicity in
             atoms.info; e.g. an analytical Hessian, or one by automatic differentiation.
 
-    The reason of a failed conformer lists its imaginary frequencies (cm^-1); modes()
+    For a conformer that fails, the message recorded in its provenance (under
+    "validation", "imaginary_modes") lists its imaginary frequencies (cm^-1). modes()
     gives all frequencies and modes of one structure.
     """
 
@@ -107,10 +109,17 @@ class ReactionMode(ImaginaryModes):
     alone, about 0 for a mode elsewhere in the molecule.
 
     Args:
-        calculator, threshold, delta, hessian: As ImaginaryModes.
+        calculator: An ASE calculator, or a callable that returns a calculator. The
+            Hessian is computed by finite differences of its forces (6 N force calls
+            per conformer).
         bonds: The atom pairs; default: the active bonds of the task (for a
             TransitionState the bonds that form or break, see its active_bonds).
         min_stretch: The least stretch of one of the bonds.
+        threshold: Imaginary modes with |frequency| below this (cm^-1) are noise.
+        delta: Displacement of the finite differences (A).
+        hessian: Instead of the calculator: hessian(atoms) -> the Hessian (eV/A^2,
+            3N x 3N) of ASE Atoms, which carry the charge and the multiplicity in
+            atoms.info; e.g. an analytical Hessian, or one by automatic differentiation.
 
     Every conformer with one imaginary mode records it in its provenance:
     "imaginary_frequency" (cm^-1) and "mode_stretch" ({"a-b": stretch}).

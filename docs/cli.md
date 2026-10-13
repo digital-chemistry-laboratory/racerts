@@ -11,6 +11,7 @@ write the same ensemble.
 ```bash
 $ racerts ts ts.xyz --reacting-atoms 3 4 5 --smiles "CCCCCC=C" [options]
 $ racerts gs "OC(=O)[C@@H]1CCCN1C(C)=C" [options]
+$ racerts gs molecule.xyz [options]
 $ racerts constrained complex.xyz --hard 0 1 2 3 [options]
 ```
 
@@ -18,14 +19,20 @@ $ racerts constrained complex.xyz --hard 0 1 2 3 [options]
 file, e.g. a binding motif or a core (the task `Constrained` of the
 [Python API](pipeline.md#tasks)).
 
+`racerts gs` takes the molecule as a SMILES or as a structure file. From a file it keeps
+the configuration of the geometry (stereocentres and double bonds). The graph of an xyz
+file comes from the SMILES (`-s`) if given, then from the perceived bonds, and from the
+connectivity alone only with `--graph connect`: without bond orders the search would run
+on a different molecule.
+
 | Option | Explanation |
 | --- | --- |
 | `-r`, `--reacting-atoms` (ts) | 0-based indices of the atoms whose bonds form or break |
 | `--frozen-atoms` (ts) | frozen atoms instead of the reacting atoms and their neighbours |
 | `--hard` (constrained) | 0-based indices of the atoms held at the geometry of the file |
-| `-s`, `--smiles` (ts, constrained) | SMILES of the TS topology or of the molecule, one per fragment |
-| `--graph` (ts, constrained) | first method for the graph: `smiles`, `bonds` or `connect` |
-| `-c`, `--charge` | total charge (ts, constrained: default 0; gs: from the SMILES) |
+| `-s`, `--smiles` (ts, constrained, gs with a file) | SMILES of the TS topology or of the molecule, one per fragment |
+| `--graph` (ts, constrained, gs with a file) | first method for the graph: `smiles`, `bonds` or `connect` |
+| `-c`, `--charge` | total charge (default 0; gs with a SMILES: from the SMILES) |
 | `--multiplicity` | spin multiplicity (default: the lowest for the electrons) |
 | `--config` | [PipelineConfig](pipeline.md#settings) as JSON or YAML; the options below override it |
 | `-n`, `--n-conformers`, `--conf-factor` | conformers to embed |

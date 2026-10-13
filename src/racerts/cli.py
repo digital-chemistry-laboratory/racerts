@@ -2,12 +2,13 @@
 The racerts command line.
 
     racerts ts FILE -r ATOM [ATOM ...] [-s SMILES ...]   TS conformers
-    racerts gs SMILES                                    ground-state conformers
+    racerts gs SMILES | FILE                             ground-state conformers
     racerts constrained FILE --hard ATOM [ATOM ...]      conformers around held atoms
     racerts FILE [options]                               legacy (or: racerts run)
 """
 
 import argparse
+import logging
 import os
 import sys
 
@@ -21,7 +22,10 @@ from racerts.system import GRAPH_METHODS, build_mol
 from racerts.task import Constrained
 from racerts.utils.log import cli_logging
 
+logger = logging.getLogger(__name__)
+
 SUBCOMMANDS = ("ts", "gs", "constrained")
+STRUCTURE_FILES = (".xyz", ".sdf", ".mol")
 DEFAULT_OUTPUT = "conformer_ensemble.xyz"
 
 
@@ -102,12 +106,35 @@ def _subcommand_parser() -> argparse.ArgumentParser:
 
     gs = sub.add_parser(
         "gs",
-        help="ground-state conformers from a SMILES",
-        description="Ground-state conformers (nothing frozen), embedded with ETKDGv3.",
+        help="ground-state conformers from a SMILES or a structure file",
+        description="Ground-state conformers (nothing frozen), embedded with ETKDGv3. "
+        "From a file, the configuration (stereocentres, double bonds) is that of its "
+        "geometry.",
     )
-    gs.add_argument("smiles", help="SMILES of the molecule.")
     gs.add_argument(
-        "-c", "--charge", type=int, default=None, help="Total charge (default: SMILES)."
+        "molecule",
+        help="SMILES of the molecule, or a structure file (.xyz, or .sdf/.mol with "
+        "bonds).",
+    )
+    gs.add_argument(
+        "-s",
+        "--smiles",
+        nargs="+",
+        help="For an xyz file: SMILES of the molecule, one per fragment.",
+    )
+    gs.add_argument(
+        "--graph",
+        choices=list(GRAPH_METHODS),
+        help="For an xyz file: method for the molecular graph (default: smiles with "
+        "-s, then the perceived bonds; connect, the connectivity without bond "
+        "orders, only if given here).",
+    )
+    gs.add_argument(
+        "-c",
+        "--charge",
+        type=int,
+        default=None,
+        help="Total charge (default: from the SMILES; 0 for a file).",
     )
 
     defaults = PipelineConfig()
@@ -261,14 +288,58 @@ def _run_subcommand(parser, args):
             multiplicity=args.multiplicity,
         )
     else:
+        molecule = args.molecule
+        if molecule.lower().endswith(STRUCTURE_FILES):
+            _check_file(parser, molecule)
+            molecule = _molecule_of_file(parser, args)
         ensemble = generate_gs(
-            args.smiles,
+            molecule,
             charge=args.charge,
             multiplicity=args.multiplicity,
             config=config,
         )
     ensemble.write_xyz(args.output, use_energy=args.crest_energies)
     return ensemble
+
+
+def _molecule_of_file(parser, args):
+    """
+    The molecule of a structure file for a ground-state search. The graph of an xyz
+    file comes from the SMILES (-s) if given, then from the perceived bonds, and from
+    its connectivity alone only if --graph connect asks for it: without bond orders
+    the embedder gets another molecule, and here no frozen atoms hold any of it in
+    place (racerts ts and racerts constrained fall back to it with a warning).
+    """
+    charge = 0 if args.charge is None else args.charge
+    methods = [args.graph or ("smiles" if args.smiles else "bonds")]
+    if methods == ["smiles"] and not args.no_fallback:
+        methods.append("bonds")
+    if not args.molecule.lower().endswith(".xyz"):
+        methods = methods[:1]  # a file with bonds keeps its graph
+    failure = None
+    for method in methods:
+        if failure is not None:
+            logger.warning("The graph from %s failed: %s", methods[0], failure)
+        try:
+            mol = build_mol(
+                args.molecule,
+                charge,
+                [],  # no reacting atoms: the graph of the file as it is
+                input_smiles=args.smiles,
+                mol_getter=GRAPH_METHODS[method](),
+                auto_fallback=False,
+            )
+        except Exception as error:  # whatever the method raises, as in build_mol
+            failure = error
+            continue
+        if mol is not None:
+            return mol
+        failure = "the file could not be read"
+    parser.error(
+        f"No molecular graph with bond orders from '{args.molecule}' ({failure}). "
+        "Give the SMILES (-s) or the charge (-c), use a file with bonds (.sdf, "
+        ".mol), or ask for the connectivity alone (--graph connect)."
+    )
 
 
 def _add_verbose(parser) -> None:

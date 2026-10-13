@@ -91,6 +91,50 @@ def test_constrained_keeps_the_hard_atoms_at_the_geometry_of_the_file(tmp_path):
         main(["constrained", str(with_bonds), "--hard", "99", "-o", str(out)])
 
 
+def _configuration(mol, conf_id):
+    """CIP labels of the stereocentres and the double bonds' stereo, read from a conformer."""
+    one = Chem.Mol(mol, confId=conf_id)
+    Chem.AssignStereochemistryFrom3D(one)
+    bonds = [str(b.GetStereo()) for b in one.GetBonds() if b.GetStereo()]
+    return Chem.FindMolChiralCenters(one), bonds
+
+
+def test_gs_takes_a_structure_file_and_keeps_its_configuration(tmp_path, capsys):
+    mol = Chem.AddHs(Chem.MolFromSmiles(r"C[C@@H](O)/C=C\C"))  # (R,Z)-pent-3-en-2-ol
+    AllChem.EmbedMolecule(mol, randomSeed=3)
+    in_the_file = _configuration(mol, -1)
+    assert in_the_file == ([(1, "R")], ["STEREOZ"])
+    xyz, with_bonds, out = (tmp_path / n for n in ("m.xyz", "m.mol", "gs.xyz"))
+    Chem.MolToXYZFile(mol, str(xyz))
+    Chem.MolToMolFile(mol, str(with_bonds))
+    options = ["-n", "10", "--seed", "3", "-o", str(out)]
+
+    # -- an xyz file (bonds perceived), an xyz file with the SMILES for its graph, a
+    # file with bonds: the molecule and the configuration are those of the file
+    for source in ([str(xyz)], [str(xyz), "-s", "CC(O)C=CC"], [str(with_bonds)]):
+        ensemble = run_subcommand(["gs", *source, *options])
+
+        assert len(_frames(out)) == len(ensemble) > 1
+        orders = sorted(b.GetBondTypeAsDouble() for b in ensemble.mol.GetBonds())
+        assert orders == sorted(b.GetBondTypeAsDouble() for b in mol.GetBonds())
+        for conf in ensemble.mol.GetConformers():
+            assert _configuration(ensemble.mol, conf.GetId()) == in_the_file
+
+    # -- no fallback to connectivity alone: without bond orders it is another molecule
+    cation = Chem.AddHs(Chem.MolFromSmiles("C[NH3+]"))
+    AllChem.EmbedMolecule(cation, randomSeed=3)
+    charged = tmp_path / "methylammonium.xyz"
+    Chem.MolToXYZFile(cation, str(charged))
+    with pytest.raises(SystemExit):
+        main(["gs", str(charged), *options])  # the charge is missing: no bonds
+    assert "--graph connect" in capsys.readouterr().err
+    assert len(run_subcommand(["gs", str(charged), "-c", "1", *options])) >= 1
+
+    # -- connectivity alone on request
+    single = run_subcommand(["gs", str(xyz), "--graph", "connect", *options])
+    assert all(b.GetBondTypeAsDouble() == 1 for b in single.mol.GetBonds())
+
+
 def test_legacy_help_points_to_the_subcommands(capsys):
     with pytest.raises(SystemExit):
         main(["-h"])

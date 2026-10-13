@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><link rel="canonical" href="https://digital-chemistry-laboratory.github.io/racerTS/migration/" />
+      <link rel="shortcut icon" href="../img/favicon.ico" />
+    <title>Migrating from legacy racerts - racerTS documentation</title>
+    <link rel="stylesheet" href="../css/theme.css" />
+    <link rel="stylesheet" href="../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+        <link href="../styles/overrides.css" rel="stylesheet" />
+        <link href="../styles/extra.css" rel="stylesheet" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "Migrating from legacy racerts";
+        var mkdocs_page_input_path = "migration.md";
+        var mkdocs_page_url = "/racerTS/migration/";
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href="..">
+          <img src="../img/logo.png" class="logo" alt="Logo"/>
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../getting-started/">Getting started</a>
+                </li>
+              </ul>
+              <p class="caption"><span class="caption-text">User guide</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../pipeline/">Pipelines and tasks</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../cli/">CLI</a>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Legacy racerts</span></p>
+              <ul class="current">
+                  <li class="toctree-l1 current"><a class="reference internal current" href="#">Migrating from legacy racerts</a>
+    <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#what-stays">What stays</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#behaviour-changes-since-017">Behaviour changes since 0.1.7</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#for-new-code">For new code</a>
+    </li>
+    </ul>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../modules/">Modules overview</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../modules/conformer_generator/">conformer_generator</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../modules/mol_getter/">mol_getter</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../modules/embedder/">embedder</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../modules/ff_optimizer/">optimizer</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../modules/pruner/">pruner</a>
+                  </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="..">racerTS documentation</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href=".." class="icon icon-home" aria-label="Docs"></a></li>
+          <li class="breadcrumb-item">Legacy racerts</li>
+      <li class="breadcrumb-item active">Migrating from legacy racerts</li>
+    <li class="wy-breadcrumbs-aside">
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="migrating-from-legacy-racerts">Migrating from legacy racerts<a class="headerlink" href="#migrating-from-legacy-racerts" title="Permanent link">&para;</a></h1>
+<p>racerts gives the same ensembles as legacy racerts (0.1.7 and its fixes) with the same inputs:
+<code>ConformerGenerator().generate_conformers(...)</code>, <code>racerts.generate_ts(...)</code>,
+<code>racerts file.xyz ...</code> and <code>racerts ts file.xyz ...</code> write identical files.</p>
+<h2 id="what-stays">What stays<a class="headerlink" href="#what-stays" title="Permanent link">&para;</a></h2>
+<p>The legacy API keeps working; all of it lives in <code>racerts.compat</code>:</p>
+<ul>
+<li>Every module path and name of racerts 0.1.7: <code>from racerts import ConformerGenerator,
+  embedders, mol_getters, optimizers, pruners</code>, <code>racerts.embedder</code>, <code>racerts.optimizer</code>,
+  <code>racerts.pruner</code>, <code>racerts.mol_getter</code>, <code>racerts.conformer_generator</code>,
+  <code>racerts.embedder.utils</code>, <code>racerts.optimizer.ase</code>, <code>racerts.utils.get_frozen_atoms</code>,
+  <code>racerts.visualizer</code>, and so on (<code>tests/test_compat.py</code> checks them against the 0.1.7
+  release).</li>
+<li>Custom subclasses of the legacy base classes. The legacy embedders and optimizers are
+  subclasses of the current ones in <code>racerts.embed</code> and <code>racerts.refine</code> that add the
+  legacy methods <code>embed_TS</code> and <code>tune_ts_conformers</code>; the current classes do not have
+  them. Pruners and mol getters are the same classes in both.</li>
+<li>The command line <code>racerts file.xyz [options]</code> with all its options (also as
+  <code>racerts run ...</code>), in <code>racerts.compat.cli</code>.</li>
+</ul>
+<h2 id="behaviour-changes-since-017">Behaviour changes since 0.1.7<a class="headerlink" href="#behaviour-changes-since-017" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Output files: the comment lines are extended XYZ (energy in eV, charge, spin,
+  <code>energy_method</code>) instead of charge and multiplicity (<code>0 1</code>); <code>write_xyz(path,
+  comment="0 1")</code> writes such a line as given. CREST-style energies (<code>use_energy=True</code>, <code>--out_energies</code>) leave out conformers
+  without an energy and use the CODATA 2022 Hartree (627.5094740629 kcal/mol instead of
+  627.509), so the sixth decimal can differ.</li>
+<li>Messages go through Python <code>logging</code> (logger <code>racerts</code>) instead of stdout: warnings to
+  stderr, progress with <code>verbose=True</code> or <code>-v</code>/<code>-vv</code>.</li>
+<li><code>generate_conformers</code> uses <code>conf_factor=80</code> by default, as the command line always did
+  (it was 30 in the Python API).</li>
+<li>Stricter input: invalid SMILES, SMILES whose formal charges disagree with <code>charge</code>, and an
+  embedding without conformers raise errors; errors of optimizers other than MMFF are raised
+  instead of being retried silently with UFF.</li>
+<li>The default multiplicity is the lowest one for the number of electrons (not the radical
+  count of the TS graph), which reaches ASE calculators as their spin.</li>
+<li>The chirality fallback of the embedders (for TS geometries that contradict a chiral tag)
+  now logs a warning.</li>
+</ul>
+<h2 id="for-new-code">For new code<a class="headerlink" href="#for-new-code" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>legacy racerts</th>
+<th>now</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ConformerGenerator().generate_conformers(file, charge, reacting_atoms, input_smiles=...)</code> returns a <code>Mol</code></td>
+<td><code>racerts.generate_ts(file, reacting_atoms, charge=..., smiles=...)</code> returns a <code>ConformerEnsemble</code> (<code>.mol</code> is the <code>Mol</code>)</td>
+</tr>
+<tr>
+<td>components set on the generator</td>
+<td>stages of a <code>Pipeline</code>, or settings of a <code>PipelineConfig</code></td>
+</tr>
+<tr>
+<td><code>cg.embedder = BoundsMatrixEmbedder()</code></td>
+<td><code>PipelineConfig(embed=EmbedConfig(mode="bounds"))</code></td>
+</tr>
+<tr>
+<td><code>cg.optimizer = UFFOptimizer()</code></td>
+<td><code>PipelineConfig(refine=RefineConfig(backend="uff"))</code></td>
+</tr>
+<tr>
+<td><code>cg.optimizer = ASEOptimizer(calculator=...)</code></td>
+<td><code>Refine(ASEOptimizer(calculator=...))</code> in a pipeline</td>
+</tr>
+<tr>
+<td><code>cg.write_xyz(path)</code></td>
+<td><code>ensemble.write_xyz(path)</code></td>
+</tr>
+<tr>
+<td>TS only</td>
+<td>also <code>generate_gs(smiles)</code> and <code>Constrained(hard=[...])</code></td>
+</tr>
+</tbody>
+</table>
+<p>Where the legacy code lives now:</p>
+<table>
+<thead>
+<tr>
+<th>legacy racerts</th>
+<th>now</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>racerts.conformer_generator</code></td>
+<td><code>racerts.compat</code> (<code>DEFAULT_CONF_FACTOR</code> also in <code>racerts.embed</code>; <code>KCAL_TO_HARTREE</code> keeps 627.509, <code>racerts.utils.units.HARTREE_TO_KCAL_MOL</code> is the CODATA value)</td>
+</tr>
+<tr>
+<td><code>racerts.embedder.embedder</code></td>
+<td><code>racerts.embed</code> (<code>CmapEmbedder</code>, <code>BoundsMatrixEmbedder</code>, without <code>embed_TS</code>)</td>
+</tr>
+<tr>
+<td><code>racerts.embedder.utils</code></td>
+<td><code>racerts.embed.bounds</code>: <code>get_bounds_matrix(mol_ts, new_mol, frozen_atoms, reacting_atoms)</code> is <code>bounds_matrix(new_mol, mol_ts, fixed_distance_pairs(FrozenSet(tuple(frozen_atoms), tuple(reacting_atoms))))</code>; <code>tol_function</code>; <code>print_bounds_matrix_errors</code> is <code>log_inconsistent_bounds</code></td>
+</tr>
+<tr>
+<td><code>racerts.optimizer.ff_optimizer</code>, <code>racerts.optimizer.ase</code></td>
+<td><code>racerts.refine</code> (without <code>tune_ts_conformers</code>), <code>racerts.io.ase</code> (<code>rdkit_conformer_to_ase_atoms</code>, <code>write_ase_positions_to_rdkit</code>)</td>
+</tr>
+<tr>
+<td><code>racerts.optimizer.parallel</code></td>
+<td><code>racerts.refine.parallel</code></td>
+</tr>
+<tr>
+<td><code>racerts.pruner.pruner</code></td>
+<td><code>racerts.prune</code> (also <code>drop_conformers_without_energy</code>)</td>
+</tr>
+<tr>
+<td><code>racerts.mol_getter.mol_getter</code></td>
+<td><code>racerts.system</code> (the mol getters, and <code>build_mol</code>, the legacy <code>get_mol</code> logic); the atom matching of the SMILES getter: <code>racerts.system.match</code></td>
+</tr>
+<tr>
+<td><code>racerts.utils</code></td>
+<td><code>get_frozen_atoms</code>: <code>racerts.task.transition_state</code> (or <code>TransitionState(...).frozen_atoms(mol)</code>); <code>infer_charge_and_multiplicity</code>, <code>count_electrons</code>: <code>racerts.system</code>; <code>EV_TO_KCAL_MOL</code>: <code>racerts.utils.units</code>; <code>suppress_std</code>: <code>racerts.system.build</code>. <code>racerts.utils</code> itself is now the package of helpers (logging, optional imports, units).</td>
+</tr>
+<tr>
+<td><code>racerts.visualizer</code></td>
+<td><code>racerts.io.viz</code></td>
+</tr>
+</tbody>
+</table>
+<p>To replace how conformers are converted to ASE Atoms (e.g. for other charge or spin
+conventions), override <code>ASEOptimizer._to_atoms</code>, or patch
+<code>racerts.io.ase.rdkit_conformer_to_ase_atoms</code>. The legacy <code>ASEOptimizer</code> also honours a
+patched <code>racerts.optimizer.ase.rdkit_conformer_to_ase_atoms</code>.</p>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="../cli/" class="btn btn-neutral float-left" title="CLI"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+        <a href="../modules/" class="btn btn-neutral float-right" title="Modules overview">Next <span class="icon icon-circle-arrow-right"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+      <p>Copyright © 2025 ETH Zürich</p>
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+    
+      <span><a href="../cli/" style="color: #fcfcfc">&laquo; Previous</a></span>
+    
+    
+      <span><a href="../modules/" style="color: #fcfcfc">Next &raquo;</a></span>
+    
+  </span>
+</div>
+    <script src="../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "..";</script>
+    <script src="../js/theme_extra.js"></script>
+    <script src="../js/theme.js"></script>
+      <script src="../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>

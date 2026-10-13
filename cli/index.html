@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><link rel="canonical" href="https://digital-chemistry-laboratory.github.io/racerTS/cli/" />
+      <link rel="shortcut icon" href="../img/favicon.ico" />
+    <title>CLI - racerTS documentation</title>
+    <link rel="stylesheet" href="../css/theme.css" />
+    <link rel="stylesheet" href="../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+        <link href="../styles/overrides.css" rel="stylesheet" />
+        <link href="../styles/extra.css" rel="stylesheet" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "CLI";
+        var mkdocs_page_input_path = "cli.md";
+        var mkdocs_page_url = "/racerTS/cli/";
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href="..">
+          <img src="../img/logo.png" class="logo" alt="Logo"/>
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../getting-started/">Getting started</a>
+                </li>
+              </ul>
+              <p class="caption"><span class="caption-text">User guide</span></p>
+              <ul class="current">
+                  <li class="toctree-l1"><a class="reference internal" href="../pipeline/">Pipelines and tasks</a>
+                  </li>
+                  <li class="toctree-l1 current"><a class="reference internal current" href="#">CLI</a>
+    <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#racerts-ts-racerts-gs-racerts-constrained">racerts ts / racerts gs / racerts constrained</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#racerts-filenamexyz-legacy">racerts filename.xyz (legacy)</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#general-inputs">General inputs</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#ensemble-size">Ensemble size</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#conformer-generation-configuration">Conformer Generation Configuration</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#output">Output</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#performance-and-reproducibility">Performance and reproducibility</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#molgetter-options">molgetter options</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#embedder-options">embedder options</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#optimizer-options">optimizer options</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#rmsdpruner-options">RMSDPruner options</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#energypruner-options">EnergyPruner options</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#common-recipes">Common recipes</a>
+    </li>
+        </ul>
+    </li>
+    </ul>
+                  </li>
+              </ul>
+              <p class="caption"><span class="caption-text">Legacy racerts</span></p>
+              <ul>
+                  <li class="toctree-l1"><a class="reference internal" href="../migration/">Migrating from legacy racerts</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../modules/">Modules overview</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../modules/conformer_generator/">conformer_generator</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../modules/mol_getter/">mol_getter</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../modules/embedder/">embedder</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../modules/ff_optimizer/">optimizer</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../modules/pruner/">pruner</a>
+                  </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="..">racerTS documentation</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href=".." class="icon icon-home" aria-label="Docs"></a></li>
+          <li class="breadcrumb-item">User guide</li>
+      <li class="breadcrumb-item active">CLI</li>
+    <li class="wy-breadcrumbs-aside">
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="command-line-interface">Command-line interface<a class="headerlink" href="#command-line-interface" title="Permanent link">&para;</a></h1>
+<p>The <code>racerts</code> CLI mirrors the core functionality of the Python API. It has three
+subcommands, <code>racerts ts</code>, <code>racerts gs</code> and <code>racerts constrained</code>, and keeps the legacy racerts form
+<code>racerts filename.xyz [options]</code> (also <code>racerts run filename.xyz [options]</code>), which is
+described in the rest of this page. With the same settings, <code>racerts ts</code> and the legacy form
+write the same ensemble.</p>
+<h2 id="racerts-ts-racerts-gs-racerts-constrained">racerts ts / racerts gs / racerts constrained<a class="headerlink" href="#racerts-ts-racerts-gs-racerts-constrained" title="Permanent link">&para;</a></h2>
+<pre><code class="language-bash">$ racerts ts ts.xyz --reacting-atoms 3 4 5 --smiles &quot;CCCCCC=C&quot; [options]
+$ racerts gs &quot;OC(=O)[C@@H]1CCCN1C(C)=C&quot; [options]
+$ racerts gs molecule.xyz [options]
+$ racerts constrained complex.xyz --hard 0 1 2 3 [options]
+</code></pre>
+<p><code>racerts constrained</code> samples a structure around atoms that stay where they are in the
+file, e.g. a binding motif or a core (the task <code>Constrained</code> of the
+<a href="../pipeline/#tasks">Python API</a>).</p>
+<p><code>racerts gs</code> takes the molecule as a SMILES or as a structure file. From a file it keeps
+the configuration of the geometry (stereocentres and double bonds). The graph of an xyz
+file comes from the SMILES (<code>-s</code>) if given, then from the perceived bonds, and from the
+connectivity alone only with <code>--graph connect</code>: without bond orders the search would run
+on a different molecule.</p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Explanation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>-r</code>, <code>--reacting-atoms</code> (ts)</td>
+<td>0-based indices of the atoms whose bonds form or break</td>
+</tr>
+<tr>
+<td><code>--frozen-atoms</code> (ts)</td>
+<td>frozen atoms instead of the reacting atoms and their neighbours</td>
+</tr>
+<tr>
+<td><code>--hard</code> (constrained)</td>
+<td>0-based indices of the atoms held at the geometry of the file</td>
+</tr>
+<tr>
+<td><code>-s</code>, <code>--smiles</code> (ts, constrained, gs with a file)</td>
+<td>SMILES of the TS topology or of the molecule, one per fragment</td>
+</tr>
+<tr>
+<td><code>--graph</code> (ts, constrained, gs with a file)</td>
+<td>first method for the graph: <code>smiles</code>, <code>bonds</code> or <code>connect</code></td>
+</tr>
+<tr>
+<td><code>-c</code>, <code>--charge</code></td>
+<td>total charge (default 0; gs with a SMILES: from the SMILES)</td>
+</tr>
+<tr>
+<td><code>--multiplicity</code></td>
+<td>spin multiplicity (default: the lowest for the electrons)</td>
+</tr>
+<tr>
+<td><code>--config</code></td>
+<td><a href="../pipeline/#settings">PipelineConfig</a> as JSON or YAML; the options below override it</td>
+</tr>
+<tr>
+<td><code>-n</code>, <code>--n-conformers</code>, <code>--conf-factor</code></td>
+<td>conformers to embed</td>
+</tr>
+<tr>
+<td><code>--embed</code></td>
+<td><code>cmap</code> or <code>bounds</code></td>
+</tr>
+<tr>
+<td><code>--etkdg</code>, <code>--no-etkdg</code></td>
+<td>ETKDGv3 instead of plain distance geometry (default: only for gs)</td>
+</tr>
+<tr>
+<td><code>--refine</code></td>
+<td><code>mmff</code> or <code>uff</code></td>
+</tr>
+<tr>
+<td><code>--no-fallback</code></td>
+<td>no fallback for the graph (bonds, connectivity) or MMFF (UFF)</td>
+</tr>
+<tr>
+<td><code>--seed</code>, <code>--num-threads</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>--energy-threshold</code>, <code>--rmsd-threshold</code></td>
+<td>pruning</td>
+</tr>
+<tr>
+<td><code>-o</code>, <code>--output</code></td>
+<td>output file (default <code>conformer_ensemble.xyz</code>)</td>
+</tr>
+<tr>
+<td><code>--crest-energies</code></td>
+<td>only the energy (Hartree) on each comment line, as CREST does</td>
+</tr>
+<tr>
+<td><code>-v</code>, <code>-vv</code></td>
+<td>progress (INFO) or details (DEBUG) on stderr</td>
+</tr>
+</tbody>
+</table>
+<h2 id="racerts-filenamexyz-legacy">racerts filename.xyz (legacy)<a class="headerlink" href="#racerts-filenamexyz-legacy" title="Permanent link">&para;</a></h2>
+<p>The command is:</p>
+<pre><code class="language-bash">$ racerts filename.xyz [options]
+</code></pre>
+<p>where the <code>filename.xyz</code> is the path to an .xyz file containing a single TS conformer.</p>
+<h3 id="general-inputs">General inputs<a class="headerlink" href="#general-inputs" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Options</th>
+<th>Explanation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>-c</code><br><code>--charge</code></td>
+<td>&lt;INT&gt; [0]</td>
+<td>Overall molecular charge</td>
+</tr>
+<tr>
+<td><code>-mult</code><br><code>--multiplicity</code></td>
+<td>&lt;INT&gt;</td>
+<td>Spin multiplicity; the lowest for the number of electrons (1 or 2) if omitted</td>
+</tr>
+<tr>
+<td><code>-smiles</code><br><code>--input_smiles</code></td>
+<td>&lt;STR...&gt;</td>
+<td>One (or multiple) SMILES for either product<br>or starting material to define topology</td>
+</tr>
+<tr>
+<td><code>-atoms</code><br><code>--reacting_atoms</code></td>
+<td>&lt;INT...&gt;</td>
+<td>List of (0-based) indices of reacting atoms</td>
+</tr>
+<tr>
+<td><code>-frozen</code><br><code>--frozen_atoms</code></td>
+<td>&lt;INT...&gt;</td>
+<td>Optional: overwrite of atoms to freeze;<br>if omitted, neighbors of reacting atoms are inferred</td>
+</tr>
+</tbody>
+</table>
+<h3 id="ensemble-size">Ensemble size<a class="headerlink" href="#ensemble-size" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Options</th>
+<th>Explanation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>-cf</code><br><code>--conf_factor</code></td>
+<td>&lt;INT&gt; [80]</td>
+<td>Number of initially generated conformers: <br>NumRotatableBonds × <code>conf_factor</code> + 30</td>
+</tr>
+<tr>
+<td><code>-n</code><br><code>--number_of_conformers</code></td>
+<td>&lt;INT&gt; [-1]</td>
+<td>Specify number of initially generated conformers <br>(and overwrite <code>conf_factor</code>)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="conformer-generation-configuration">Conformer Generation Configuration<a class="headerlink" href="#conformer-generation-configuration" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Options</th>
+<th>Explanation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>-m</code><br><code>--mol</code></td>
+<td>&lt;smiles|bonds|connect&gt;</td>
+<td>Method to infer molecular graph from .xyz:<br><code>smiles</code> use <a href="../modules/conformer_generator/#get_mol"><code>MolGetterSMILES</code></a>;<br><code>bonds</code> use <a href="../modules/conformer_generator/#get_mol"><code>MolGetterBonds</code></a>;<br><code>connect</code> use <a href="../modules/conformer_generator/#get_mol"><code>MolGetterConnectivity</code></a></td>
+</tr>
+<tr>
+<td><code>-e</code><br><code>--embed</code></td>
+<td>&lt;dm|cmap&gt; [cmap]</td>
+<td>Embedding method:<br><code>dm</code> = bounds-matrix; uses <a href="../modules/conformer_generator/#embed_TS"><code>BoundsMatrixEmbedder</code></a>;<br><code>cmap</code> = coordinate map; uses <a href="../modules/conformer_generator/#embed_TS"><code>CmapEmbedder</code></a></td>
+</tr>
+<tr>
+<td><code>-ff</code><br><code>--ff</code></td>
+<td>&lt;mmff|uff&gt; [mmff]</td>
+<td>Force-field refinement: ;<br><code>mmff</code> uses <a href="../modules/ff_optimizer/#mmff_optimizer"><code>MMFFOptimizer</code></a>;<br><code>uff</code> uses <a href="../modules/ff_optimizer/#uff_optimizer"><code>UFFOptimizer</code></a></td>
+</tr>
+</tbody>
+</table>
+<h3 id="output">Output<a class="headerlink" href="#output" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Options</th>
+<th>Explanation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>-o</code><br><code>--output</code></td>
+<td>&lt;STR&gt; [conformer_ensemble.xyz]</td>
+<td>Output .xyz filename; the comment lines are in extended XYZ format<br>(energy in eV, charge, spin; readable with <code>ase.io.read</code>)</td>
+</tr>
+<tr>
+<td><code>--out_energies</code></td>
+<td>-</td>
+<td>Instead, write only the energy in E<sub>h</sub> on each comment line (as in CREST ensembles);<br>conformer property remains in kcal/mol</td>
+</tr>
+<tr>
+<td><code>-v</code><br><code>--verbose</code></td>
+<td>-</td>
+<td>Progress on stderr (<code>-vv</code>: details)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="performance-and-reproducibility">Performance and reproducibility<a class="headerlink" href="#performance-and-reproducibility" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Options</th>
+<th>Explanation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--num_threads</code></td>
+<td>&lt;INT&gt; [1]</td>
+<td>Threads for embedding/optimization</td>
+</tr>
+<tr>
+<td><code>--seed</code></td>
+<td>&lt;INT&gt; [12]</td>
+<td>Random seed</td>
+</tr>
+<tr>
+<td><code>--no_fallback</code></td>
+<td>-</td>
+<td>Disable automatic fallback (see below)</td>
+</tr>
+</tbody>
+</table>
+<div class="admonition note">
+<p class="admonition-title">Fallback</p>
+<p>In the default setup, an automatic fallback substitutes modules upon failure:</p>
+<p><strong>MolGetter:</strong><br>
+1. <a href="../modules/conformer_generator/#get_mol"><code>MolGetterSMILES</code></a><br>
+2. <a href="../modules/conformer_generator/#get_mol"><code>MolGetterBonds</code></a><br>
+3. <a href="../modules/conformer_generator/#get_mol"><code>MolGetterConnectivity</code></a><br></p>
+<p><strong>Optimizer</strong><br>
+1. <a href="../modules/ff_optimizer/#mmff_optimizer"><code>MMFFOptimizer</code></a><br>
+2. <a href="../modules/ff_optimizer/#uff_optimizer"><code>UFFOptimizer</code></a><br></p>
+<p>The next module in the chain is used only if the previous one fails.</p>
+</div>
+<h3 id="molgetter-options">molgetter options<a class="headerlink" href="#molgetter-options" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Explanation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--no_assignbonds</code></td>
+<td>For <code>bonds</code> getter: don’t assign bonds [default: True]</td>
+</tr>
+<tr>
+<td><code>--disallow_charged_fragments</code></td>
+<td>For <code>bonds</code> getter: disallow charged fragments [default: True]</td>
+</tr>
+</tbody>
+</table>
+<h3 id="embedder-options">embedder options<a class="headerlink" href="#embedder-options" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Explanation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--no_random_coords</code></td>
+<td>Disable random coordinates</td>
+</tr>
+</tbody>
+</table>
+<h3 id="optimizer-options">optimizer options<a class="headerlink" href="#optimizer-options" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Explanation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--force_constant</code></td>
+<td>&lt;FLOAT&gt; [1e6]</td>
+</tr>
+</tbody>
+</table>
+<h3 id="rmsdpruner-options">RMSDPruner options<a class="headerlink" href="#rmsdpruner-options" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Options</th>
+<th>Explanation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>-rmsd</code><br><code>--rmsd_thres</code></td>
+<td>&lt;FLOAT&gt; [0.125]</td>
+<td>RMSD threshold in Å</td>
+</tr>
+<tr>
+<td><code>-rmsd_hs</code><br><code>--rmsd_include_hs</code></td>
+<td>-</td>
+<td>Include hydrogens when computing RMSDs <br>[default: False]</td>
+</tr>
+<tr>
+<td><code>--no_filter_energies</code></td>
+<td>-</td>
+<td>Disable energy-based dissimilarity prefilter <br>[default: True]</td>
+</tr>
+<tr>
+<td><code>--no_filter_rotations</code></td>
+<td>-</td>
+<td>Disable rotational-profile prefilter <br>[default: True]</td>
+</tr>
+<tr>
+<td><code>--rmsd_energy</code></td>
+<td>&lt;FLOAT&gt; [0.1]</td>
+<td>Energy difference threshold (kcal/mol) for the prefilter</td>
+</tr>
+<tr>
+<td><code>--rmsd_rot_fraction</code></td>
+<td>&lt;FLOAT&gt; [0.03]</td>
+<td>Rotational-difference fraction threshold</td>
+</tr>
+<tr>
+<td><code>-rmsd_match</code><br><code>--rmsd_max_matches</code></td>
+<td>&lt;INT&gt; [10000]</td>
+<td>Max substructure matches for RMSD calculation</td>
+</tr>
+</tbody>
+</table>
+<h3 id="energypruner-options">EnergyPruner options<a class="headerlink" href="#energypruner-options" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Options</th>
+<th>Explanation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>-energy</code><br><code>--energy_thres</code></td>
+<td>&lt;FLOAT&gt; [20.0]</td>
+<td>Energy window for pruning (kcal/mol)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="common-recipes">Common recipes<a class="headerlink" href="#common-recipes" title="Permanent link">&para;</a></h3>
+<p>Basic run</p>
+<pre><code class="language-bash">$ racerts example.xyz --charge 0 --reacting_atoms 2 3 4
+</code></pre>
+<p>Use SMILES-defined topology and coordinate-map embedding</p>
+<pre><code class="language-bash">$ racerts example.xyz --charge 0 \
+  --reacting_atoms 2 3 4 \
+  --input_smiles &quot;C1=CC=CC=C1&quot; &quot;O&quot; \
+  --mol smiles --embed cmap --ff mmff --out_energies
+</code></pre>
+<p>Increase diversity by allowing more initial conformers</p>
+<pre><code class="language-bash">$ racerts example.xyz --charge 0 --reacting_atoms 2 3 4 --conf_factor 120
+</code></pre>
+<p>Faster refinement on many conformers with threads (if using multithreaded optimizers)</p>
+<pre><code class="language-bash">$ racerts example.xyz --charge 0 --reacting_atoms 2 3 4 --num_threads 4
+</code></pre>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="../pipeline/" class="btn btn-neutral float-left" title="Pipelines and tasks"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+        <a href="../migration/" class="btn btn-neutral float-right" title="Migrating from legacy racerts">Next <span class="icon icon-circle-arrow-right"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+      <p>Copyright © 2025 ETH Zürich</p>
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+    
+      <span><a href="../pipeline/" style="color: #fcfcfc">&laquo; Previous</a></span>
+    
+    
+      <span><a href="../migration/" style="color: #fcfcfc">Next &raquo;</a></span>
+    
+  </span>
+</div>
+    <script src="../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "..";</script>
+    <script src="../js/theme_extra.js"></script>
+    <script src="../js/theme.js"></script>
+      <script src="../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>

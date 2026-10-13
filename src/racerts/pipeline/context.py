@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass
+from functools import cached_property
 from typing import Optional
 
 from rdkit import Chem
@@ -21,17 +22,22 @@ class Context:
             conformer (if any) is the reference geometry.
         task: What is kept fixed. Stages ask it for what depends on the kind of
             search (e.g. Embed for the default embedder of the task).
-        frozen: What the task freezes in mol, i.e. task.frozen_atoms(mol), determined
-            and checked against mol once, in create: stages read these sets and do
-            not ask the task again.
         seed: The random seed; embedders that stages create use it as their RDKit
             seed (-1: random).
     """
 
     mol: Chem.Mol
     task: Task
-    frozen: FrozenSet
     seed: int = 12
+
+    @cached_property
+    def frozen(self) -> FrozenSet:
+        """
+        What the task freezes in mol: task.frozen_atoms(mol).
+        """
+        frozen = self.task.frozen_atoms(self.mol)
+        check_atom_indices(self.mol, frozen.hard + frozen.core, "frozen atoms")
+        return frozen
 
     @property
     def reference(self) -> Optional[Chem.Mol]:
@@ -66,6 +72,6 @@ class Context:
             )
         mol = Chem.Mol(mol)
         set_charge_and_multiplicity(mol, charge, multiplicity)
-        frozen = task.frozen_atoms(mol)
-        check_atom_indices(mol, frozen.hard + frozen.core, "frozen atoms")
-        return cls(mol=mol, task=task, frozen=frozen, seed=seed)
+        ctx = cls(mol=mol, task=task, seed=seed)
+        _ = ctx.frozen  # asked and checked here: a wrong task fails before any stage
+        return ctx

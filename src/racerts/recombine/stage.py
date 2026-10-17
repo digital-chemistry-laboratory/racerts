@@ -6,13 +6,16 @@ from typing import Optional
 
 import numpy as np
 
-from racerts.exploit.stage import (
-    _Population,
-    _reference_positions,
+from racerts.exploit.population import (
+    Population,
     add_refined,
+    found_lower,
+    held_atoms,
+    lowest_by_bin,
+    reference_positions,
     refine_candidates,
+    require_refined,
 )
-from racerts.metadynamics.stage import LOWER, _held
 from racerts.pipeline import ConformerEnsemble
 from racerts.refine.forcefield import MMFFOptimizer, UFFOptimizer
 from racerts.refine.stage import Refine, energy_label
@@ -149,20 +152,8 @@ class Recombine:
         if not len(ensemble):
             self.stats = {**counts, "stop": "no conformers"}
             return ensemble
-        labels = self._labels()
-        if ensemble.energy_method not in labels:
-            raise ValueError(
-                f"Recombine needs conformers refined by its optimizer (energy_method "
-                f"{' or '.join(map(repr, labels))}), not {ensemble.energy_method!r}: "
-                "refine them first."
-            )
-        missing = [i for i in ensemble.conf_ids if ensemble.energy(i) is None]
-        if missing:
-            raise ValueError(
-                f"Conformers {missing} have no energy: Recombine needs refined "
-                "conformers."
-            )
-        found = torsions(ensemble.mol, _held(ctx))
+        require_refined(ensemble, self._labels(), "Recombine")
+        found = torsions(ensemble.mol, held_atoms(ctx))
         counts["torsions"] = len(found)
         if not found:
             logger.warning(
@@ -172,14 +163,13 @@ class Recombine:
             self.stats = {**counts, "stop": "no torsions"}
             return ensemble
 
-        population = _Population(ctx, ensemble, self.include_hs)
+        population = Population(ctx, ensemble, self.include_hs)
         checks = gate(self.clash_factor).validators
         n = self.children or min(MOST_CHILDREN, PER_TORSION * len(found))
         pairs = {}  # reference id -> the pairs of atoms that may overlap
         stop = "rounds"
         for number in range(self.rounds):
-            bins = set(population.bins.values())
-            lowest = {key: population.minimum(key) for key in bins}
+            lowest = lowest_by_bin(population)
             parents = self._parents(population, lowest)
             counts["parents"] = len(parents)
             if len(parents) < 2:
@@ -202,10 +192,7 @@ class Recombine:
             add_refined(
                 ctx, population, refined, made, checks, self.rmsd_threshold, counts
             )
-            if not any(
-                population.minimum(key) < energy - LOWER
-                for key, energy in lowest.items()
-            ):
+            if not found_lower(population, lowest):
                 stop = "nothing lower"
                 break
 
@@ -265,7 +252,7 @@ class Recombine:
             [population.energies[i] - lowest[population.bins[i]] for i in parents]
         )
         weights = np.cumsum(np.exp(-above / self.temperature))
-        held = _held(ctx)
+        held = held_atoms(ctx)
         made, seen, overlapping = [], set(), 0
         for _ in range(DRAWS * n):
             if len(made) == n:
@@ -289,7 +276,7 @@ class Recombine:
                 pairs[ref_id] = clash_limits(
                     population.ensemble.mol,
                     held,
-                    _reference_positions(ctx, ref_id),
+                    reference_positions(ctx, ref_id),
                     self.overlap_factor,
                     hydrogen_factor=self.overlap_factor,
                 )

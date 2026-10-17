@@ -6,7 +6,15 @@ from typing import Iterable, List, Optional, Sequence, Tuple, Union
 from rdkit import Chem
 
 from racerts.exploit.moves import _PLANAR, torsion_moves
-from racerts.exploit.stage import _Population, add_refined, refine_candidates
+from racerts.exploit.population import (
+    Population,
+    add_refined,
+    found_lower,
+    held_atoms,
+    lowest_by_bin,
+    refine_candidates,
+    require_refined,
+)
 from racerts.io import ase as ase_io
 from racerts.pipeline import ConformerEnsemble
 from racerts.refine.ase import ASEOptimizer
@@ -25,7 +33,6 @@ K_PER_ATOM = (3.0, 1.5, 0.75)  # mEh per atom of the molecule
 ALPHA = (1.3, 0.78, 0.47, 0.28)  # 1/bohr^2
 MIN_LENGTH, MAX_LENGTH = 5.0, 200.0  # ps: the default length of a run lies between
 MACROCYCLE = 8  # atoms: the single bonds of rings of this size or larger turn
-LOWER = 0.1  # kcal/mol: a round that lowers the minimum by less found nothing lower
 
 
 def flexibility(mol: Chem.Mol, held: Iterable[int] = ()) -> float:
@@ -204,19 +211,7 @@ class Metadynamics:
         if not len(ensemble):
             self.stats = {**counts, "stop": "no conformers"}
             return ensemble
-        label = energy_label(optimizer)
-        if ensemble.energy_method != label:
-            raise ValueError(
-                f"Metadynamics needs conformers refined by its optimizer "
-                f"(energy_method {label!r}), not {ensemble.energy_method!r}: refine "
-                "them first."
-            )
-        missing = [i for i in ensemble.conf_ids if ensemble.energy(i) is None]
-        if missing:
-            raise ValueError(
-                f"Conformers {missing} have no energy: Metadynamics needs refined "
-                "conformers."
-            )
+        require_refined(ensemble, energy_label(optimizer), "Metadynamics")
         if len(self.biased_atoms(ctx, ensemble.mol)) < 2:
             logger.warning(
                 "Metadynamics: nothing to bias (the bias is on the shape of at least "
@@ -227,13 +222,12 @@ class Metadynamics:
 
         length = self.length
         if length is None:
-            length = max(default_length(ensemble.mol, _held(ctx)), self.snapshot)
-        population = _Population(ctx, ensemble, self.include_hs)
+            length = max(default_length(ensemble.mol, held_atoms(ctx)), self.snapshot)
+        population = Population(ctx, ensemble, self.include_hs)
         checks = gate(self.clash_factor).validators
         stop = "rounds"
         for number in range(self.rounds):
-            bins = set(population.bins.values())
-            lowest = {key: population.minimum(key) for key in bins}
+            lowest = lowest_by_bin(population)
             snapshots = self._dynamics(ctx, population, length, number, counts)
             refined = refine_candidates(
                 ctx, ensemble, snapshots, self.refine, "Metadynamics"
@@ -244,10 +238,7 @@ class Metadynamics:
             add_refined(
                 ctx, population, refined, snapshots, checks, self.rmsd_threshold, counts
             )
-            if not any(
-                population.minimum(key) < energy - LOWER
-                for key, energy in lowest.items()
-            ):
+            if not found_lower(population, lowest):
                 stop = "nothing lower"
                 break
 
@@ -273,7 +264,7 @@ class Metadynamics:
     def biased_atoms(self, ctx, mol) -> List[int]:
         """The atoms in the RMSD of the bias: atoms (default: the heavy atoms)
         without those that the task holds."""
-        held = _held(ctx)
+        held = held_atoms(ctx)
         chosen = heavy_atoms(mol) if self.atoms is None else self.atoms
         check_atom_indices(mol, chosen, "atoms of the bias")
         return [i for i in chosen if i not in held]
@@ -293,7 +284,7 @@ class Metadynamics:
             deposit=max(1, round(self.deposit * per_ps)),
             snapshot=max(1, round(self.snapshot * per_ps)),
             biased=tuple(self.biased_atoms(ctx, mol)),
-            fixed=tuple(sorted(_held(ctx))),
+            fixed=tuple(sorted(held_atoms(ctx))),
             temperature=self.temperature,
             time_step=self.time_step,
             friction=self.friction,
@@ -384,11 +375,6 @@ class Metadynamics:
             f"Metadynamics({self.refine.optimizer!r}, runs={len(self.runs)}, "
             f"length={self.length}, rounds={self.rounds})"
         )
-
-
-def _held(ctx) -> set:
-    """The atoms that the task holds: fixed in the dynamics."""
-    return {*ctx.frozen.hard, *ctx.frozen.core, *ctx.frozen.soft}
 
 
 def _strengths(runs) -> List[Tuple[float, float]]:

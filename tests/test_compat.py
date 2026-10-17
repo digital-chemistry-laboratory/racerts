@@ -7,12 +7,14 @@ import os
 import subprocess
 import sys
 
+import attrs
 import pytest
 from rdkit import Chem
 
 import racerts
 import racerts.compat.conformer_generator
 from racerts import ConformerGenerator, Embed, Refine
+from racerts.config import PipelineConfig
 from racerts.embedder import BaseEmbedder, CmapEmbedder
 from racerts.optimizer import BaseOptimizer, MMFFOptimizer, UFFOptimizer
 
@@ -457,6 +459,15 @@ def test_legacy_classes_keep_the_legacy_settings():
     for optimizer in (LegacyMMFF(), LegacyUFF()):
         assert optimizer.converge is False
         assert optimizer.energies_without_anchors is False
+    # The legacy optimizers and PipelineConfig.legacy() pin the same refine settings, so
+    # the two places cannot drift apart when a setting is added.
+    legacy = attrs.asdict(PipelineConfig.legacy().refine)
+    for optimizer in (LegacyMMFF(), LegacyUFF()):
+        shared = [key for key in legacy if hasattr(optimizer, key)]
+        assert {"force_constant", "converge", "energies_without_anchors"} <= set(shared)
+        assert {key: getattr(optimizer, key) for key in shared} == {
+            key: legacy[key] for key in shared
+        }
     # The new settings can still be chosen.
     assert CmapEmbedder(sequential_seeds=True).sequential_seeds is True
     assert LegacyMMFF(dielectric_model="distance").dielectric_model == "distance"

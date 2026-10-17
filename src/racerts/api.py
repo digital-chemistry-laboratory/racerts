@@ -131,8 +131,8 @@ def generate_runs(
             if sampled and _same_conformers(ensemble, other):
                 raise ValueError(
                     f"Seeds {earlier} and {seed} gave the same conformers: the "
-                    "pipeline does not take the seed of the run (a component with a "
-                    "seed of its own?)."
+                    "pipeline does not take the seed of the run (possibly a component "
+                    "with a seed of its own)."
                 )
         ensembles.append(ensemble)
     settings = dict(energy_tolerance=energy_tolerance, rmsd=rmsd)

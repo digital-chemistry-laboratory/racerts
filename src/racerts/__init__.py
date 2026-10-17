@@ -46,6 +46,7 @@ from .pipeline import (
     merge_runs,
 )
 from .prune import PruneCluster, PruneCount, PruneEnergy, PruneRMSD
+from .recombine import Recombine
 from .refine import Refine, Rescore
 from .swaps import swap
 from .system.swap import Swap, SwapError, SwapResult, apply_swap
@@ -75,6 +76,7 @@ __all__ = [
     "PruneEnergy",
     "PruneRMSD",
     "RacerTSError",
+    "Recombine",
     "Refine",
     "RefineConfig",
     "Rescore",

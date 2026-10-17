@@ -6,11 +6,10 @@ from typing import Iterable, List, Optional, Sequence, Tuple, Union
 from rdkit import Chem
 
 from racerts.exploit.moves import _PLANAR, torsion_moves
-from racerts.exploit.stage import _Population, candidates_ensemble
+from racerts.exploit.stage import _Population, add_refined, refine_candidates
 from racerts.geometry import heavy_atoms
 from racerts.io import ase as ase_io
 from racerts.pipeline import ConformerEnsemble
-from racerts.prune.targets import window_bins
 from racerts.refine.ase import ASEOptimizer
 from racerts.refine.stage import Refine, energy_label
 from racerts.system.spec import infer_charge_and_multiplicity
@@ -233,32 +232,18 @@ class Metadynamics:
         checks = gate(self.clash_factor).validators
         stop = "rounds"
         for number in range(self.rounds):
-            lowest = {key: population.minimum(key) for key in population.bins.values()}
+            bins = set(population.bins.values())
+            lowest = {key: population.minimum(key) for key in bins}
             snapshots = self._dynamics(ctx, population, length, number, counts)
-            refined = self._refine(ctx, ensemble, snapshots)
+            refined = refine_candidates(
+                ctx, ensemble, snapshots, self.refine, "Metadynamics"
+            )
             counts["rounds"] += 1
             counts["snapshots"] += len(snapshots)
             counts["refined"] += len(refined)
-            failed = {}
-            if len(refined):
-                for check in checks:
-                    for conf_id, reason in check.validate(ctx, refined).items():
-                        failed.setdefault(conf_id, reason)
-            bins = window_bins(ctx, refined)
-            for k, (parent, _, record) in enumerate(snapshots):
-                if k not in bins or k in failed:
-                    counts["rejected"] += 1
-                    continue
-                positions = refined.mol.GetConformer(k).GetPositions()
-                energy, key = refined.energy(k), bins[k]
-                twin = population.duplicate(positions, energy, key, self.rmsd_threshold)
-                if twin is not None:
-                    population.hits[twin] += 1
-                    counts["refound"] += 1
-                    continue
-                provenance = {**refined.provenance(k), "route": "mtd", "parent": parent}
-                population.add(positions, energy, key, {**provenance, **record})
-                counts["accepted"] += 1
+            add_refined(
+                ctx, population, refined, snapshots, checks, self.rmsd_threshold, counts
+            )
             if not any(
                 population.minimum(key) < energy - LOWER
                 for key, energy in lowest.items()
@@ -361,6 +346,8 @@ class Metadynamics:
             counts["steps"] += steps
             for k, positions in enumerate(found, start=1):
                 record = dict(
+                    route="mtd",
+                    parent=parents[run.number],
                     mtd_round=round_number,
                     mtd_run=run.number,
                     mtd_k=run.k_per_atom,
@@ -391,18 +378,6 @@ class Metadynamics:
         if ref_id is None or reference.GetNumConformers() <= 1:
             ref_id = reference.GetConformer(self.refine.optimizer.conf_id_ref).GetId()
         return self._atoms(reference, int(ref_id))
-
-    def _refine(self, ctx, ensemble, snapshots) -> ConformerEnsemble:
-        """The snapshots (conformers 0, 1, ...) refined by the stage's refiner,
-        without those whose refinement failed."""
-        refined = candidates_ensemble(ensemble, snapshots)
-        if not snapshots:
-            return refined
-        try:
-            return self.refine.run(ctx, refined)
-        except RuntimeError as error:  # NoConformersError: every refinement failed
-            logger.warning("Metadynamics: %s", error)
-            return refined.filter([])
 
     def __repr__(self) -> str:
         return (

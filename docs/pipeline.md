@@ -138,6 +138,7 @@ More stages:
 | `Validate(*validators, on_fail="drop" or "flag")` | checks the conformers (see below): drops the failing ones (an error if none passes), or keeps them with the reasons in their provenance (a warning if none passes) |
 | `Exploit(Refine(ASEOptimizer(...)))` | usage-directed Monte Carlo around the pruned conformers: new minima nearby, from torsions, rigid-body moves of fragments and ring flips, refined by an ASE calculator (xTB, MLIPs); stops when new minima become rare (see below) |
 | `Metadynamics(ASEOptimizer(...), md_calculator=...)` | molecular dynamics from the conformers it gets, pushed away from the structures it has visited by a bias on the RMSD (as in CREST); the snapshots are refined by an ASE calculator and added where they are new minima (see below) |
+| `Recombine(optimizer)` | new conformers from the torsions of the low conformers it gets: a child is one of them with some torsions of another (the crossing of CREST, in torsions); the children are refined by any optimizer and added where they are new minima (see below) |
 
 `Pipeline.run(ctx, ensemble)` continues an ensemble (e.g. to refine it with another
 method) and leaves the ensemble passed in unchanged; stages may change the ensemble they
@@ -156,6 +157,11 @@ cyclopentane rings: the embedding then goes on without them, with a warning.
 The pipeline logs every stage with its number of conformers and run time (logger
 `racerts.pipeline.runner`, level INFO); `generate`, `generate_ts` and `generate_gs` take
 `verbose=True` to show these messages.
+
+Three stages search on from the conformers they get. `Exploit` makes local moves around
+them, `Metadynamics` explores away from them, and `Recombine` combines what they
+already have between them: the stage for a large flexible molecule whose low conformers
+each have a part of a lower one.
 
 ### Exploit
 
@@ -288,6 +294,50 @@ New conformers record `route="mtd"`, `parent` (the conformer their run started f
 records `mtd_hits`, the snapshots that ended in it. `stats` has the numbers of the last
 call: `rounds`, `runs`, `steps`, `snapshots`, `refined`, `accepted`, `refound`,
 `rejected`, the `length` of a run and `stop`.
+
+### Recombine
+
+The low conformers of a large flexible molecule can have every torsion of a lower
+conformer and never all of them in one: an embedding draws the torsions almost
+independently, and neither local moves nor dynamics from one conformer bring together
+what different conformers have. `Recombine` does, as the crossing of CREST in torsions:
+
+- the parents are the conformers within `window` (6 kcal/mol) of the lowest, at most
+  `parents` (120) of them;
+- a child is a first parent, drawn with Boltzmann weights at `temperature` (2 kcal/mol),
+  in which every torsion that differs by more than `different` (40°) from that of a
+  second parent, drawn evenly, takes the second one's value with the probability
+  `share` (0.5); one at least does. One side of the bond turns rigidly: the side without
+  atoms that the task holds, or the smaller one. The frozen atoms of a TS do not move;
+- the torsions are the single bonds outside rings between two heavy atoms that each
+  carry another heavy atom. Unlike `Exploit`, this includes the planar bonds of amides
+  and esters: a child only gets a value that a parent has, cis or trans, so no isomer is
+  made that the ensemble does not have;
+- children with overlapping atoms (closer than `overlap_factor` = 0.5 times their vdW
+  sum) are dropped. The others are refined in one call by the stage's refiner, which
+  can be any optimizer, a force field too, checked by the gate, and kept if they are
+  further than `rmsd_threshold` from every conformer of similar energy;
+- a round makes `children`: by default 50 for every torsion, 2400 at most, and fewer
+  if the parents allow no more (no child is made twice). `rounds=5` runs up to five
+  rounds, each with the new conformers among its parents, as long as a round finds a
+  conformer more than 0.1 kcal/mol below the lowest before it.
+
+```python
+pipeline = racerts.Pipeline([
+    racerts.Embed(), racerts.Refine(), racerts.PruneEnergy(), racerts.PruneRMSD(),
+    racerts.Refine(uma), racerts.PruneEnergy(), racerts.PruneRMSD(),
+    racerts.Recombine(uma, children=500, rounds=3),
+    racerts.PruneEnergy(), racerts.PruneRMSD(),
+])
+```
+
+The conformers must carry the energies of the stage's refiner, as for `Exploit`. New
+conformers record `route="cross"`, `parents` (the first and the second), `cross_torsions`
+(how many were turned) and `cross_round`; every conformer records `cross_hits`, the
+children that ended in it. `stats` has the numbers of the last call: `rounds`, `parents`,
+`torsions`, `children`, `overlapping`, `refined`, `accepted`, `refound`, `rejected` and
+`stop` (`"rounds"` if the last round still found a lower conformer, `"nothing lower"`,
+or why nothing was made). The same seed gives the same children.
 
 ## Independent runs
 

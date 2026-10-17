@@ -18,12 +18,12 @@ working and gives the same files.
 |---|---|
 | Entry points | `generate_ts`, `generate_gs`, `generate` (any task), `generate_runs` (independent seeds, merged and compared), `swap`; `racerts ts`, `gs`, `swap` on the command line |
 | Tasks | transition states, ground states, and `Constrained`: any motif held fixed (hard), kept near the reference (soft), or free |
-| Pipeline | conformer generation as stages (`Embed`, `Refine`, `Rescore`, `PruneEnergy`, `PruneRMSD`, `PruneCluster`, `PruneCount`, `Validate`, `Exploit`, `Metadynamics`) that can be reordered, replaced or extended; all settings as one checked `PipelineConfig` (JSON/YAML) |
+| Pipeline | conformer generation as stages (`Embed`, `Refine`, `Rescore`, `PruneEnergy`, `PruneRMSD`, `PruneCluster`, `PruneCount`, `Validate`, `Exploit`, `Metadynamics`, `Recombine`) that can be reordered, replaced or extended; all settings as one checked `PipelineConfig` (JSON/YAML) |
 | Restraints | distance windows from the user, from the hydrogen bonds and contacts of the reference, between the fragments of a complex, and as hints from the graph; held in embedding and refinement; exported for xtb, CREST and ORCA |
 | Active bonds | the forming and breaking bonds of a TS sampled over a window instead of frozen, at stratified targets |
 | Validation | checks after any stage: connectivity, stereo, frozen core, clashes, restraints, attack face, reaction core, number and character of imaginary modes, convergence; `gate()` bundles the cheap ones |
 | Other levels | any ASE calculator (extras `ase`, and `xtb` for GFN2-xTB with tblite) as optimizer or for re-ranking, with worker processes; a staged recipe (cheap levels first, the expensive one on what survives) and a saddle-point recipe |
-| Search | `Exploit`: a Monte Carlo search around the conformers found (torsions, ring flips, rigid moves of fragments) that stops when it rarely finds new minima; `Metadynamics`: molecular dynamics pushed away from where it has been, on a cheap potential, with the snapshots refined at the level of the pipeline |
+| Search | `Exploit`: a Monte Carlo search around the conformers found (torsions, ring flips, rigid moves of fragments) that stops when it rarely finds new minima; `Metadynamics`: molecular dynamics pushed away from where it has been, on a cheap potential, with the snapshots refined at the level of the pipeline; `Recombine`: the torsions of the low conformers in new combinations |
 | Swaps | replace a group, a ligand or ring atoms of a reference ensemble and sample only the new part, with stereo taken from the reference or given explicitly |
 | Pruning | duplicates decided by a symmetry-aware RMSD that does not list every atom mapping (so hydrogens can count), cluster pruning, family selection |
 
@@ -49,10 +49,10 @@ pruner with the legacy ones is `racerts.pruner.RMSDPruner`.
 #### Structure
 
 - **Layout.** `task/` (what is held), `embed/`, `refine/`, `prune/`, `validate/`, `exploit/`,
-  `metadynamics/` (the stages), `pipeline/` (`Context`, `ConformerEnsemble`, `Pipeline`,
-  runs), `restraints/`, `system/` (graphs, charge and spin, fragments, stereo, swaps),
-  `recipes/`, `io/`, `utils/`, `compat/` (legacy racerts), and `config.py`, `api.py`, `cli.py`,
-  `geometry.py`, `symmetry.py`, `swaps.py` (the swap entry point).
+  `metadynamics/`, `recombine/` (the stages), `pipeline/` (`Context`, `ConformerEnsemble`,
+  `Pipeline`, runs), `restraints/`, `system/` (graphs, charge and spin, fragments, stereo,
+  swaps), `recipes/`, `io/`, `utils/`, `compat/` (legacy racerts), and `config.py`, `api.py`,
+  `cli.py`, `geometry.py`, `symmetry.py`, `swaps.py` (the swap entry point).
 - **`Context`**: the molecule with its reference geometry, the task, the frozen atoms, the
   restraints, the seed, charge and multiplicity; made once by `Context.create` and passed to
   every stage.
@@ -249,6 +249,20 @@ pruner with the legacy ones is `racerts.pruner.RMSDPruner`.
 - Each run draws from the seed of the context; the provenance names the round, the run,
   its strength and the conformer it started from, and `stats` counts rounds, runs, steps,
   snapshots, refined, accepted, found again and rejected, and says why the search stopped.
+
+#### Recombine
+
+- `Recombine(refine)`: new conformers from the torsions of the low conformers. A child is a
+  parent, drawn with Boltzmann weights, in which the torsions that differ from those of a
+  second parent take its values with a probability; the children are refined by any
+  optimizer, checked as the gate checks, and added if they are new minima. For a large
+  flexible molecule whose low conformers each have a part of a lower one.
+- The torsions (`racerts.recombine.torsions`) include the planar bonds of amides and esters,
+  since only values that a parent has are passed on. The atoms that the task holds do not
+  move, and children with overlapping atoms are dropped before the refinement.
+- `children` of a round (50 for every torsion by default, 2400 at most) and `rounds`, as in
+  `Metadynamics`; the provenance names both parents, the number of torsions turned and the
+  round.
 
 #### Recipes
 

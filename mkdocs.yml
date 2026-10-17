@@ -79,6 +79,7 @@ nav:
       - racerts.exploit: api/exploit.md
       - racerts.metadynamics: api/metadynamics.md
       - racerts.recombine: api/recombine.md
+      - racerts.interfaces: api/interfaces.md
       - racerts.recipes: api/recipes.md
       - racerts.io: api/io.md
       - racerts.errors: api/errors.md

@@ -24,6 +24,7 @@ working and gives the same files.
 | Validation | checks after any stage: connectivity, stereo, frozen core, clashes, restraints, attack face, reaction core, number and character of imaginary modes, convergence; `gate()` bundles the cheap ones |
 | Other levels | any ASE calculator (extras `ase`, and `xtb` for GFN2-xTB with tblite) as optimizer or for re-ranking, with worker processes; a staged recipe (cheap levels first, the expensive one on what survives) and a saddle-point recipe |
 | Search | `Exploit`: a Monte Carlo search around the conformers found (torsions, ring flips, rigid moves of fragments) that stops when it rarely finds new minima; `Metadynamics`: molecular dynamics pushed away from where it has been, on a cheap potential, with the snapshots refined at the level of the pipeline; `Recombine`: the torsions of the low conformers in new combinations |
+| Other searches | CREST and ORCA's GOAT run from racerts and read back as ensembles (`racerts.interfaces`), for benchmarks against the searches of racerts |
 | Swaps | replace a group, a ligand or ring atoms of a reference ensemble and sample only the new part, with stereo taken from the reference or given explicitly |
 | Pruning | duplicates decided by a symmetry-aware RMSD that does not list every atom mapping (so hydrogens can count), cluster pruning, family selection |
 

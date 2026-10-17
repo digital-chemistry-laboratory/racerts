@@ -46,3 +46,7 @@ class InconsistentRestraints(RacerTSError, ValueError):
 
 class SwapError(RacerTSError, ValueError):
     """A swap that cannot be done as given (selector, fragment, valences, settings)."""
+
+
+class ExternalSearchError(RacerTSError, RuntimeError):
+    """A search of another program (racerts.interfaces) that failed or left no ensemble."""

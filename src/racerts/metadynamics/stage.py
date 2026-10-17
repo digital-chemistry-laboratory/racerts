@@ -392,7 +392,7 @@ def _held(ctx) -> set:
 
 
 def _strengths(runs) -> List[Tuple[float, float]]:
-    """The (k_per_atom, alpha) of the runs (see Metadynamics)."""
+    """The (k_per_atom, alpha) of the runs (see [Metadynamics][racerts.metadynamics.Metadynamics])."""
     combinations = [(k, alpha) for k in K_PER_ATOM for alpha in ALPHA]
     if runs is None:
         return combinations

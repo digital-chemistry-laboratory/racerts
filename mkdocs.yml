@@ -77,6 +77,8 @@ nav:
       - racerts.system.swap: api/system_swap.md
       - racerts.validate: api/validate.md
       - racerts.exploit: api/exploit.md
+      - racerts.metadynamics: api/metadynamics.md
+      - racerts.recombine: api/recombine.md
       - racerts.recipes: api/recipes.md
       - racerts.io: api/io.md
       - racerts.errors: api/errors.md

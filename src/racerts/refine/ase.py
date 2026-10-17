@@ -39,7 +39,12 @@ class ASEOptimizer(BaseOptimizer):
             refine without anchors: Refine(ASEOptimizer(...), anchors=False)).
         fmax, max_steps: Convergence criterion (eV/A) and step limit; max_steps=0
             gives single points (recorded as converged, with 0 steps).
-        num_workers: Worker processes; 1 (default): none; None: all CPUs.
+        num_workers: Worker processes; 1 (default): none; None: all CPUs. A worker
+            keeps its calculator for all the structures it gets, in the order it
+            gets them; a calculator that carries state from one structure to the
+            next (tblite starts each SCF from the last wavefunction: forces differ
+            by ~1e-4 eV/A) then makes the result depend on how the structures were
+            shared out. Serial runs (1) repeat exactly.
         verbose: Let the ASE optimizer write its log.
         conf_id_ref: The conformer of the reference that the conformers are aligned
             to (-1: its first).

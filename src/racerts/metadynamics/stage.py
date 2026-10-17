@@ -7,11 +7,11 @@ from rdkit import Chem
 
 from racerts.exploit.moves import _PLANAR, torsion_moves
 from racerts.exploit.stage import _Population, add_refined, refine_candidates
-from racerts.geometry import heavy_atoms
 from racerts.io import ase as ase_io
 from racerts.pipeline import ConformerEnsemble
 from racerts.refine.ase import ASEOptimizer
 from racerts.refine.stage import Refine, energy_label
+from racerts.rmsd import heavy_atoms
 from racerts.system.spec import infer_charge_and_multiplicity
 from racerts.task.base import check_atom_indices
 from racerts.utils.checks import is_integer

@@ -4,7 +4,7 @@ import logging
 
 import numpy as np
 
-from racerts.symmetry import LISTED_MAPS, bound_descriptors, symmetry_classes
+from racerts.rmsd import LISTED_MAPS, bound_descriptors, symmetry_classes
 from racerts.utils.checks import is_integer
 
 from .base import (
@@ -18,7 +18,7 @@ from .base import (
 logger = logging.getLogger(__name__)
 
 HYDROGENS = ("none", "polar", "all")
-MAX_MAPS = 100  # equivalent atom mappings that are listed; see racerts.symmetry
+MAX_MAPS = 100  # equivalent atom mappings that are listed; see racerts.rmsd
 
 
 class RMSDPruner(BasePruner):
@@ -29,7 +29,7 @@ class RMSDPruner(BasePruner):
     the lowest of a set of duplicates stays (in their own order if one has no energy).
 
     Every pair is decided by its RMSD; a pair is skipped only where a lower bound of
-    the RMSD (racerts.symmetry.bound_descriptors) is above the threshold, or where
+    the RMSD (racerts.rmsd.bound_descriptors) is above the threshold, or where
     the energies are further apart than energy_tolerance.
 
     Args:
@@ -37,7 +37,7 @@ class RMSDPruner(BasePruner):
             those on N, O, P and S, so that the rotamers of a hydrogen bond stay
             apart) or "all".
         max_maps: The most equivalent atom mappings that are listed; above it local
-            symmetry is assigned without a list (racerts.symmetry.SymmetricRMSD).
+            symmetry is assigned without a list (racerts.rmsd.SymmetricRMSD).
         graph: For conformers that are stored without bonds (e.g. read from
             coordinates): a molecule of the same atoms in the same order with the
             bonds. The equivalent atoms and the hydrogens that count are read from

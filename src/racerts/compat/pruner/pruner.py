@@ -13,18 +13,18 @@ from rdkit import Chem
 from rdkit.Chem import rdEHTTools, rdMolDescriptors
 
 from racerts import prune
-from racerts.geometry import (
-    atom_matches,
-    rmsd,
-    rmsd_within,
-    symmetrize_terminal_atoms,
-    symmetry_maps,
-)
 from racerts.prune import BasePruner
 from racerts.prune.base import (
     check_threshold,
     drop_conformers_without_energy,
     symmetry_source,
+)
+from racerts.rmsd import (
+    atom_matches,
+    rmsd,
+    rmsd_within,
+    symmetrize_terminal_atoms,
+    symmetry_maps,
 )
 from racerts.utils.units import EV_TO_KCAL_MOL
 
@@ -230,7 +230,7 @@ class RMSDPruner(prune.RMSDPruner):
         """
         For each conformer j of j_s, whether it differs from conformer id: in energy,
         in principal moments of inertia (filters), or else by an RMSD above threshold.
-        symmetry: the atoms and maps of the RMSD (racerts.geometry.symmetry_maps).
+        symmetry: the atoms and maps of the RMSD (racerts.rmsd.symmetry_maps).
         """
         ref_conformer = mol.GetConformer(int(id))
         filter_energies = filter_energies and ref_conformer.HasProp("energy")
@@ -292,7 +292,7 @@ class RMSDPruner(prune.RMSDPruner):
         The RMSD between conformer id_1 of mol1 and id_2 of mol2 after superposition,
         the smallest over maps: lists of index pairs as get_atom_maps gives them (the
         default). Meant for mol1 and mol2 with the same atom order, as in legacy
-        racerts; the pruner uses racerts.geometry directly.
+        racerts; the pruner uses racerts.rmsd directly.
         """
         if maps is None or len(maps) == 0:
             maps = self.get_atom_maps(mol1, mol2, maxMatches)
@@ -313,7 +313,7 @@ class RMSDPruner(prune.RMSDPruner):
         return [list(enumerate(match)) for match in matches]
 
     def symmetrize_terminal_atoms(self, mol):
-        """racerts.geometry.symmetrize_terminal_atoms."""
+        """racerts.rmsd.symmetrize_terminal_atoms."""
         return symmetrize_terminal_atoms(mol)
 
 

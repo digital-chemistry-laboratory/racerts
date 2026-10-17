@@ -8,7 +8,7 @@ from numbers import Real
 import numpy as np
 from rdkit import Chem
 
-from racerts.symmetry import SymmetricRMSD
+from racerts.rmsd import SymmetricRMSD
 from racerts.utils.checks import is_integer
 
 logger = logging.getLogger(__name__)

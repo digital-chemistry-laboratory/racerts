@@ -11,7 +11,7 @@ Options:
 - `threshold: float = 20.0` : window above minimum energy in kcal/mol
 
 ### RMSDPruner
-Removes duplicates: conformers within `threshold` of a lower one by the RMSD over the symmetry of the graph, after superposition. Every pair is decided by its RMSD (`racerts.symmetry.SymmetricRMSD`); a pair is skipped only where a lower bound of the RMSD is above the threshold.
+Removes duplicates: conformers within `threshold` of a lower one by the RMSD over the symmetry of the graph, after superposition. Every pair is decided by its RMSD (`racerts.rmsd.SymmetricRMSD`); a pair is skipped only where a lower bound of the RMSD is above the threshold.
 
 Options of `racerts.prune.RMSDPruner`:
 
@@ -35,7 +35,7 @@ RMSDPruner(graph=bonded).prune(mol)  # mol: the same atoms, stored without bonds
 ```
 
 #### The RMSD pruner of legacy racerts
-`racerts.pruner.RMSDPruner` (`racerts.compat.pruner.RMSDPruner`, a subclass of the one above) is what `ConformerGenerator`, the legacy command line, `PipelineConfig.legacy()` and a config with a prefilter switched on use. It computes the RMSD of `racerts.geometry` (the smallest over a list of symmetry maps, with the same values as `rdMolAlign.GetBestRMS`) only for pairs that pass its two prefilters, so duplicates whose energies differ by more than `energy_threshold` both stay.
+`racerts.pruner.RMSDPruner` (`racerts.compat.pruner.RMSDPruner`, a subclass of the one above) is what `ConformerGenerator`, the legacy command line, `PipelineConfig.legacy()` and a config with a prefilter switched on use. It computes the RMSD of `racerts.rmsd` (the smallest over a list of symmetry maps, with the same values as `rdMolAlign.GetBestRMS`) only for pairs that pass its two prefilters, so duplicates whose energies differ by more than `energy_threshold` both stay.
 
 - `threshold: float = 0.125`, `align: bool = True` : as above
 - `include_hs: bool = False` : include all hydrogens (`hydrogens="all"`; the default is the heavy atoms)
@@ -51,7 +51,7 @@ With both prefilters off it decides every pair by its RMSD, as the pruner above.
 The RMSD of the pruner for other uses:
 
 ```python
-from racerts.symmetry import SymmetricRMSD
+from racerts.rmsd import SymmetricRMSD
 
 kernel = SymmetricRMSD(mol, "polar")  # once per graph; "heavy", "polar", "all" or atom indices
 a = mol.GetConformer(0).GetPositions()
@@ -63,7 +63,7 @@ kernel.within(a, b, 0.125)  # with early exits
 The RMSD over a list of symmetry maps, as legacy racerts computes it:
 
 ```python
-from racerts.geometry import rmsd, symmetry_maps
+from racerts.rmsd import rmsd, symmetry_maps
 
 symmetry = symmetry_maps(mol)  # once per graph: the heavy atoms and their maps
 a = mol.GetConformer(0).GetPositions()

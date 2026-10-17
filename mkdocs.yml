@@ -80,8 +80,7 @@ nav:
       - racerts.recipes: api/recipes.md
       - racerts.io: api/io.md
       - racerts.errors: api/errors.md
-      - racerts.symmetry: api/symmetry.md
-      - racerts.geometry: api/geometry.md
+      - racerts.rmsd: api/rmsd.md
       - racerts.swaps: api/swaps.md
   - Legacy racerts:
       - Migrating from legacy racerts: migration.md

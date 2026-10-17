@@ -1,12 +1,12 @@
-"""racerts.geometry: superposition and (symmetry-aware) RMSD."""
+"""racerts.rmsd: superposition and (symmetry-aware) RMSD."""
 
 import numpy as np
 import pytest
 from rdkit import Chem
 from rdkit.Chem import AllChem, rdMolAlign
 
-import racerts.geometry
-from racerts.geometry import heavy_atoms, rmsd, rmsd_within, symmetry_maps
+import racerts.rmsd.listed
+from racerts.rmsd import heavy_atoms, rmsd, rmsd_within, symmetry_maps
 
 
 def _rotation(angle):
@@ -137,13 +137,13 @@ def test_symmetry_maps_and_within(monkeypatch):
     symmetry = symmetry_maps(mol)
     a = mol.GetConformer().GetPositions()
     evaluated = []
-    msd = racerts.geometry._msd
+    msd = racerts.rmsd.listed._msd
 
     def counting(a, b, align):
         evaluated.append(len(b))
         return msd(a, b, align)
 
-    monkeypatch.setattr(racerts.geometry, "_msd", counting)
+    monkeypatch.setattr(racerts.rmsd.listed, "_msd", counting)
     assert rmsd_within(a, a + 0.01, 0.125, symmetry.atoms, symmetry.maps)
     assert evaluated == [1]  # the identity map is within: the others are not needed
     evaluated.clear()

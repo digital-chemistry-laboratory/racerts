@@ -51,8 +51,9 @@ pruner with the legacy ones is `racerts.pruner.RMSDPruner`.
 - **Layout.** `task/` (what is held), `embed/`, `refine/`, `prune/`, `validate/`, `exploit/`,
   `metadynamics/`, `recombine/` (the stages), `pipeline/` (`Context`, `ConformerEnsemble`,
   `Pipeline`, runs), `restraints/`, `system/` (graphs, charge and spin, fragments, stereo,
-  swaps), `recipes/`, `io/`, `utils/`, `compat/` (legacy racerts), and `config.py`, `api.py`,
-  `cli.py`, `geometry.py`, `symmetry.py`, `swaps.py` (the swap entry point).
+  swaps), `recipes/`, `io/`, `utils/`, `rmsd/` (the RMSD over listed maps and the
+  symmetric one), `compat/` (legacy racerts), and `config.py`, `api.py`, `cli.py`, `swaps.py`
+  (the swap entry point).
 - **`Context`**: the molecule with its reference geometry, the task, the frozen atoms, the
   restraints, the seed, charge and multiplicity; made once by `Context.create` and passed to
   every stage.
@@ -187,9 +188,9 @@ pruner with the legacy ones is `racerts.pruner.RMSDPruner`.
 
 - Thresholds are checked; conformers with a missing or non-finite energy are dropped with a
   warning; a threshold of 0 no longer hangs; copies of a linear molecule are duplicates.
-- The RMSD over a list of symmetry maps (`racerts.geometry`), with the maps computed once per
+- The RMSD over a list of symmetry maps (`racerts.rmsd.listed`), with the maps computed once per
   pruning: the kernel of legacy racerts and the reference that the tests compare against.
-- `racerts.symmetry`: the RMSD minimised over the symmetry of the graph without listing
+- `racerts.rmsd.SymmetricRMSD`: the RMSD minimised over the symmetry of the graph without listing
   every atom mapping. Up to `max_maps` mappings are listed (exact); above that, the local
   symmetry of terminal groups is assigned per parent atom, and identical molecules (solvent
   molecules, the molecules of a cluster) are exchanged as wholes, molecule to molecule: the

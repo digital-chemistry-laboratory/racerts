@@ -10,8 +10,8 @@ from rdkit.Chem import AllChem, rdMolTransforms
 
 import racerts
 from racerts.embed.rigid_attach import rigid_attach
-from racerts.geometry import rmsd
 from racerts.restraints import PositionRestraint
+from racerts.rmsd import rmsd
 from racerts.system.stereo import StereoCheck
 from racerts.system.swap import (
     Swap,

@@ -1,6 +1,6 @@
 """
 The symmetry-minimised RMSD without listing every equivalent atom mapping
-(racerts.symmetry), against the listing of all maps (racerts.geometry). The one error
+(racerts.rmsd), against the listing of all maps (racerts.rmsd). The one error
 that must not happen is a value below the true RMSD: it would merge distinct conformers.
 """
 
@@ -12,12 +12,13 @@ import pytest
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-from racerts.geometry import rmsd, symmetry_maps
-from racerts.symmetry import (
+from racerts.rmsd import (
     SymmetricRMSD,
     bound_descriptors,
     matching_graph,
+    rmsd,
     symmetry_classes,
+    symmetry_maps,
 )
 
 MOLECULES = {  # each a kind of local symmetry
@@ -84,7 +85,7 @@ def _apart(mol, positions, rng):
 
 def _all_maps(mol, hydrogens):
     """(atoms, maps) of every automorphism: the listing that the factorised method must
-    agree with. For "polar" from the graph of the module, else as racerts.geometry."""
+    agree with. For "polar" from the graph of the module, else as racerts.rmsd."""
     if hydrogens != "polar":
         found = symmetry_maps(mol, hydrogens == "all", 200000)
         return np.asarray(found.atoms), np.asarray(found.maps)

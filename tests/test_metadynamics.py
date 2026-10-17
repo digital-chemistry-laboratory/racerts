@@ -9,8 +9,8 @@ from rdkit.Chem import AllChem, rdMolTransforms
 
 import racerts
 from racerts import Metadynamics
-from racerts.geometry import rmsd, superpose
 from racerts.metadynamics import ALPHA, K_PER_ATOM, default_length, flexibility
+from racerts.rmsd import rmsd, superpose
 from racerts.utils import seeds
 
 pytestmark = pytest.mark.ase
@@ -162,7 +162,7 @@ def test_the_search_on_a_diol():
     assert out.energy_method == "MMFF94" and len(out) > 5
     assert min(map(_hydrogen_bond, _positions(out))) < 2.5
     # No two alike, as for Exploit: within 0.25 A and 1 kcal/mol of each other.
-    kernel = racerts.symmetry.SymmetricRMSD(out.mol, "heavy")
+    kernel = racerts.rmsd.SymmetricRMSD(out.mol, "heavy")
     structures = [kernel.prepare(x) for x in _positions(out)]
     energies = out.energies()
     for k, first in enumerate(structures):

@@ -56,7 +56,7 @@ import numpy as np
 from rdkit import Chem
 from scipy.optimize import linear_sum_assignment
 
-from racerts.geometry import symmetrize_terminal_atoms
+from .listed import symmetrize_terminal_atoms
 
 # Up to this many equivalent atom mappings a list of all of them is still affordable:
 # the limit of legacy racerts, and of the callers that want the exact minimum.
@@ -338,7 +338,7 @@ class Prepared(NamedTuple):
 class SymmetricRMSD:
     """
     The symmetry-minimised RMSD of conformers of mol over atoms (see
-    [the module text][racerts.symmetry]).
+    [the module text][racerts.rmsd.symmetric]).
 
     Args:
         mol: The molecule (its graph; a conformer is needed to choose a level unless
@@ -1069,7 +1069,7 @@ class SymmetricRMSD:
         """
         The RMSD of the best automorphism found: exact if nothing is stripped (level
         0), else an upper bound of the symmetry-minimised RMSD (see
-        [the module text][racerts.symmetry]). With return_map also the map over the
+        [the module text][racerts.rmsd.symmetric]). With return_map also the map over the
         graph atoms (index, weight): atom index[i] of a is paired with atom
         index[map[i]] of b.
         """

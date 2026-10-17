@@ -1,14 +1,7 @@
 """
-Superposition and RMSD of conformers: over chosen atoms (e.g. the heavy atoms), with
-or without superposition, and symmetry-aware (the smallest RMSD over the automorphisms
-of the graph).
-
-    from racerts.geometry import rmsd, symmetry_maps
-
-    symmetry = symmetry_maps(mol)  # once per graph: the heavy atoms and their maps
-    a = mol.GetConformer(0).GetPositions()
-    b = mol.GetConformer(1).GetPositions()
-    rmsd(a, b, symmetry.atoms, symmetry.maps)
+The RMSD over listed atom maps: superposition and the RMSD over chosen atoms (e.g. the
+heavy atoms), with or without superposition, the smallest over a list of symmetry maps
+(as legacy racerts and RDKit's GetBestRMS compute it). See racerts.rmsd for an example.
 """
 
 import logging

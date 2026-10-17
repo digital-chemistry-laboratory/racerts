@@ -1,4 +1,4 @@
-"""Pruning details: the RMSD of RMSDPruner (racerts.geometry), thresholds, energies."""
+"""Pruning details: the RMSD of RMSDPruner (racerts.rmsd), thresholds, energies."""
 
 import logging
 import math
@@ -11,8 +11,8 @@ from rdkit.Chem import AllChem, rdMolAlign
 import racerts
 import racerts.compat.pruner.pruner
 from racerts.compat.pruner import RMSDPruner as LegacyRMSDPruner
-from racerts.geometry import symmetry_maps
 from racerts.prune import EnergyPruner, PruneCount, RMSDPruner
+from racerts.rmsd import symmetry_maps
 
 
 def _conformers(smiles, n, seed=3):
@@ -423,7 +423,7 @@ def _twins(smiles, n, shift=1.0, seed=4):
 def _every_pair(mol, threshold):
     """The conformers that stay when each, in the order of the energy, is compared with
     every kept one by the RMSD over all maps."""
-    from racerts.geometry import rmsd_within, symmetry_maps
+    from racerts.rmsd import rmsd_within, symmetry_maps
 
     found = symmetry_maps(mol)
     order = sorted(mol.GetConformers(), key=lambda c: c.GetDoubleProp("energy"))

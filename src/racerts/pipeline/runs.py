@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from racerts.symmetry import LISTED_MAPS, SymmetricRMSD
+from racerts.rmsd import LISTED_MAPS, SymmetricRMSD
 
 from .ensemble import ConformerEnsemble
 

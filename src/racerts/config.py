@@ -170,7 +170,7 @@ class PruneConfig:
             (These six RMSD settings act with method "rmsd" only.) With both
             prefilters off every pair is decided by its RMSD, and max_matches is the
             most atom maps that are listed before local symmetry is assigned instead
-            (racerts.symmetry).
+            (racerts.rmsd).
         check_stereo: After refinement, drop conformers whose specified stereo
             (outside the core atoms of the task, e.g. the reacting atoms) differs from
             the graph, e.g. after a chirality fallback of the embedding. After the

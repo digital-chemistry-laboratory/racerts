@@ -6,9 +6,8 @@ from typing import Callable, List, Optional, Sequence
 import numpy as np
 from rdkit import Chem
 
-from racerts.geometry import heavy_atoms, rmsd
 from racerts.pipeline import ConformerEnsemble
-from racerts.symmetry import LISTED_MAPS
+from racerts.rmsd import LISTED_MAPS, heavy_atoms, rmsd
 
 from .base import (
     BasePruner,
@@ -44,7 +43,7 @@ class ClusterPruner(BasePruner):
             a conformer joins the first leader within threshold or becomes a leader).
         kernel: The distance, an RMSD after superposition: "aligned" (a fixed atom
             correspondence; for bondless TS carriers) or "symmetric" (the smallest
-            over the symmetry of the graph, racerts.symmetry.SymmetricRMSD, as
+            over the symmetry of the graph, racerts.rmsd.SymmetricRMSD, as
             RMSDPruner).
         atom_indices: Atoms of the distance; default: heavy atoms (all atoms if there
             are none). The "symmetric" kernel always uses the heavy atoms.

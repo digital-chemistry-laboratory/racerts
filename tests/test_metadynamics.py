@@ -240,6 +240,31 @@ def test_what_the_task_holds_stays_where_it_is():
     chosen = Metadynamics(optimizer, atoms=[2, 3, 4, 8, 9])
     assert chosen.biased_atoms(ctx, ensemble.mol) == [4, 8, 9]
 
+    # -- the targets of a windowed TS take turns as starts: energies compare only within
+    # a window bin (here the shorter targets lie higher, as their restraints make them)
+    from types import SimpleNamespace
+
+    from racerts.metadynamics.stage import run_starts
+
+    targets = [2.0, 2.0, 2.1, 2.1, 2.2, 2.2]
+    population = SimpleNamespace(
+        ids=list(range(6)),
+        energies={
+            i: -100.0 - 30.0 * (t - 2.0) + 0.1 * (i % 2) for i, t in enumerate(targets)
+        },
+        bins={i: (("0-8", t),) for i, t in enumerate(targets)},
+    )
+    assert run_starts(population) == [
+        4,
+        2,
+        0,
+        5,
+        3,
+        1,
+    ]  # lowest of each bin, then the second
+    population.bins = {i: () for i in range(6)}  # no windows: by energy alone
+    assert run_starts(population) == [4, 5, 2, 3, 0, 1]
+
     # -- nothing left to bias: one free heavy atom has no shape
     ctx, ensemble = _start(mol, optimizer, racerts.Constrained(hard=range(8)))
     search = Metadynamics(optimizer, runs=1, length=0.2)

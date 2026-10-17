@@ -17,6 +17,7 @@ from racerts.exploit.population import (
 )
 from racerts.io import ase as ase_io
 from racerts.pipeline import ConformerEnsemble
+from racerts.prune.targets import round_robin
 from racerts.refine.ase import ASEOptimizer
 from racerts.refine.stage import Refine, energy_label
 from racerts.rmsd import heavy_atoms
@@ -60,6 +61,19 @@ def flexibility(mol: Chem.Mol, held: Iterable[int] = ()) -> float:
     return turning / bonds if bonds else 0.0
 
 
+def run_starts(population) -> List[int]:
+    """
+    The members in the order in which runs start from them: by energy within each
+    window bin, the bins taking turns (the lowest of every bin first, then the second
+    ...): the energies of a windowed TS compare only within a bin. Without windows,
+    by energy.
+    """
+    groups = {}
+    for i in sorted(population.ids, key=lambda i: (population.energies[i], i)):
+        groups.setdefault(population.bins[i], []).append(i)
+    return round_robin(list(groups.values()))
+
+
 def default_length(mol: Chem.Mol, held: Iterable[int] = ()) -> float:
     """
     The length of a run (ps) for a molecule, by its size and its flexibility: 0.1 (n
@@ -86,8 +100,9 @@ class Metadynamics:
     k exp(-alpha RMSD_i^2) to the potential (RMSD over the biased atoms after the
     best superposition; k = k_per_atom times the number of atoms of the molecule),
     which pushes the run on. The runs differ in strength (runs) and take the
-    conformers in turn, lowest in energy first: with one conformer all start from
-    it; conformers beyond the number of runs start none.
+    conformers in turn, lowest in energy first (for a windowed TS the lowest of every
+    window bin first, run_starts): with one conformer all start from it; conformers
+    beyond the number of runs start none.
 
     Rounds: with rounds > 1, a round that found a conformer more than LOWER below
     the lowest before it is followed by another, whose runs start from the lowest
@@ -296,7 +311,7 @@ class Metadynamics:
         if calculator is None:  # that of the refinement, prepared as it prepares it
             calculator, prepare = optimizer.calculator, optimizer.prepare
             is_factory = optimizer._calculator_is_factory
-        starts = sorted(population.ids, key=lambda i: (population.energies[i], i))
+        starts = run_starts(population)
         parents = [starts[number % len(starts)] for number in range(len(self.runs))]
         runs = []
         for number, (k_per_atom, alpha) in enumerate(self.runs):

@@ -42,7 +42,8 @@ class Crest:
     A CREST run (3.x) from one conformer of a molecule; run returns its conformers.
 
     Attributes:
-        executable: The CREST binary (a name on PATH or a path).
+        executable: The CREST binary (a name on PATH or a path); CREST 3. Give the
+            path where an older CREST comes first on PATH.
         method: "gfn2", "gfn1", "gfn0", "gfnff" or "gfn2//gfnff".
         solvent: An ALPB solvent; None in the gas phase.
         threads: For CREST's -T.

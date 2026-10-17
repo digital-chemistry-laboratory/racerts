@@ -93,6 +93,15 @@ def test_external_searches_in_and_out(tmp_path):
     failing = _fake(tmp_path, "broken", "echo 'no licence' >&2\nexit 3\n")
     with pytest.raises(racerts.errors.ExternalSearchError, match="no licence"):
         Crest(executable=failing).run(mol)
+    # a program that ends normally but writes no ensemble; a frame without an energy
+    silent = _fake(tmp_path, "silent", "echo 'nothing found'\n")
+    with pytest.raises(racerts.errors.ExternalSearchError, match="nothing found"):
+        Crest(executable=silent).run(mol)
+    lines = (DATA / "ethanol.crest_conformers.xyz").read_text().splitlines()
+    lines[1] = ""
+    (tmp_path / "no_energy.xyz").write_text("\n".join(lines) + "\n")
+    with pytest.raises(ValueError, match="no energy"):
+        read_crest(tmp_path / "no_energy.xyz", mol)
 
     # -- a transition state: what it holds goes in as the exported constraints
     # (racerts.restraints.export), with the reference geometry for CREST

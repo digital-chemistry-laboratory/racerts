@@ -53,6 +53,11 @@ def ensemble_from_xyz(
     frame. Coordinates only are checked (as ConformerEnsemble.from_frames); whether a
     structure kept the graph is for racerts.validate.
     """
+    path = Path(path)
+    if not path.exists():
+        log = path.parent / LOG
+        tail = log.read_text().splitlines()[-15:] if log.exists() else []
+        raise ExternalSearchError(f"{path} was not written.\n" + "\n".join(tail))
     frames = read_frames(path)
     if not frames:
         raise ExternalSearchError(f"{path} holds no structures.")
@@ -66,8 +71,14 @@ def ensemble_from_xyz(
     ensemble = ConformerEnsemble.from_frames(
         mol, [positions for _, positions, _ in frames]
     )
-    for conf_id, (_, _, comment) in zip(ensemble.conf_ids, frames):
-        energy = float(comment.split()[0]) * HARTREE_TO_KCAL_MOL
+    for index, (conf_id, (_, _, comment)) in enumerate(zip(ensemble.conf_ids, frames)):
+        try:
+            energy = float(comment.split()[0]) * HARTREE_TO_KCAL_MOL
+        except (IndexError, ValueError):
+            raise ValueError(
+                f"Structure {index} of {path} has no energy in its comment line "
+                f"({comment!r})."
+            ) from None
         ensemble.mol.GetConformer(conf_id).SetDoubleProp("energy", energy)
     ensemble.mol.SetProp("energy_method", method)
     ensemble.add_provenance(source=source)

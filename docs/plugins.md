@@ -16,8 +16,8 @@ Calculators, optimizers and checks from other packages go into the stages unchan
   relaxes them, e.g. an optimizer that takes several structures at once on a GPU, and
   returns a `racerts.refine.Outcome` for each. Everything around that step stays:
   the conversion from and to conformers, the energies, the provenance, the failures,
-  and `Refine`, `Exploit` and the staged recipe take the optimizer as any
-  `ASEOptimizer`. An override that only brings its own calculators, or runs several
+  and `Refine`, `Exploit`, `Metadynamics` and the staged recipe take the optimizer as
+  any `ASEOptimizer`. An override that only brings its own calculators, or runs several
   structures at a time, calls `racerts.refine.optimize_one(calculator, config, task)`
   for each: the relaxation of one structure as racerts does it, restraints
   included. An optimizer that shares nothing with it subclasses `BaseOptimizer`

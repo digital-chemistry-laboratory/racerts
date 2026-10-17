@@ -137,6 +137,7 @@ More stages:
 | `racerts.prune.FamilySelector(n_max, clusterer)` | up to `n_max` conformers spread over the clusters: the best of each, then the second best, ... (families ordered by their best member). The same order for clusters of your own: `round_robin(ClusterPruner(...).clusters(mol))` |
 | `Validate(*validators, on_fail="drop" or "flag")` | checks the conformers (see below): drops the failing ones (an error if none passes), or keeps them with the reasons in their provenance (a warning if none passes) |
 | `Exploit(Refine(ASEOptimizer(...)))` | usage-directed Monte Carlo around the pruned conformers: new minima nearby, from torsions, rigid-body moves of fragments and ring flips, refined by an ASE calculator (xTB, MLIPs); stops when new minima become rare (see below) |
+| `Metadynamics(ASEOptimizer(...), md_calculator=...)` | molecular dynamics from the conformers it gets, pushed away from the structures it has visited by a bias on the RMSD (as in CREST); the snapshots are refined by an ASE calculator and added where they are new minima (see below) |
 
 `Pipeline.run(ctx, ensemble)` continues an ensemble (e.g. to refine it with another
 method) and leaves the ensemble passed in unchanged; stages may change the ensemble they
@@ -204,6 +205,89 @@ stage keeps the numbers of its last run in `stats` (of a pipeline:
 `next(s for s in pipeline.stages if s.name == "exploit").stats`). For a windowed TS,
 children keep their parent's active-bond targets, and energies are compared per window
 bin.
+
+### Metadynamics
+
+`Metadynamics` explores where `Exploit` exploits: it leaves the neighbourhood of the
+conformers it gets, and it needs no moves, so it also folds a chain and changes a
+macrocycle. It is the metadynamics of CREST (Grimme 2019), with ASE:
+
+- each run is molecular dynamics from one conformer (Langevin, `temperature` 300 K,
+  steps of 2 fs with hydrogen masses of 4 u). Every `deposit` (1 ps) the structure it
+  is at becomes a reference, and every reference adds `k exp(-alpha RMSD²)` to the
+  potential, which pushes the run away from where it has been. The RMSD is that of
+  the heavy atoms after superposition (`atoms=` for others), and `k` is `k_per_atom`
+  times the number of atoms;
+- the runs differ in strength: by default the twelve combinations of `k_per_atom` =
+  3.0, 1.5, 0.75 mEh and `alpha` = 1.3, 0.78, 0.47, 0.28 bohr⁻² (CREST's). `runs=4`
+  takes the first four of them, `runs=[(3.0, 0.28)]` the strengths given. The runs
+  take the conformers in turn, the lowest in energy first; with one conformer all
+  start from it;
+- a run is `length` ps long. Unless it is given, it follows the size and the
+  flexibility of the molecule: `0.1 (n + 0.1 n²)` ps, at least 5 and at most 200,
+  where `n` is the number of atoms that the task does not hold times the share of the
+  bonds between heavy atoms that turn (the rotatable bonds of `Exploit` and the single
+  bonds of rings of eight or more atoms; not amide bonds). It is modelled on the rule
+  of CREST, with a flexibility from the graph: 5 ps for butane, 9 ps for
+  heptane-1,7-diol, 36 ps for icosane (`racerts.metadynamics.default_length(mol)`);
+- the atoms that the task holds (the frozen atoms of a TS; those that `Exploit` does
+  not move) are fixed in the dynamics and take no part in the bias, which is on the
+  shape of the other atoms, not on where they are relative to the fixed ones.
+  Restraints act when the snapshots are refined, not in the dynamics;
+- a snapshot every `snapshot` (0.1 ps) is refined by the stage's refiner, an
+  `ASEOptimizer` as for `Exploit`, and kept if it passes the gate checks and is
+  further than `rmsd_threshold` from every conformer of similar energy; a duplicate
+  counts as a re-find. There is no energy window: prune after the stage.
+
+A round of the defaults is twelve runs and a refinement for every 0.1 ps of them (for
+heptane-1,7-diol 52,500 steps of dynamics and about 1,000 refinements), so the dynamics
+usually run on a cheaper potential than the level of the pipeline: `md_calculator`, an
+ASE calculator or a function that returns one (a new one for every run). Without it
+they run on the calculator of the refinement.
+
+```python
+from racerts.refine import ASEOptimizer
+
+uma = ASEOptimizer(uma_calculator, method="UMA-s-1p2", fmax=0.02, max_steps=300)
+# the dynamics on a cheaper ASE calculator, e.g. GFN2-xTB or a force field
+search = racerts.Metadynamics(uma, md_calculator=cheap_calculator, rounds=3)
+pipeline = racerts.Pipeline([
+    racerts.Embed(), racerts.Refine(), racerts.PruneEnergy(), racerts.PruneRMSD(),
+    racerts.Refine(uma), racerts.PruneEnergy(), racerts.PruneRMSD(),
+    search,
+    racerts.PruneEnergy(), racerts.PruneRMSD(),
+])
+ensemble = racerts.generate(mol, task, pipeline=pipeline)
+print(search.stats)
+```
+
+- **Rounds:** one round does not find the low conformers of a large flexible
+  molecule. `rounds=5` runs up to five: after a round that found a conformer more than
+  0.1 kcal/mol below the lowest before it, the runs start again from the lowest
+  conformers found so far, with other random numbers, until a round finds nothing
+  lower (the iteration of CREST). The default is one round; `stats["stop"]` then says
+  whether it still found a lower conformer (`"rounds"`: more rounds may find more) or
+  not (`"nothing lower"`). A second `Metadynamics` stage in a pipeline also starts
+  from the lowest conformers it gets, but with the random numbers of the first: use
+  `rounds`.
+- **The refinement** starts from structures at temperature, further from a minimum
+  than an embedded conformer: give it the steps (`max_steps`), or drop what did not
+  converge (`drop_unconverged=True`). The conformers must carry its energies, as for
+  `Exploit`. An optimizer that relaxes with calculators of its own (`_relax`) has
+  none for the dynamics: give `md_calculator`.
+- **Worker processes:** the runs go to the worker processes of the refinement
+  (`num_workers` of its `ASEOptimizer`), one run each; the calculator of the dynamics
+  then is one that can be copied, or a function of a module.
+- **Seeds:** every run draws its velocities and its thermostat from the seed of the
+  context and its number, so the same seed gives the same conformers. Dynamics amplify
+  the last digit: on another machine or with other libraries the same seed can give
+  other trajectories.
+
+New conformers record `route="mtd"`, `parent` (the conformer their run started from),
+`mtd_round`, `mtd_run`, `mtd_k`, `mtd_alpha` and `mtd_time` (ps); every conformer
+records `mtd_hits`, the snapshots that ended in it. `stats` has the numbers of the last
+call: `rounds`, `runs`, `steps`, `snapshots`, `refined`, `accepted`, `refound`,
+`rejected`, the `length` of a run and `stop`.
 
 ## Independent runs
 

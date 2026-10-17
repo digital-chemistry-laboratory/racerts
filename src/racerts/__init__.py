@@ -34,6 +34,7 @@ from .config import (
 from .embed import Embed, InconsistentRestraints
 from .errors import MoleculeError, NoConformersError, RacerTSError
 from .exploit import Exploit
+from .metadynamics import Metadynamics
 from .pipeline import (
     ConformerEnsemble,
     ConformerRecord,
@@ -63,6 +64,7 @@ __all__ = [
     "FrozenSet",
     "GroundState",
     "InconsistentRestraints",
+    "Metadynamics",
     "MoleculeError",
     "NoConformersError",
     "Pipeline",

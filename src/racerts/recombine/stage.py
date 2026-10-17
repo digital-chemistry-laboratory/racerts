@@ -89,8 +89,9 @@ class Recombine:
         share: The probability that a child takes such a torsion from its second
             parent.
         children: Of a round. Default: PER_TORSION for every torsion, MOST_CHILDREN
-            at most. A round makes no child twice and has fewer if the parents
-            allow no more.
+            at most. A round makes no child twice (on one first parent, the same
+            torsions taken at values within `different`, whichever the second parent)
+            and has fewer if the parents allow no more.
         rounds: The most rounds (see above); default: one.
         overlap_factor: See above; the default is that of the clash filter of the
             staged workflow, below the clash_factor of the gate: the refinement
@@ -253,7 +254,7 @@ class Recombine:
         )
         weights = np.cumsum(np.exp(-above / self.temperature))
         held = held_atoms(ctx)
-        made, seen, overlapping = [], set(), 0
+        made, seen, overlapping = [], {}, 0
         for _ in range(DRAWS * n):
             if len(made) == n:
                 break
@@ -265,9 +266,16 @@ class Recombine:
                 continue
             take = [k for k in differing if rng.random() < self.share]
             take = take or [rng.choice(differing)]
-            if (first, second, *take) in seen:
+            # the same child: the same first parent, the same torsions taken, values
+            # within `different` of those of a child made before (any second parent)
+            values = angles[second, take]
+            earlier = seen.setdefault((first, tuple(take)), [])
+            if any(
+                (np.abs((values - v + 180.0) % 360.0 - 180.0) <= self.different).all()
+                for v in earlier
+            ):
                 continue
-            seen.add((first, second, *take))
+            earlier.append(values)
             child = set_torsions(
                 positions[first], found, {k: angles[second, k] for k in take}
             )

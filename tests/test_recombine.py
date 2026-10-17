@@ -185,6 +185,17 @@ def test_the_combination_that_no_parent_has():
     hits = [out.provenance(i)["cross_hits"] for i in out.conf_ids]
     assert hits == [1, 1, 2, 2]  # each parent once, each new one twice
 
+    # -- no child twice: second parents that agree in the torsions taken give one child.
+    # One torsion taken each; all-anti takes torsion 0 (gauche) from either of the others,
+    # which differ in torsion 3 only: ten triples (first, second, torsion), nine children.
+    three = _heptane(
+        (ANTI,) * 4, (GAUCHE, ANTI, ANTI, GAUCHE), (GAUCHE, ANTI, ANTI, -GAUCHE)
+    )
+    ctx, ensemble = _start(three)
+    stage = Recombine(MMFFOptimizer(), share=1e-9, children=40)
+    stage.run(ctx, ensemble)
+    assert stage.stats["children"] == 9
+
     # -- children with overlapping atoms are not refined
     class Counting(MMFFOptimizer):
         calls = 0
@@ -353,7 +364,8 @@ def test_seeds_and_settings():
     # -- children: as many as asked for, by default 50 for every torsion
     assert first[1]["children"] == 6 and search(children=7)[1]["children"] == 7
     out, stats, made = search(children=None)
-    assert stats["children"] == 200 and len(made) > 150
+    # 50 for every torsion would be 200; these parents allow 180 distinct children
+    assert stats["children"] == 180 and len(made) > 150
     assert all(a != b for (a, b), _ in made)
 
     # -- share: the part of the differing torsions that a child takes, one at least

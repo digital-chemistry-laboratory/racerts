@@ -11,6 +11,7 @@ from rdkit.Geometry import Point3D
 
 import racerts
 from racerts import PipelineConfig, TransitionState
+from racerts.embed.stage import default_embedder
 from racerts.prune import FamilySelector
 from racerts.prune.targets import window_bins
 from racerts.restraints import DistanceRestraint, RestraintSet
@@ -109,6 +110,20 @@ def test_windows_and_their_targets(aldol, caplog):
             )
             < 0.03
         )
+    # The bounds embedder holds them too, as well as it holds any fixed distance: to a
+    # few tenths of an A (its fixed pairs of the legacy task: up to 0.43 A here), where
+    # the distances among the hard atoms were free before and drifted by up to 0.9 A.
+    by_bounds = default_embedder(ctx.task, seed=7, mode="bounds")
+    bounds = racerts.Embed(by_bounds, n_conformers=10).run(ctx)
+    pairs = [(a, b) for k, a in enumerate(hard) for b in hard[k + 1 :]]
+    start = aldol.GetConformer().GetPositions()
+    for conf_id in bounds.conf_ids:
+        p = bounds.mol.GetConformer(conf_id).GetPositions()
+        drift = [
+            abs(np.linalg.norm(p[a] - p[b]) - np.linalg.norm(start[a] - start[b]))
+            for a, b in pairs
+        ]
+        assert max(drift) < 0.5
     neighbor = [r for r in ctx.restraints if r.source == "neighbor"]
     worst = max(
         r.violation(ensemble.mol.GetConformer(i).GetPositions())

@@ -33,7 +33,11 @@ What changes with a window (`TransitionState(..., active_window=...)`):
   window). Windows are built around one reference geometry: they do not combine with
   `Embed(references=...)`, and not with `frozen_atoms`.
 - **What stays fixed:** only the neighbours of the reacting atoms that are not reacting
-  themselves stay at the reference geometry. The reacting atoms are placed by windows:
+  themselves stay at the reference geometry: exactly with the coordinate map (the default
+  embed mode `"cmap"`); with `"bounds"` their distances to each other are fixed in the
+  bounds matrix, which distance geometry meets to a few tenths of an Å, as it does in
+  legacy mode, and the refinement pulls them to the reference. The reacting atoms are
+  placed by windows:
     - the active bonds;
     - their bonded neighbours at ± `neighbor_window` (0.1 Å);
     - an embedding-only window for their other distances in the core, which RDKit's

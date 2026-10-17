@@ -434,7 +434,10 @@ class CmapEmbedder(DistanceGeometryEmbedder):
 class BoundsMatrixEmbedder(DistanceGeometryEmbedder):
     """
     The distances between the core (reacting) atoms and all frozen atoms are fixed at
-    the reference geometry in the bounds matrix.
+    the reference geometry in the bounds matrix. With active-bond windows the reacting
+    atoms are not frozen: then the distances among the frozen atoms (the neighbour
+    shell) are fixed as well, as a coordinate map holds them, and the windows place the
+    reacting atoms.
     """
 
     def _configure(self, params, mol, reference, frozen, restraints=()):
@@ -443,10 +446,13 @@ class BoundsMatrixEmbedder(DistanceGeometryEmbedder):
                 "Soft atoms are placed by a coordinate map: use the CmapEmbedder "
                 "(embed mode 'cmap')."
             )
+        pairs = fixed_distance_pairs(frozen)
+        if not set(frozen.core) <= set(frozen.hard):  # windows: the core is free
+            pairs += hard_pairs(frozen, reference)
         bounds, self.widened = smoothed_bounds(
             mol,
             reference=reference,
-            pairs=fixed_distance_pairs(frozen),
+            pairs=pairs,
             windows=restraints,
             reference_bounds=self.reference_bounds,
         )

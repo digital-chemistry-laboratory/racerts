@@ -466,6 +466,25 @@ def test_the_calculators_and_what_the_stage_needs(caplog):
         search.run(ctx, ensemble)
     assert "run 0 ended after 0 of 10 steps: RuntimeError" in caplog.text
     assert search.stats["snapshots"] == 2 and search.stats["steps"] == 10
+    # ... but a round whose runs all fail is no search that found nothing lower
+    search = Metadynamics(optimizer, md_calculator=Fails(), **{**few, "runs": 2})
+    with pytest.raises(racerts.errors.NoConformersError, match="every run"):
+        search.run(ctx, ensemble)
+    # and an error in setting up the dynamics (not of a calculation) is raised as it is
+    import racerts.metadynamics.dynamics as dynamics
+
+    class Refuses:
+        def __init__(self, *args, **kwargs):
+            raise TypeError("an argument this ASE does not take")
+
+    original, dynamics.Langevin = dynamics.Langevin, Refuses
+    try:
+        with pytest.raises(TypeError, match="this ASE"):
+            Metadynamics(optimizer, md_calculator=MMFFCalculator(mol), **few).run(
+                ctx, ensemble
+            )
+    finally:
+        dynamics.Langevin = original
 
     # -- with workers of the refinement, the runs go to processes and give the same
     ensembles = []

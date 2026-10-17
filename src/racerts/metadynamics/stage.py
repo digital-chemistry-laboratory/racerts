@@ -5,6 +5,7 @@ from typing import Iterable, List, Optional, Sequence, Tuple, Union
 
 from rdkit import Chem
 
+from racerts.errors import NoConformersError
 from racerts.exploit.moves import _PLANAR, torsion_moves
 from racerts.exploit.population import (
     Population,
@@ -122,6 +123,11 @@ class Metadynamics:
     heavy atoms, or all atoms with include_hs) from every member of similar energy;
     a duplicate counts as a re-find of that member. There is no energy window: a
     pruner after the stage sets it.
+
+    A run whose calculation fails with an error the refinement expects
+    (ASEOptimizer expected_errors) ends there and keeps its snapshots; a round in
+    which every run fails raises NoConformersError; an error in setting a run up
+    (not a calculation) is raised as it is.
 
     Provenance: route "mtd", parent (the conformer the run started from),
     mtd_round, mtd_run, mtd_k, mtd_alpha and mtd_time (ps) for accepted conformers,
@@ -337,6 +343,11 @@ class Metadynamics:
             )
         snapshots = []
         results = run_all(runs, config, optimizer.num_workers)
+        if all(error is not None for _, error in results):
+            raise NoConformersError(
+                f"Metadynamics: every run of round {round_number} failed, e.g. "
+                f"{results[0][1]}"
+            )
         for run, (found, error) in zip(runs, results):
             steps = config.steps
             if error is not None:  # as a refinement that failed: it costs this run

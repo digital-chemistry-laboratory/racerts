@@ -147,7 +147,12 @@ def run_dynamics(
     Returns the positions after every config.snapshot steps; they are also appended
     to snapshots, if given, so that those of a run that fails are not lost.
     """
-    snapshots = [] if snapshots is None else snapshots
+    started = _start(atoms, calculator, config, k_per_atom, alpha, stream)
+    return _advance(started, config, [] if snapshots is None else snapshots)
+
+
+def _start(atoms, calculator, config, k_per_atom, alpha, stream):
+    """The run set up: (atoms, bias, dynamics); no calculation yet."""
     atoms = atoms.copy()
     masses = atoms.get_masses()
     masses[atoms.numbers == 1] = config.hydrogen_mass
@@ -171,6 +176,12 @@ def run_dynamics(
         fixcm=False,
         rng=rng,
     )
+    return atoms, bias, dynamics
+
+
+def _advance(started, config, snapshots) -> List[np.ndarray]:
+    """The steps of a run set up by _start, its snapshots appended to snapshots."""
+    atoms, bias, dynamics = started
     done = 0
     while done < config.steps:
         if done % config.deposit == 0:
@@ -230,10 +241,10 @@ def _run(job) -> Tuple[List[np.ndarray], Optional[str]]:
         run.prepare(calculator, run.reference.copy())
     stream = seeds.Stream(run.seed, "metadynamics", run.round, run.number)
     found: List[np.ndarray] = []
+    # an error in setting the run up is no failed calculation: it is raised as it is
+    started = _start(run.atoms, calculator, config, run.k_per_atom, run.alpha, stream)
     try:
-        run_dynamics(
-            run.atoms, calculator, config, run.k_per_atom, run.alpha, stream, found
-        )
+        _advance(started, config, found)
     except run.expected_errors as error:
         return found, f"{type(error).__name__}: {error}"
     return found, None

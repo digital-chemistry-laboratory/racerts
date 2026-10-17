@@ -297,8 +297,9 @@ pruner with the legacy ones is `racerts.pruner.RMSDPruner`.
 #### Independent runs
 
 - `generate_runs(mol, task, seeds=...)`: the same search from several seeds, the merged
-  ensemble and a `ConvergenceReport` (how much of each run the others found again);
-  `merge_runs`, `compare_runs`.
+  ensemble and a `ConvergenceReport` (the conformational free energy on the given
+  energies of each run, with the conformational entropy beside it, and how much of each
+  run the others found again); `merge_runs`, `compare_runs`.
 
 #### Graphs, charge and spin
 

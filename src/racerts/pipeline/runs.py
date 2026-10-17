@@ -31,9 +31,18 @@ class ConvergenceReport:
         labels: The runs (e.g. their seeds).
         conformers: The number of conformers of each run.
         lowest: The lowest energy of each run, above the lowest of all.
-        free_energy: The ensemble free energy -RT ln sum exp(-E/RT) of each run, above
-            that of the union of all runs (duplicates counted once).
+        free_energy: The conformational free energy on the given energies,
+            G_conf = -RT ln sum exp(-E/RT), of each run above that of the union of all
+            runs (duplicates counted once). Only the energies of the method enter: no
+            vibrational, rotational or solvation terms, so it is not a Gibbs free
+            energy, and a search converged on one method's energies (e.g. MMFF) says
+            nothing about another method's.
         spread: The largest difference of free_energy between two runs.
+        entropy: The conformational entropy S_conf = -R sum p ln p of each run on the
+            same energies (cal/(mol K)), as CREST reports it. Beside G_conf, which stays
+            the criterion: G_conf never increases when a conformer is added and it
+            catches a missed global minimum, S_conf does neither.
+        entropy_union: S_conf of the union of all runs (cal/(mol K)).
         found_again: (a, b) -> the share of the population of run a, within window of
             its own minimum, that run b has too (the same conformer: energy and RMSD).
         merged: k -> (mean, worst) free energy of k runs together, above that of all,
@@ -48,6 +57,8 @@ class ConvergenceReport:
     lowest: List[float]
     free_energy: List[float]
     spread: float
+    entropy: List[float]
+    entropy_union: float
     found_again: Dict[Tuple, float]
     merged: Dict[int, Tuple[float, float]]
     leave_one_out: float
@@ -59,8 +70,8 @@ class ConvergenceReport:
     counts: Dict[Tuple, Tuple[int, int]] = field(default_factory=dict, repr=False)
 
     def converged(self, tolerance: float = 0.3) -> bool:
-        """Whether the last run changed the free energy of the union by no more than
-        tolerance (kcal/mol): leave_one_out <= tolerance."""
+        """Whether the last run changed G_conf of the union by no more than tolerance
+        (kcal/mol): leave_one_out <= tolerance."""
         return self.leave_one_out <= tolerance
 
     def to_dict(self) -> dict:
@@ -74,13 +85,20 @@ class ConvergenceReport:
         method = f", energies {self.energy_method}" if self.energy_method else ""
         lines = [
             f"{len(self.labels)} runs{method} (kcal/mol, {self.temperature:.2f} K)",
-            "run         conformers   lowest   free energy   (above the union of all)",
+            "G_conf: the conformational free energy on these energies, -RT ln sum "
+            "exp(-E/RT), above the union",
+            "(no vibrational, rotational or solvation terms); S_conf: -R sum p ln p "
+            "(cal/(mol K))",
+            "run         conformers   lowest   G_conf   S_conf",
         ]
-        for label, n, low, g in zip(
-            self.labels, self.conformers, self.lowest, self.free_energy
+        for label, n, low, g, s in zip(
+            self.labels, self.conformers, self.lowest, self.free_energy, self.entropy
         ):
-            lines.append(f"{label!s:10s} {n:11d} {low:8.2f} {g:13.2f}")
-        lines.append(f"spread of the free energy between runs: {self.spread:.2f}")
+            lines.append(f"{label!s:10s} {n:11d} {low:8.2f} {g:8.2f} {s:8.2f}")
+        lines.append(
+            f"{'all runs':10s} {'':11s} {'':8s} {0.0:8.2f} {self.entropy_union:8.2f}"
+        )
+        lines.append(f"spread of G_conf between runs: {self.spread:.2f}")
         lines.append(
             f"found again: the population of a run within {self.window:g} of its "
             "minimum that another run has too"
@@ -90,14 +108,11 @@ class ConvergenceReport:
             lines.append(f"  {a} -> {b}: {share:4.0%} ({hits} of {total} conformers)")
         shares = list(self.found_again.values())
         lines.append(f"  mean {np.mean(shares):.0%}, lowest {min(shares):.0%}")
-        lines.append(
-            "merged runs: the free energy above that of all runs (mean, worst)"
-        )
+        lines.append("merged runs: G_conf above that of all runs (mean, worst)")
         for k, (mean, worst) in self.merged.items():
             lines.append(f"  {k} run{'s' if k > 1 else ''}: {mean:.2f}, {worst:.2f}")
         lines.append(
-            f"leaving one run out changes the free energy by up to "
-            f"{self.leave_one_out:.2f}"
+            f"leaving one run out changes G_conf by up to {self.leave_one_out:.2f}"
         )
         return "\n".join(lines)
 
@@ -174,15 +189,22 @@ def compare_runs(
     kept = _distinct(rows, matcher)
     n = len(ensembles)
 
-    def free_energy(runs) -> float:
+    def energies_of(runs) -> np.ndarray:
         # the union of these runs: each distinct conformer at its lowest copy there
         energies = [
             min(c.energy for c in row.copies if c.run in runs)
             for row in kept
             if any(c.run in runs for c in row.copies)
         ]
-        energies = np.asarray(energies) - lowest
-        return float(-rt * np.log(np.exp(-energies / rt).sum()))
+        return np.asarray(energies) - lowest
+
+    def free_energy(runs) -> float:
+        return float(-rt * np.log(np.exp(-energies_of(runs) / rt).sum()))
+
+    def entropy(runs) -> float:  # cal/(mol K)
+        weights = np.exp(-energies_of(runs) / rt)
+        p = weights / weights.sum()
+        return float(-1000.0 * KB * (p * np.log(p)).sum())
 
     union = free_energy(set(range(n)))
     per_run = [free_energy({i}) - union for i in range(n)]
@@ -208,6 +230,8 @@ def compare_runs(
         lowest=[min(r.energy for r in rows if r.run == i) - lowest for i in range(n)],
         free_energy=per_run,
         spread=max(per_run) - min(per_run),
+        entropy=[entropy({i}) for i in range(n)],
+        entropy_union=entropy(set(range(n))),
         found_again=found_again,
         merged=merged,
         leave_one_out=merged[n - 1][1],

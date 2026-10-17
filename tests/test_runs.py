@@ -53,6 +53,12 @@ def _free_energy(energies):
     return -RT * math.log(np.exp(-energies / RT).sum())
 
 
+def _entropy(energies):  # cal/(mol K)
+    p = np.exp(-np.asarray(energies) / RT)
+    p /= p.sum()
+    return -1000.0 * RT / 298.15 * float((p * np.log(p)).sum())
+
+
 def test_merging_and_comparing_runs(runs):
     # -- merged runs keep the lowest copy and who found it
     merged = merge_runs(runs, labels=[11, 12, 13])
@@ -80,6 +86,11 @@ def test_merging_and_comparing_runs(runs):
     ]
     assert report.free_energy == pytest.approx(expected)
     assert report.spread == pytest.approx(max(expected) - min(expected))
+    # Beside G_conf, the conformational entropy S_conf = -R sum p ln p of the same.
+    assert report.entropy == pytest.approx(
+        [_entropy([0.0, 1.0]), _entropy([0.1, 0.5]), _entropy([0.05, 1.1, 0.45])]
+    )
+    assert report.entropy_union == pytest.approx(_entropy([0.0, 0.45, 1.0]))
     # Found again: the population of a run (within the window of its minimum) that the
     # other run has too. Run 11 has the anti and a gauche conformer; 12 has no gauche.
     anti, gauche, twist = 1.0, math.exp(-1.0 / RT), math.exp(-0.4 / RT)
@@ -102,6 +113,7 @@ def test_merging_and_comparing_runs(runs):
 
     text = str(report)
     assert "3 runs" in text and "found again" in text and "11 -> 12" in text
+    assert "G_conf" in text and "S_conf" in text and "no vibrational" in text
     assert report.to_dict()["labels"] == [11, 12, 13]
 
     # -- compare runs checks its input

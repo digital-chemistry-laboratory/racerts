@@ -356,27 +356,39 @@ if not result.report.converged(tolerance=0.3):
 
 ```
 3 runs, energies MMFFOptimizer (kcal/mol, 298.15 K)
-run         conformers   lowest   free energy   (above the union of all)
-1                  177     0.43          0.51
-2                  173     0.00          0.65
-3                  190     0.44          0.46
-spread of the free energy between runs: 0.19
+G_conf: the conformational free energy on these energies, -RT ln sum exp(-E/RT), above the union
+(no vibrational, rotational or solvation terms); S_conf: -R sum p ln p (cal/(mol K))
+run         conformers   lowest   G_conf   S_conf
+1                  541     0.00     0.35     7.43
+2                  548     0.00     0.26     7.82
+3                  546     0.00     0.25     7.77
+all runs                            0.00     9.59
+spread of G_conf between runs: 0.11
 found again: the population of a run within 2 of its minimum that another run has too
-  1 -> 2:  18% (12 of 77 conformers)
+  1 -> 2:  87% (6 of 12 conformers)
   ...
-  mean 21%, lowest 14%
-merged runs: the free energy above that of all runs (mean, worst)
-  1 run: 0.54, 0.65
-  2 runs: 0.19, 0.22
+  mean 76%, lowest 68%
+merged runs: G_conf above that of all runs (mean, worst)
+  1 run: 0.29, 0.35
+  2 runs: 0.10, 0.12
   3 runs: 0.00, 0.00
-leaving one run out changes the free energy by up to 0.22
+leaving one run out changes G_conf by up to 0.12
 ```
 
-- **free energy**: the ensemble free energy −RT ln Σ exp(−E/RT) of a run, above that of
-  the union. It is what enters a barrier or a reaction energy.
+(Heptane-1,7-diol, `GroundState()`, the default settings, seeds 1 to 3.)
+
+- **G_conf**: the conformational free energy −RT ln Σ exp(−E/RT) of a run on the given
+  energies, above that of the union. Only the method's energies enter (no vibrational,
+  rotational or solvation terms): it is not a Gibbs free energy, and a search converged
+  on MMFF energies says nothing about convergence on another method's. It is the
+  criterion: it never increases when a conformer is added, and a missed global minimum
+  shows in it.
+- **S_conf**: the conformational entropy −R Σ p ln p on the same energies, as CREST
+  reports it; it shows how much the populations spread, but neither of the two
+  properties above.
 - **found again**: the share of a run's low-energy population that another run has too.
-  The free energy converges before the list of conformers does: many conformers of
-  similar energy give the same free energy whichever of them a run finds.
+  G_conf converges before the list of conformers does: many conformers of similar
+  energy give the same G_conf whichever of them a run finds.
 - **leaving one run out**: what the last run still changed. `report.converged(tolerance)`
   asks whether that is at most `tolerance` kcal/mol.
 

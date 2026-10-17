@@ -89,9 +89,12 @@ def generate_runs(
 
     Returns the ensemble of every seed, their union without duplicates (each conformer
     with the run that found it lowest, "run", and all that found it, "found_by") and a
-    ConvergenceReport: the ensemble free energy of each run above that of the union,
-    the share of a run's population that another run found again, and what leaving one
-    run out changes (report.converged(tolerance)); print(result.report) gives the table.
+    ConvergenceReport: the conformational free energy on the given energies (G_conf =
+    -RT ln sum exp(-E/RT), without vibrational, rotational or solvation terms) of each
+    run above that of the union, with the conformational entropy S_conf beside it, the
+    share of a run's population that another run found again, and what leaving one run
+    out changes (report.converged(tolerance)); print(result.report) gives the table. A
+    search converged on one method's energies says nothing about another method's.
 
     Args:
         seeds: At least two different seeds; each replaces config.seed for one run.

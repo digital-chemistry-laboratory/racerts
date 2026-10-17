@@ -25,8 +25,9 @@ def torsions(mol: Chem.Mol, held: Iterable[int] = ()) -> List[Torsion]:
     """
     A torsion for every single bond outside rings between two heavy atoms that each
     carry another heavy atom (so not of methyl or hydroxyl groups), and not next to a
-    linear atom. The side of the bond without held atoms turns (the smaller side if
-    neither has any); bonds with held atoms on both sides are no torsions.
+    linear atom. A side of the bond without held atoms turns (the smaller one if both
+    qualify); the two atoms of the bond stay where they are, so they may be held. A
+    bond whose turn would move held atoms on either side is no torsion.
 
     Unlike the moves of Exploit (torsion_moves) these include the planar bonds of
     amides and esters: a torsion is only ever set to the value that another conformer
@@ -54,14 +55,15 @@ def torsions(mol: Chem.Mol, held: Iterable[int] = ()) -> List[Torsion]:
         if 1 in (ends[0].GetAtomicNum(), ends[1].GetAtomicNum()) or not all(others):
             continue
         side_a, side_b = _side(mol, b, a), _side(mol, a, b)
-        if side_a & held and side_b & held:
+        turn_a, turn_b = side_a - {a}, side_b - {b}  # a and b stay on the axis
+        if turn_a & held and turn_b & held:
             continue
-        if side_b & held or (not side_a & held and len(side_a) < len(side_b)):
+        if turn_b & held or (not turn_a & held and len(side_a) < len(side_b)):
             atoms = (others[1][0], b, a, others[0][0])
-            moving = side_a - {a}
+            moving = turn_a
         else:
             atoms = (others[0][0], a, b, others[1][0])
-            moving = side_b - {b}
+            moving = turn_b
         found.append(Torsion(atoms, tuple(sorted(moving))))
     return found
 

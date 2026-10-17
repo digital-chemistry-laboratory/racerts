@@ -145,8 +145,9 @@ def test_the_torsions_and_a_child():
     np.testing.assert_array_equal(child[sorted(held)], first[sorted(held)])
     values = [-60.0, torsion_angles(first, kept)[1], 80.0, 70.0]
     assert _apart(torsion_angles(child, kept), values).max() < 1e-9
-    # A bond with held atoms on both sides is no torsion.
-    assert [t.atoms[1:3] for t in torsions(heptane, {2, 5})] == [(2, 1)]
+    # The atoms of the bond stay on the axis, so they may be held; a bond whose turn
+    # would move held atoms on either side is no torsion (3-4 with 2 and 5 held).
+    assert [t.atoms[1:3] for t in torsions(heptane, {2, 5})] == [(2, 1), (3, 2), (4, 5)]
     assert torsions(heptane, {0, 6}) == []
 
 
@@ -277,9 +278,10 @@ def test_what_the_task_holds_is_not_turned(hept_1_ene_ts, caplog):
     del optimizer.given[:]
     stage = Recombine(optimizer)
     out = stage.run(ctx, ensemble)
-    # Of the two torsions that differ, 0-1-2-3 has held atoms on both sides.
-    assert stage.stats["torsions"] == 3 and stage.stats["children"] == 2
-    assert len(optimizer.given) == 2
+    # Both torsions that differ turn: about 1-2 the atoms 3 to 6 (1 and 2 stay on the
+    # axis), about 4-5 those of 5 and 6; each parent with one or both of the other's.
+    assert stage.stats["torsions"] == 4 and stage.stats["children"] == 6
+    assert len(optimizer.given) == 6
     starts = [ensemble.mol.GetConformer(i).GetPositions()[held] for i in (0, 1)]
     for child in optimizer.given:
         assert any(np.array_equal(child[held], start) for start in starts)
@@ -302,7 +304,9 @@ def test_what_the_task_holds_is_not_turned(hept_1_ene_ts, caplog):
     del optimizer.given[:]
     stage = Recombine(optimizer, window=50.0)
     out = stage.run(ctx, ensemble)
-    assert stage.stats["torsions"] == 1  # 0-1-2-3: the other bonds have frozen ends
+    # 0-1-2-3 and 1-2-3-4, which turn 0 and 1 about frozen 2 and 3; the others would
+    # move frozen atoms on either side
+    assert stage.stats["torsions"] == 2
     assert stage.stats["children"] == len(optimizer.given) > 0
     for child in optimizer.given:
         assert any(np.array_equal(child[frozen], x[frozen]) for x in before.values())

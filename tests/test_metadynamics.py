@@ -273,9 +273,10 @@ def test_the_default_length_of_a_run():
     assert default_length(_hydrogens("C" * 60)) == 200.0
     # What the task holds counts neither as flexible nor as size.
     held = [0, 1, 2, 3]
-    assert flexibility(diol, held) == pytest.approx(5 / 8)
-    n = 21 * 5 / 8
-    assert 0.1 * (n + 0.1 * n**2) < 5.0 == default_length(diol, held)
+    # only 1-2 is stuck: 0-1 turns the hydroxyl H, 2-3 the atoms 4 to 8
+    assert flexibility(diol, held) == pytest.approx(7 / 8)
+    n = 21 * 7 / 8
+    assert default_length(diol, held) == pytest.approx(0.1 * (n + 0.1 * n**2))
 
     # -- a stage without a length takes it
     mol = _hydrogens("CCCC")

@@ -91,6 +91,12 @@ def test_merging_and_comparing_runs(runs):
         [_entropy([0.0, 1.0]), _entropy([0.1, 0.5]), _entropy([0.05, 1.1, 0.45])]
     )
     assert report.entropy_union == pytest.approx(_entropy([0.0, 0.45, 1.0]))
+    # A conformer whose population underflows (600 kcal/mol up) adds nothing, no NaN.
+    high = runs[0].copy()
+    high.mol.GetConformer(high.conf_ids[-1]).SetDoubleProp("energy", 600.0)
+    far = compare_runs([high, runs[1]])
+    assert far.entropy[0] == pytest.approx(_entropy([0.0]))
+    assert np.isfinite(far.entropy_union)
     # Found again: the population of a run (within the window of its minimum) that the
     # other run has too. Run 11 has the anti and a gauche conformer; 12 has no gauche.
     anti, gauche, twist = 1.0, math.exp(-1.0 / RT), math.exp(-0.4 / RT)

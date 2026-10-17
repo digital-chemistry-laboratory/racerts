@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
+from scipy.special import xlogy
 
 from racerts.rmsd import LISTED_MAPS, SymmetricRMSD
 
@@ -204,7 +205,7 @@ def compare_runs(
     def entropy(runs) -> float:  # cal/(mol K)
         weights = np.exp(-energies_of(runs) / rt)
         p = weights / weights.sum()
-        return float(-1000.0 * KB * (p * np.log(p)).sum())
+        return float(-1000.0 * KB * xlogy(p, p).sum())  # 0 ln 0 = 0 (underflow)
 
     union = free_energy(set(range(n)))
     per_run = [free_energy({i}) - union for i in range(n)]

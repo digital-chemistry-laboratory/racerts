@@ -52,8 +52,8 @@ pruner with the legacy ones is `racerts.pruner.RMSDPruner`.
   `metadynamics/`, `recombine/` (the stages), `pipeline/` (`Context`, `ConformerEnsemble`,
   `Pipeline`, runs), `restraints/`, `system/` (graphs, charge and spin, fragments, stereo,
   swaps), `recipes/`, `io/`, `utils/`, `rmsd/` (the RMSD over listed maps and the
-  symmetric one), `compat/` (legacy racerts), and `config.py`, `api.py`, `cli.py`, `swaps.py`
-  (the swap entry point).
+  symmetric one), `compat/` (legacy racerts), and `config.py`, `api.py` (the entry points,
+  `swap` among them), `cli.py`.
 - **`Context`**: the molecule with its reference geometry, the task, the frozen atoms, the
   restraints, the seed, charge and multiplicity; made once by `Context.create` and passed to
   every stage.

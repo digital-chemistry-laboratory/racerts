@@ -1069,13 +1069,13 @@ def test_swap_takes_its_settings_from_the_config_and_warns_of_clashes(
 
     # -- swap takes reference bounds from the config
     seen = {}
-    original = racerts.swaps.default_embedder
+    original = racerts.api.default_embedder
 
     def recording(*args, **settings):
         seen.update(settings)
         return original(*args, **settings)
 
-    monkeypatch.setattr(racerts.swaps, "default_embedder", recording)
+    monkeypatch.setattr(racerts.api, "default_embedder", recording)
     config = racerts.PipelineConfig.from_dict({"embed": {"reference_bounds": "never"}})
     racerts.swap(methylbiphenyl, BUTYL_SWAP, config=config, n_conformers=2)
     assert seen["reference_bounds"] == "never"

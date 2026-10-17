@@ -81,7 +81,6 @@ nav:
       - racerts.io: api/io.md
       - racerts.errors: api/errors.md
       - racerts.rmsd: api/rmsd.md
-      - racerts.swaps: api/swaps.md
   - Legacy racerts:
       - Migrating from legacy racerts: migration.md
       - conformer_generator: modules/conformer_generator.md

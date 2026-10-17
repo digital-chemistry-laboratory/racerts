@@ -4,7 +4,7 @@ geometry of the other atoms.
 
 apply_swap returns the new graph with every conformer of the reference: the kept atoms
 at their coordinates and, for a single attachment, the fragment grafted rigidly along
-the removed bond. racerts.swap then samples the new atoms (racerts/swaps.py).
+the removed bond. racerts.swap (racerts.api.swap) then samples the new atoms.
 
 The modules, in the order of a swap: model (Swap, SwapResult), selection (what comes
 and what leaves), graph (the new graph and its checks), configuration (its stereo),

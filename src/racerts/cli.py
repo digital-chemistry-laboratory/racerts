@@ -15,7 +15,7 @@ import sys
 
 from attrs import evolve
 
-from racerts.api import generate_gs, generate_ts
+from racerts.api import CONSERVE, SWAP_ROUTES, generate_gs, generate_ts, swap
 from racerts.config import PipelineConfig
 from racerts.embed import CHIRALITY_FALLBACK_MODES, COUNT_POLICIES, EMBED_MODES
 from racerts.embed.bounds import REFERENCE_BOUNDS
@@ -26,7 +26,6 @@ from racerts.refine.forcefield import DIELECTRIC_MODELS
 from racerts.restraints.export import DEFAULT_PATHS as EXPORT_PATHS
 from racerts.restraints.export import FORMATS as EXPORT_FORMATS
 from racerts.restraints.export import ExportRestraints
-from racerts.swaps import CONSERVE, SWAP_ROUTES, swap
 from racerts.system import GRAPH_METHODS, build_mol
 from racerts.system.swap import MODES as SWAP_MODES
 from racerts.system.swap import Swap

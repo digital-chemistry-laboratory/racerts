@@ -25,7 +25,8 @@ class EnergyPruner(BasePruner):
 
         Args:
             mol (RDKit Mol): The molecule to evaluate.
-            verbose (bool, optional): If True, prints the minimal energy found. Defaults to False.
+            verbose (bool, optional): Not used; the minimal energy is logged at DEBUG
+                level.
 
         Returns:
             float: The minimal energy found among all conformers.

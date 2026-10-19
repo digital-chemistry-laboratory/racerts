@@ -96,11 +96,12 @@ class MolGetterConnectivity(BaseMolGetter):
 
     def get_mol(self, file_name: str, **kwargs) -> Union[Chem.Mol, None]:
         """
-        Create a molecular graph from an XYZ file.
+        Create a molecular graph from an XYZ file: the connectivity only, without bond
+        orders or formal charges.
 
         Args:
             file_name (str): The path to the XYZ file.
-            charge (int): The molecular charge.
+            charge (int): Not used.
         Returns:
             Chem.Mol: The molecule object.
         """
@@ -110,7 +111,6 @@ class MolGetterConnectivity(BaseMolGetter):
         if mol_ts is None:
             return None
 
-        # if self.assignBonds:
         rdDetermineBonds.DetermineConnectivity(mol_ts)
         SanitizeMol(
             mol_ts,
@@ -278,8 +278,8 @@ class MolGetterSMILES(BaseMolGetter):
         return _made(new_mol, file_name)
 
     def setup_mol(self, mol_ts, reacting_atoms, input_mol):
+        # No stereo yet: the matching does not use it, apply_template takes it from 3D.
         rdDetermineBonds.DetermineConnectivity(mol_ts)
-        # Chem.AssignStereochemistryFrom3D(mol_ts) <- This is not needed at this point as chirality is not used in atom mapping, we will do it later.
         heavy_maps = [
             a.GetAtomMapNum() for a in input_mol.GetAtoms() if a.GetAtomicNum() > 1
         ]

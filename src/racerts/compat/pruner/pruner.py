@@ -60,8 +60,7 @@ class EnergyPruner(prune.EnergyPruner):
 
         Args:
             mol (RDKit Mol): The molecule whose conformers will have QM energies set.
-            verbose (bool, optional): If True, prints failure messages for conformers where
-                                    QM energy calculation fails. Defaults to False.
+            verbose (bool, optional): Not used; failures are logged at DEBUG level.
         """
         idx = [conf.GetId() for conf in mol.GetConformers()]
 

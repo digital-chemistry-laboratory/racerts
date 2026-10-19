@@ -209,15 +209,10 @@ def apply_template(
     Chem.SanitizeMol(new_mol)
     Chem.SetDoubleBondNeighborDirections(new_mol, new_mol.GetConformer())
     Chem.DetectBondStereochemistry(new_mol)
-    for atom in (
-        new_mol.GetAtoms()
-    ):  # <- We need to remove the atom map numbers to avoid the artifacts
+    for atom in new_mol.GetAtoms():  # the map numbers would end up in the output
         atom.SetAtomMapNum(0)
-    Chem.AssignStereochemistryFrom3D(
-        new_mol
-    )  # <- Now we use the 3D conformer to set the stereochemistry
+    Chem.AssignStereochemistryFrom3D(new_mol)  # the stereo of the geometry
     Chem.AssignCIPLabels(new_mol)
-    # Chem.AssignStereochemistry(new_mol) <- This is deprecated in favor of Chem.AssignCIPLabels(new_mol) above
     return new_mol
 
 

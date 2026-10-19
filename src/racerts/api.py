@@ -376,65 +376,17 @@ def swap(
         raise SwapError("n_rigid_conformers and n_rotations need the rigid route.")
     with verbose_logging(verbose):
         result = apply_swap(mol, change, seed=config.seed, restraints=restraints)
-        index_map = result.index_map  # replaced atoms pass their role on
-        try:  # an atom of the task that leaves without replacement
-            base = task.remap(index_map) if task is not None else None
-        except ValueError as error:
-            raise SwapError(str(error)) from None
-        if getattr(base, "windowed", False):
-            raise SwapError(
-                "Swaps of tasks with active-bond windows are not supported: swap, "
-                "then generate the windowed ensemble from the new reference."
-            )
-        frozen = base.frozen_atoms(result.mol) if base is not None else FrozenSet()
-        missing = [i for i in hard if i not in index_map]
-        if missing:
-            raise SwapError(f"The hard atoms {missing} leave in the swap.")
-        asked = [index_map[i] for i in hard]
-        held = tuple(dict.fromkeys((*frozen.hard, *asked)))
-        unplaced = sorted(set(held) & set(result.new_atoms) - set(result.positioned))
-        if unplaced:
-            raise SwapError(
-                f"The frozen atoms {unplaced} are new atoms without coordinates; hold "
-                "only kept atoms, or atoms that replace one (SwapResult.positioned)."
-            )
-        # The rest of a graft has coordinates, but its rotation about the new bond is
-        # arbitrary: only the atoms that replace one are where the reference puts them.
-        anchored = set(result.conserved) | set(result.replaced.values())
-        loose = [i for i in held if i not in anchored]
-        if set(loose) & set(asked):
-            raise SwapError(
-                f"The hard atoms {sorted(set(loose) & set(asked))} are new atoms whose "
-                "position the reference does not define; hold only kept atoms, or "
-                "atoms that replace one (SwapResult.replaced)."
-            )
-        if loose:  # e.g. the new neighbours of an atom that took a reacting atom's role
-            logger.warning(
-                "The frozen atoms %s of the task are new atoms whose position the "
-                "reference does not define; they are sampled, not held.",
-                loose,
-            )
-            held = tuple(i for i in held if i in anchored)
+        frozen, held = _held_in_swap(result, task, hard)
         _warn_near_core(result, held)
         if conserve == "hard":
-            if not result.placed:
-                raise SwapError(
-                    "conserve='hard' needs a single attachment that replaces a bond."
-                )
-            grafted = ConformerEnsemble(Chem.Mol(result.mol))
-            set_charge_and_multiplicity(grafted.mol, charge, multiplicity)
-            _record_index_map(grafted.mol, index_map)
-            for conf_id in grafted.conf_ids:  # each is the graft on that reference
-                grafted.add_provenance(conf_id, route="graft", reference=conf_id)
-            _warn_residual_clash(grafted, held, grafted.conf_ids, result)
-            return grafted
+            return _graft(result, held, charge, multiplicity)
 
         soft = []
         if conserve == "soft":
             skip = set(held) | set(result.junction)
             soft = [i for i in result.conserved if i not in skip]
         if held or soft:
-            core = frozen.core if base is not None and frozen.hard else None
+            core = frozen.core if frozen.hard else None
             new_task = Constrained(held, soft, core=core)
         else:
             new_task = GroundState()
@@ -446,45 +398,9 @@ def swap(
             multiplicity=multiplicity,
             restraints=result.restraints,
         )
-        parts = []
-        if "dg" in routes:
-            embedder = default_embedder(
-                new_task,
-                config.seed,
-                mode="cmap",
-                etkdg=config.embed.etkdg,
-                chirality_fallback="frozen_first",
-                useRandomCoords=config.embed.use_random_coords,
-                sequential_seeds=config.embed.sequential_seeds,
-                reference_bounds=config.embed.reference_bounds,
-                num_threads=config.num_threads,
-            )
-            several = new_task.needs_reference and result.mol.GetNumConformers() > 1
-            stage = Embed(
-                embedder,
-                config.embed.n_conformers if n_conformers == -1 else n_conformers,
-                config.embed.conf_factor,
-                count_policy=config.embed.count_policy,
-                references="all" if several else None,
-            )
-            try:
-                embedded = stage.run(ctx)
-            except RuntimeError as error:
-                raise _strained(result.mol, error) or error from None
-            embedded.add_provenance(route="dg")
-            parts.append(embedded)
-        if "rigid" in routes:
-            if result.placed:
-                parts.append(
-                    rigid_attach(result, n_rigid_conformers, n_rotations, config.seed)
-                )
-            else:
-                logger.info("No rigid route: it needs a single attachment.")
-        if not parts:
-            raise SwapError("No route applies to this swap; use routes=['dg'].")
-        ensemble = parts[0]
-        for part in parts[1:]:
-            ensemble = ensemble.merge(part)
+        ensemble = _embedded_by_routes(
+            ctx, result, routes, config, n_conformers, n_rigid_conformers, n_rotations
+        )
         stages = [s for s in config.build(new_task).stages if s.name != "embed"]
         for stage in stages:  # the swap embeds with the frozen_first fallback
             if stage.name == "refine":
@@ -493,12 +409,123 @@ def swap(
             ensemble = Pipeline(stages).run(ctx, ensemble)
         except RuntimeError as error:
             raise _strained(result.mol, error) or error from None
-        _record_index_map(ensemble.mol, index_map)
+        _record_index_map(ensemble.mol, result.index_map)
         if restraints is not None:
             ensemble.mol.SetProp(
                 "swap_lost_restraints", json.dumps(result.lost_contacts)
             )
         _warn_residual_clash(ensemble, held, reference=result)
+    return ensemble
+
+
+def _held_in_swap(result, task, hard):
+    """
+    (frozen, held): the FrozenSet of the task after the swap (its atoms remapped by
+    result.index_map) and the atoms held at the reference, its hard atoms and the
+    further hard atoms of the call. Frozen atoms that are new atoms whose position the
+    reference does not define are sampled instead, with a warning; asked for as hard
+    atoms, they raise.
+    """
+    index_map = result.index_map  # replaced atoms pass their role on
+    try:  # an atom of the task that leaves without replacement
+        base = task.remap(index_map) if task is not None else None
+    except ValueError as error:
+        raise SwapError(str(error)) from None
+    if getattr(base, "windowed", False):
+        raise SwapError(
+            "Swaps of tasks with active-bond windows are not supported: swap, "
+            "then generate the windowed ensemble from the new reference."
+        )
+    frozen = base.frozen_atoms(result.mol) if base is not None else FrozenSet()
+    missing = [i for i in hard if i not in index_map]
+    if missing:
+        raise SwapError(f"The hard atoms {missing} leave in the swap.")
+    asked = [index_map[i] for i in hard]
+    held = tuple(dict.fromkeys((*frozen.hard, *asked)))
+    unplaced = sorted(set(held) & set(result.new_atoms) - set(result.positioned))
+    if unplaced:
+        raise SwapError(
+            f"The frozen atoms {unplaced} are new atoms without coordinates; hold "
+            "only kept atoms, or atoms that replace one (SwapResult.positioned)."
+        )
+    # The rest of a graft has coordinates, but its rotation about the new bond is
+    # arbitrary: only the atoms that replace one are where the reference puts them.
+    anchored = set(result.conserved) | set(result.replaced.values())
+    loose = [i for i in held if i not in anchored]
+    if set(loose) & set(asked):
+        raise SwapError(
+            f"The hard atoms {sorted(set(loose) & set(asked))} are new atoms whose "
+            "position the reference does not define; hold only kept atoms, or "
+            "atoms that replace one (SwapResult.replaced)."
+        )
+    if loose:  # e.g. the new neighbours of an atom that took a reacting atom's role
+        logger.warning(
+            "The frozen atoms %s of the task are new atoms whose position the "
+            "reference does not define; they are sampled, not held.",
+            loose,
+        )
+        held = tuple(i for i in held if i in anchored)
+    return frozen, held
+
+
+def _graft(result, held, charge, multiplicity) -> ConformerEnsemble:
+    """The conformers of conserve="hard": the fragment grafted on each reference."""
+    if not result.placed:
+        raise SwapError(
+            "conserve='hard' needs a single attachment that replaces a bond."
+        )
+    grafted = ConformerEnsemble(Chem.Mol(result.mol))
+    set_charge_and_multiplicity(grafted.mol, charge, multiplicity)
+    _record_index_map(grafted.mol, result.index_map)
+    for conf_id in grafted.conf_ids:  # each is the graft on that reference
+        grafted.add_provenance(conf_id, route="graft", reference=conf_id)
+    _warn_residual_clash(grafted, held, grafted.conf_ids, result)
+    return grafted
+
+
+def _embedded_by_routes(
+    ctx, result, routes, config, n_conformers, n_rigid_conformers, n_rotations
+) -> ConformerEnsemble:
+    """The starting conformers of a sampled swap: those of each route, merged."""
+    parts = []
+    if "dg" in routes:
+        embedder = default_embedder(
+            ctx.task,
+            config.seed,
+            mode="cmap",
+            etkdg=config.embed.etkdg,
+            chirality_fallback="frozen_first",
+            useRandomCoords=config.embed.use_random_coords,
+            sequential_seeds=config.embed.sequential_seeds,
+            reference_bounds=config.embed.reference_bounds,
+            num_threads=config.num_threads,
+        )
+        several = ctx.task.needs_reference and result.mol.GetNumConformers() > 1
+        stage = Embed(
+            embedder,
+            config.embed.n_conformers if n_conformers == -1 else n_conformers,
+            config.embed.conf_factor,
+            count_policy=config.embed.count_policy,
+            references="all" if several else None,
+        )
+        try:
+            embedded = stage.run(ctx)
+        except RuntimeError as error:
+            raise _strained(result.mol, error) or error from None
+        embedded.add_provenance(route="dg")
+        parts.append(embedded)
+    if "rigid" in routes:
+        if result.placed:
+            parts.append(
+                rigid_attach(result, n_rigid_conformers, n_rotations, config.seed)
+            )
+        else:
+            logger.info("No rigid route: it needs a single attachment.")
+    if not parts:
+        raise SwapError("No route applies to this swap; use routes=['dg'].")
+    ensemble = parts[0]
+    for part in parts[1:]:
+        ensemble = ensemble.merge(part)
     return ensemble
 
 

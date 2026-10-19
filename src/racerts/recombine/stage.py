@@ -14,11 +14,12 @@ from racerts.exploit.population import (
     lowest_by_bin,
     reference_positions,
     refine_candidates,
+    refine_stage,
     require_refined,
 )
 from racerts.pipeline import ConformerEnsemble
 from racerts.refine.forcefield import MMFFOptimizer, UFFOptimizer
-from racerts.refine.stage import Refine, energy_label
+from racerts.refine.stage import energy_label
 from racerts.utils import seeds
 from racerts.utils.checks import is_integer
 from racerts.validate.checks import (
@@ -133,7 +134,7 @@ class Recombine:
             raise ValueError("different must lie between 0 and 180 degrees.")
         if not 0 < share <= 1:
             raise ValueError("share must be a probability above 0.")
-        self.refine = refine if isinstance(refine, Refine) else Refine(refine, False)
+        self.refine = refine_stage(refine)
         self.window = window
         self.parents = int(parents)
         self.temperature = temperature

@@ -11,16 +11,17 @@ from racerts.exploit.population import (
     Population,
     add_refined,
     found_lower,
+    has_ase_refiner,
     held_atoms,
     lowest_by_bin,
     refine_candidates,
+    refine_stage,
     require_refined,
 )
 from racerts.io import ase as ase_io
 from racerts.pipeline import ConformerEnsemble
 from racerts.prune.targets import round_robin
-from racerts.refine.ase import ASEOptimizer
-from racerts.refine.stage import Refine, energy_label
+from racerts.refine.stage import energy_label
 from racerts.rmsd import heavy_atoms
 from racerts.system.spec import infer_charge_and_multiplicity
 from racerts.task.base import check_atom_indices
@@ -197,7 +198,7 @@ class Metadynamics:
             raise ValueError("A run is shorter than the time to its first snapshot.")
         if isinstance(rounds, bool) or not is_integer(rounds) or rounds < 1:
             raise ValueError(f"rounds must be a positive number, not {rounds!r}.")
-        self.refine = refine if isinstance(refine, Refine) else Refine(refine, False)
+        self.refine = refine_stage(refine)
         self.md_calculator = md_calculator
         self._md_calculator_is_factory = (
             md_calculator is not None and ase_io.check_calculator(md_calculator)
@@ -220,19 +221,13 @@ class Metadynamics:
     def run(self, ctx, ensemble: ConformerEnsemble) -> ConformerEnsemble:
         counts = dict(rounds=0, runs=0, steps=0, snapshots=0, refined=0)
         counts.update(accepted=0, refound=0, rejected=0)
-        optimizer = self.refine.optimizer
-        if not isinstance(optimizer, ASEOptimizer):
-            logger.warning(
-                "Metadynamics needs an ASE refiner (xTB or an MLIP), as Exploit: with "
-                "%s the ensemble passes unchanged.",
-                type(optimizer).__name__,
-            )
+        if not has_ase_refiner(self.refine, "Metadynamics"):
             self.stats = {**counts, "stop": "no ASE refiner"}
             return ensemble
         if not len(ensemble):
             self.stats = {**counts, "stop": "no conformers"}
             return ensemble
-        require_refined(ensemble, energy_label(optimizer), "Metadynamics")
+        require_refined(ensemble, energy_label(self.refine.optimizer), "Metadynamics")
         if len(self.biased_atoms(ctx, ensemble.mol)) < 2:
             logger.warning(
                 "Metadynamics: nothing to bias (the bias is on the shape of at least "

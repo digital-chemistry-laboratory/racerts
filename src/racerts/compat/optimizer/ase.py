@@ -14,16 +14,16 @@ from typing import Any, Dict, List, Optional
 import racerts.refine
 from racerts.io import ase as ase_io
 from racerts.io.ase import write_ase_positions_to_rdkit
-from racerts.refine.parallel import (
+from racerts.system import count_electrons, infer_charge_and_multiplicity
+from racerts.utils.units import EV_TO_KCAL_MOL
+
+from .ff_optimizer import BaseOptimizer
+from .parallel import (
     OptimizationConfig,
     OptimizationTask,
     run_optimization,
     run_optimizations_in_processes,
 )
-from racerts.system import count_electrons, infer_charge_and_multiplicity
-from racerts.utils.units import EV_TO_KCAL_MOL
-
-from .ff_optimizer import BaseOptimizer
 
 __all__ = [
     "ASEOptimizer",

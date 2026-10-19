@@ -13,8 +13,6 @@ from typing import Any, Callable, Optional
 
 # (conf_id, ase.Atoms)
 OptimizationTask = tuple[int, Any]
-# (conf_id, positions, energy, converged, error); positions and energy are None on error.
-OptimizationResult = tuple[int, Any, "float | None", bool, "str | None"]
 
 
 @dataclass(frozen=True)
@@ -55,7 +53,8 @@ class Outcome:
     n_steps: int = 0
     seconds: float = 0.0
 
-    def as_tuple(self) -> OptimizationResult:
+    def as_tuple(self) -> tuple:
+        """(conf_id, positions, energy, converged, error), as legacy racerts gives it."""
         return self.conf_id, self.positions, self.energy, self.converged, self.error
 
 
@@ -150,19 +149,6 @@ def optimize_one(
     )
 
 
-def run_optimization(
-    calculator: Any,
-    config: OptimizationConfig,
-    task: OptimizationTask,
-) -> OptimizationResult:
-    """Relax one structure and return its id, positions, energy, convergence and error.
-
-    See [optimize_one][racerts.refine.optimize_one], which also returns the number of
-    steps and the time.
-    """
-    return optimize_one(calculator, config, task).as_tuple()
-
-
 def _run_worker_optimization(task: OptimizationTask) -> Outcome:
     """Relax a structure with the current worker's resident calculator."""
     if _WORKER_CONFIG is None:  # pragma: no cover - initializer contract
@@ -244,17 +230,3 @@ def _in_processes(
         initargs=(payload, is_factory, config, reference),
     ) as pool:
         return list(pool.map(_run_worker_optimization, tasks))
-
-
-def run_optimizations_in_processes(
-    tasks: list[OptimizationTask],
-    calculator: Any,
-    calculator_is_factory: bool,
-    config: OptimizationConfig,
-    num_workers: int | None,
-) -> list[OptimizationResult]:
-    """Relax conformers in spawned, single-thread-pinned worker processes."""
-    outcomes = _in_processes(
-        tasks, calculator, calculator_is_factory, config, num_workers
-    )
-    return [outcome.as_tuple() for outcome in outcomes]

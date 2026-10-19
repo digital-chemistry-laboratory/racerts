@@ -21,7 +21,7 @@ from racerts.pipeline import ConformerEnsemble
 from racerts.refine.forcefield import MMFFOptimizer, UFFOptimizer
 from racerts.refine.stage import energy_label
 from racerts.utils import seeds
-from racerts.utils.checks import is_integer
+from racerts.utils.checks import check_count, check_positive
 from racerts.validate.checks import (
     CLASH_FACTOR,
     OVERLAP_FACTOR,
@@ -119,29 +119,23 @@ class Recombine:
     ):
         positive = dict(window=window, temperature=temperature)
         positive.update(overlap_factor=overlap_factor, rmsd_threshold=rmsd_threshold)
-        for name, value in positive.items():
-            if not value > 0:
-                raise ValueError(f"{name} must be positive, not {value!r}.")
-        counts = dict(parents=(parents, 2), rounds=(rounds, 1))
+        check_positive(**positive)
+        parents = check_count("parents", parents, 2)
+        rounds = check_count("rounds", rounds)
         if children is not None:
-            counts["children"] = (children, 1)
-        for name, (value, least) in counts.items():
-            if isinstance(value, bool) or not is_integer(value) or value < least:
-                raise ValueError(
-                    f"{name} must be a number from {least}, not {value!r}."
-                )
+            children = check_count("children", children)
         if not 0 < different < 180:
             raise ValueError("different must lie between 0 and 180 degrees.")
         if not 0 < share <= 1:
             raise ValueError("share must be a probability above 0.")
         self.refine = refine_stage(refine)
         self.window = window
-        self.parents = int(parents)
+        self.parents = parents
         self.temperature = temperature
         self.different = different
         self.share = share
-        self.children = None if children is None else int(children)
-        self.rounds = int(rounds)
+        self.children = children
+        self.rounds = rounds
         self.overlap_factor = overlap_factor
         self.rmsd_threshold = rmsd_threshold
         self.include_hs = include_hs

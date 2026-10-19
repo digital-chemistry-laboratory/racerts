@@ -25,7 +25,7 @@ from racerts.refine.stage import energy_label
 from racerts.rmsd import heavy_atoms
 from racerts.system.spec import infer_charge_and_multiplicity
 from racerts.task.base import check_atom_indices
-from racerts.utils.checks import is_integer
+from racerts.utils.checks import check_count, check_positive, is_integer
 from racerts.validate.checks import CLASH_FACTOR, gate
 
 logger = logging.getLogger(__name__)
@@ -191,13 +191,10 @@ class Metadynamics:
         positive.update(friction=friction, rmsd_threshold=rmsd_threshold)
         if length is not None:
             positive["length"] = length
-        for name, value in positive.items():
-            if not value > 0:
-                raise ValueError(f"{name} must be positive, not {value!r}.")
+        check_positive(**positive)
         if length is not None and snapshot > length:
             raise ValueError("A run is shorter than the time to its first snapshot.")
-        if isinstance(rounds, bool) or not is_integer(rounds) or rounds < 1:
-            raise ValueError(f"rounds must be a positive number, not {rounds!r}.")
+        rounds = check_count("rounds", rounds)
         self.refine = refine_stage(refine)
         self.md_calculator = md_calculator
         self._md_calculator_is_factory = (
@@ -205,7 +202,7 @@ class Metadynamics:
         )
         self.runs = _strengths(runs)
         self.length = length
-        self.rounds = int(rounds)
+        self.rounds = rounds
         self.temperature = temperature
         self.deposit = deposit
         self.snapshot = snapshot

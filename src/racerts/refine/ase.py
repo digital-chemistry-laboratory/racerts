@@ -215,7 +215,15 @@ class ASEOptimizer(BaseOptimizer):
                 f"{type(self).__name__}._relax must return one Outcome for each "
                 "structure, in their order."
             )
+        return self._store(mol, outcomes)
 
+    def _store(self, mol: Chem.Mol, outcomes: List[Outcome]) -> int:
+        """
+        The outcomes of a relaxation in the conformers of mol: positions, energies
+        (kcal/mol) and provenance; a conformer whose calculation failed is left
+        without an energy, and with drop_unconverged one that did not converge is
+        removed. Returns the number of conformers that failed or did not converge.
+        """
         ensemble = ConformerEnsemble(mol)  # a view, to record the provenance
         failures = 0
         errors = {}

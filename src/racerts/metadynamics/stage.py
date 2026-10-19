@@ -6,7 +6,7 @@ from typing import Iterable, List, Optional, Sequence, Tuple, Union
 from rdkit import Chem
 
 from racerts.errors import NoConformersError
-from racerts.exploit.moves import _PLANAR, torsion_moves
+from racerts.exploit.moves import planar_bonds, torsion_moves
 from racerts.exploit.population import (
     Population,
     add_refined,
@@ -45,7 +45,7 @@ def flexibility(mol: Chem.Mol, held: Iterable[int] = ()) -> float:
     rings of MACROCYCLE or more atoms that are not planar either.
     """
     held = set(held)
-    planar = {frozenset((m[0], m[2])) for m in mol.GetSubstructMatches(_PLANAR)}
+    planar = planar_bonds(mol)
     rings = mol.GetRingInfo()
     turning, bonds = len(torsion_moves(mol, held)), 0
     for bond in mol.GetBonds():

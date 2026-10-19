@@ -7,7 +7,7 @@ from typing import Iterable, List, Mapping, Sequence, Tuple
 import numpy as np
 from rdkit import Chem
 
-from racerts.exploit.moves import _side, rotate
+from racerts.exploit.moves import rotate, turning_side
 
 
 @dataclass(frozen=True)
@@ -43,27 +43,24 @@ def torsions(mol: Chem.Mol, held: Iterable[int] = ()) -> List[Torsion]:
         ends = bond.GetBeginAtom(), bond.GetEndAtom()
         if linear in (ends[0].GetHybridization(), ends[1].GetHybridization()):
             continue
+        if 1 in (ends[0].GetAtomicNum(), ends[1].GetAtomicNum()):
+            continue
         a, b = (atom.GetIdx() for atom in ends)
-        others = [
-            sorted(
+        others = {
+            atom.GetIdx(): sorted(
                 n.GetIdx()
                 for n in atom.GetNeighbors()
                 if n.GetAtomicNum() > 1 and n.GetIdx() not in (a, b)
             )
             for atom in ends
-        ]
-        if 1 in (ends[0].GetAtomicNum(), ends[1].GetAtomicNum()) or not all(others):
+        }
+        if not all(others.values()):
             continue
-        side_a, side_b = _side(mol, b, a), _side(mol, a, b)
-        turn_a, turn_b = side_a - {a}, side_b - {b}  # a and b stay on the axis
-        if turn_a & held and turn_b & held:
+        turn = turning_side(mol, a, b, held)
+        if turn is None:
             continue
-        if turn_b & held or (not turn_a & held and len(side_a) < len(side_b)):
-            atoms = (others[1][0], b, a, others[0][0])
-            moving = turn_a
-        else:
-            atoms = (others[0][0], a, b, others[1][0])
-            moving = turn_b
+        fixed, end, moving = turn
+        atoms = (others[fixed][0], fixed, end, others[end][0])
         found.append(Torsion(atoms, tuple(sorted(moving))))
     return found
 

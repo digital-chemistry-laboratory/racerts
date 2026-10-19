@@ -14,6 +14,7 @@ from .base import (
     check_graph,
     check_n_max,
     check_threshold,
+    conformers_by_energy,
     drop_conformers_without_energy,
     symmetry_kernel,
 )
@@ -214,10 +215,7 @@ class ClusterPruner(BasePruner):
 
 def _by_energy(mol: Chem.Mol) -> List[int]:
     """Conformer ids by energy; in conformer order if an energy is missing."""
-    conformers = list(mol.GetConformers())
-    if all(c.HasProp("energy") for c in conformers):
-        conformers.sort(key=lambda c: c.GetDoubleProp("energy"))
-    return [c.GetId() for c in conformers]
+    return [conf.GetId() for conf in conformers_by_energy(mol)]
 
 
 class FamilySelector:

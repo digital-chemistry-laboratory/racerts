@@ -77,6 +77,14 @@ def symmetry_kernel(mol: Chem.Mol, graph, conf_ids, atoms, **limits) -> Symmetri
     return SymmetricRMSD(source, atoms, reference=reference, **limits)
 
 
+def conformers_by_energy(mol: Chem.Mol) -> list:
+    """The conformers of mol by energy, or in their own order if one has no energy."""
+    conformers = list(mol.GetConformers())
+    if all(conf.HasProp("energy") for conf in conformers):
+        conformers.sort(key=lambda conf: conf.GetDoubleProp("energy"))
+    return conformers
+
+
 def drop_conformers_without_energy(mol: Chem.Mol) -> None:
     """
     Remove conformers without a finite 'energy' property, e.g. from failed

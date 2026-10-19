@@ -16,6 +16,7 @@ from racerts import prune
 from racerts.prune import BasePruner
 from racerts.prune.base import (
     check_threshold,
+    conformers_by_energy,
     drop_conformers_without_energy,
     symmetry_source,
 )
@@ -135,15 +136,7 @@ class RMSDPruner(prune.RMSDPruner):
         The conformers of mol sorted by energy, or in their own order if any of them
         has no energy.
         """
-        for conf in mol.GetConformers():
-            if not conf.HasProp("energy"):
-                return mol.GetConformers()
-
-        sorted_list = sorted(
-            mol.GetConformers(), key=lambda x: x.GetDoubleProp("energy")
-        )
-
-        return sorted_list
+        return conformers_by_energy(mol)
 
     def _by_energy(self, mol):
         return self.get_sorted_conf_energy(mol)

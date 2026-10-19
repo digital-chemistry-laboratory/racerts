@@ -11,6 +11,7 @@ from .base import (
     BasePruner,
     check_graph,
     check_threshold,
+    conformers_by_energy,
     drop_conformers_without_energy,
     symmetry_kernel,
 )
@@ -99,10 +100,7 @@ class RMSDPruner(BasePruner):
 
     def _by_energy(self, mol):
         """The conformers by energy, or in their own order if one of them has none."""
-        conformers = mol.GetConformers()
-        if not all(conf.HasProp("energy") for conf in conformers):
-            return conformers
-        return sorted(conformers, key=lambda conf: conf.GetDoubleProp("energy"))
+        return conformers_by_energy(mol)
 
     def _distinct(self, mol, conf_ids) -> set:
         """

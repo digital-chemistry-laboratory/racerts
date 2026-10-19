@@ -128,26 +128,11 @@ class DistanceGeometryEmbedder(BaseEmbedder):
         """
         return False
 
-    def embed(
-        self,
-        mol: Chem.Mol,
-        reference: Optional[Chem.Mol],
-        frozen: FrozenSet,
-        n: int,
-        restraints: Sequence = (),
-    ):
+    def _parameters(self, mol, reference, frozen, restraints):
         """
-        Add n conformers to mol with the frozen atoms at the reference positions and
-        the distances of the restraints (DistanceRestraint) in their windows.
+        RDKit's parameters of the embedding of mol, with what keeps the frozen atoms in
+        place and the windows of the restraints (_configure).
         """
-        if not isinstance(mol, Chem.rdchem.Mol):
-            raise TypeError("Embedding: input for embedding is not a molecule!")
-        if self.randomSeed == 0 and not self.sequential_seeds and n > 1:
-            logger.warning(
-                "With randomSeed 0 all conformers are identical (RDKit seeds conformer "
-                "i with (i + 1) * seed): use another seed, or sequential seeds."
-            )
-
         params = AllChem.ETKDGv3() if self.etkdg else AllChem.EmbedParameters()
         params.verbose = self.verbose
         params.ETversion = self.ETversion
@@ -179,7 +164,29 @@ class DistanceGeometryEmbedder(BaseEmbedder):
             "" if self.useRandomCoords else "not ",
         )
         params.useRandomCoords = self.useRandomCoords
+        return params
 
+    def embed(
+        self,
+        mol: Chem.Mol,
+        reference: Optional[Chem.Mol],
+        frozen: FrozenSet,
+        n: int,
+        restraints: Sequence = (),
+    ):
+        """
+        Add n conformers to mol with the frozen atoms at the reference positions and
+        the distances of the restraints (DistanceRestraint) in their windows.
+        """
+        if not isinstance(mol, Chem.rdchem.Mol):
+            raise TypeError("Embedding: input for embedding is not a molecule!")
+        if self.randomSeed == 0 and not self.sequential_seeds and n > 1:
+            logger.warning(
+                "With randomSeed 0 all conformers are identical (RDKit seeds conformer "
+                "i with (i + 1) * seed): use another seed, or sequential seeds."
+            )
+
+        params = self._parameters(mol, reference, frozen, restraints)
         requested = 0  # conformers requested so far, the offset of sequential seeds
         original = Chem.Mol(mol)  # the graph with its chiral tags
 

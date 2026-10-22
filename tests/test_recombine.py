@@ -179,11 +179,15 @@ def test_the_combination_that_no_parent_has():
     assert all("route" not in out.provenance(i) for i in (0, 1))
     stats = stage.stats
     # Two parents that differ in two torsions: three children of each as the first.
-    assert (stats["children"], stats["refined"], stats["torsions"]) == (6, 6, 4)
+    assert (stats["children"], stats["optimizations"], stats["torsions"]) == (6, 6, 4)
     assert (stats["accepted"], stats["refound"], stats["rejected"]) == (2, 4, 0)
     assert (stats["rounds"], stats["stop"]) == (1, "rounds")  # it found a lower one
     hits = [out.provenance(i)["cross_hits"] for i in out.conf_ids]
     assert hits == [1, 1, 2, 2]  # each parent once, each new one twice
+    # as Exploit's: the members within 3 kcal/mol found once, per observation there
+    low = [i for i in out.conf_ids if out.energy(i) <= min(out.energies()) + 3.0]
+    once = sum(out.provenance(i)["cross_hits"] == 1 for i in low)
+    assert stats["missing_mass"] == pytest.approx(once / stats["observations"], 1e-3)
 
     # -- no child twice: second parents that agree in the torsions taken give one child.
     # One torsion taken each; all-anti takes torsion 0 (gauche) from either of the others,

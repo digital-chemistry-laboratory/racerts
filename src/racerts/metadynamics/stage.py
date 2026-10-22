@@ -11,6 +11,7 @@ from racerts.exploit.moves import planar_bonds, torsion_moves
 from racerts.exploit.population import (
     Population,
     add_refined,
+    discovery,
     found_lower,
     has_ase_refiner,
     held_atoms,
@@ -140,9 +141,11 @@ class Metadynamics:
     mtd_round, mtd_run, mtd_k, mtd_alpha and mtd_time (ps) for accepted conformers,
     which keep their parent's reference, active-bond targets and batch; mtd_hits
     (the snapshots that ended in it) for every member. stats holds the numbers of
-    the last call: rounds, runs, steps, snapshots, refined, accepted, refound,
-    rejected, length (of a run, ps), containment (the largest radius of the
-    containment restraints of the dynamics, or None) and stop.
+    the last call: rounds, runs, steps, snapshots, optimizations (the refined
+    snapshots), observations, accepted, refound, rejected, missing_mass and
+    completeness (as for Exploit, of the minima within 3 kcal/mol), length (of a run,
+    ps), containment (the largest radius of the containment restraints of the
+    dynamics, or None) and stop.
 
     Args:
         refine: A Refine stage, or an optimizer for one (Refine(optimizer,
@@ -229,8 +232,8 @@ class Metadynamics:
         self.stats: dict = {}
 
     def run(self, ctx, ensemble: ConformerEnsemble) -> ConformerEnsemble:
-        counts = dict(rounds=0, runs=0, steps=0, snapshots=0, refined=0)
-        counts.update(accepted=0, refound=0, rejected=0)
+        counts = dict(rounds=0, runs=0, steps=0, snapshots=0, optimizations=0)
+        counts.update(observations=0, accepted=0, refound=0, rejected=0)
         if not has_ase_refiner(self.refine, "Metadynamics"):
             self.stats = {**counts, "stop": "no ASE refiner"}
             return ensemble
@@ -263,7 +266,7 @@ class Metadynamics:
             )
             counts["rounds"] += 1
             counts["snapshots"] += len(snapshots)
-            counts["refined"] += len(refined)
+            counts["optimizations"] += len(refined)
             add_refined(
                 ctx, population, refined, snapshots, checks, self.rmsd_threshold, counts
             )
@@ -273,8 +276,11 @@ class Metadynamics:
 
         for conf_id in population.ids:
             ensemble.add_provenance(conf_id, mtd_hits=population.hits[conf_id])
+        missing, completeness = discovery(population, counts)
         self.stats = {**counts, "length": round(length, 3)}
         self.stats.update(containment=self._radius, stop=stop)
+        self.stats.update(missing_mass=round(missing, 4))
+        self.stats.update(completeness=round(completeness, 3))
         logger.info(
             "Metadynamics: %d rounds of %d runs of %.1f ps (%d steps), %d snapshots, "
             "%d refined, %d new conformers, %d found again, %d rejected; stopped (%s).",
@@ -283,7 +289,7 @@ class Metadynamics:
             length,
             counts["steps"],
             counts["snapshots"],
-            counts["refined"],
+            counts["optimizations"],
             counts["accepted"],
             counts["refound"],
             counts["rejected"],

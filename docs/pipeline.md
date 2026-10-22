@@ -296,8 +296,9 @@ print(search.stats)
 New conformers record `route="mtd"`, `parent` (the conformer their run started from),
 `mtd_round`, `mtd_run`, `mtd_k`, `mtd_alpha` and `mtd_time` (ps); every conformer
 records `mtd_hits`, the snapshots that ended in it. `stats` has the numbers of the last
-call: `rounds`, `runs`, `steps`, `snapshots`, `refined`, `accepted`, `refound`,
-`rejected`, the `length` of a run and `stop`.
+call: `rounds`, `runs`, `steps`, `snapshots`, `optimizations`, `observations`,
+`accepted`, `refound`, `rejected`, `missing_mass` and `completeness` (as for `Exploit`,
+of the minima within 3 kcal/mol), the `length` of a run, `containment` and `stop`.
 
 ### Recombine
 
@@ -339,8 +340,8 @@ The conformers must carry the energies of the stage's refiner, as for `Exploit`.
 conformers record `route="cross"`, `parents` (the first and the second), `cross_torsions`
 (how many were turned) and `cross_round`; every conformer records `cross_hits`, the
 children that ended in it. `stats` has the numbers of the last call: `rounds`, `parents`,
-`torsions`, `children`, `overlapping`, `refined`, `accepted`, `refound`, `rejected` and
-`stop` (`"rounds"` if the last round still found a lower conformer, `"nothing lower"`,
+`torsions`, `children`, `overlapping`, `optimizations`, `observations`, `accepted`,
+`refound`, `rejected`, `missing_mass`, `completeness` (as for `Exploit`) and `stop` (`"rounds"` if the last round still found a lower conformer, `"nothing lower"`,
 or why nothing was made). The same seed gives the same children.
 
 ## Independent runs

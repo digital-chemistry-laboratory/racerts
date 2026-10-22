@@ -253,7 +253,9 @@ pruner with the legacy ones is `racerts.pruner.RMSDPruner`.
   restraints keep fragments that nothing holds near the core.
 - Each run draws from the seed of the context; the provenance names the round, the run,
   its strength and the conformer it started from, and `stats` counts rounds, runs, steps,
-  snapshots, refined, accepted, found again and rejected, and says why the search stopped.
+  snapshots, optimizations, accepted, found again and rejected, and says why the search
+  stopped. Metadynamics and Recombine report the missing mass and the completeness as
+  Exploit does (`racerts.exploit.population.discovery`), with the same keys.
 
 #### Recombine
 

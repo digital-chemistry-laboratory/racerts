@@ -180,9 +180,14 @@ def test_the_search_on_a_diol():
         assert provenance["mtd_hits"] >= 1
     stats = search.stats
     assert (stats["runs"], stats["steps"], stats["snapshots"]) == (3, 4500, 45)
-    assert stats["refined"] == 45 and stats["rounds"] == 1 and stats["length"] == 3.0
-    assert stats["accepted"] == len(out) - 1
+    assert stats["optimizations"] == 45 and stats["rounds"] == 1
+    assert stats["length"] == 3.0 and stats["accepted"] == len(out) - 1
     assert stats["accepted"] + stats["refound"] + stats["rejected"] == 45
+    # as Exploit's: the members within 3 kcal/mol found once, per observation there
+    low = [i for i in out.conf_ids if out.energy(i) <= min(out.energies()) + 3.0]
+    once = sum(out.provenance(i)["mtd_hits"] == 1 for i in low)
+    assert stats["missing_mass"] == pytest.approx(once / stats["observations"], 1e-3)
+    assert 0 < stats["completeness"] <= 1
     hits = sum(out.provenance(i)["mtd_hits"] for i in out.conf_ids)
     assert hits == stats["accepted"] + stats["refound"]
 
@@ -534,7 +539,7 @@ def test_the_calculators_and_what_the_stage_needs(caplog):
         Counted.calls = 0
         search = Metadynamics(optimizer, md_calculator=md_calculator, **few)
         out = search.run(ctx, ensemble)
-        assert search.stats["snapshots"] == 2 == search.stats["refined"]
+        assert search.stats["snapshots"] == 2 == search.stats["optimizations"]
         assert 2 <= Counted.calls < 10  # the refinements only
         assert out.energy_method == "MMFF94"
 

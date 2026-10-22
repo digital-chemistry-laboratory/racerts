@@ -9,6 +9,7 @@ import numpy as np
 from racerts.exploit.population import (
     Population,
     add_refined,
+    discovery,
     found_lower,
     held_atoms,
     lowest_by_bin,
@@ -73,8 +74,10 @@ class Recombine:
     reference, the active-bond targets and the batch of their first parent;
     cross_hits (the children that ended in it) for every member. stats holds the
     numbers of the last call: rounds, parents and torsions (of the last round),
-    children, overlapping, refined, accepted, refound, rejected and stop ("rounds",
-    "nothing lower", or why nothing was made).
+    children, overlapping, optimizations (the refined children), observations,
+    accepted, refound, rejected, missing_mass and completeness (as for Exploit, of the
+    minima within 3 kcal/mol) and stop ("rounds", "nothing lower", or why nothing was
+    made).
 
     Args:
         refine: A Refine stage, or an optimizer for one (Refine(optimizer,
@@ -144,7 +147,8 @@ class Recombine:
 
     def run(self, ctx, ensemble: ConformerEnsemble) -> ConformerEnsemble:
         counts = dict(rounds=0, parents=0, torsions=0, children=0, overlapping=0)
-        counts.update(refined=0, accepted=0, refound=0, rejected=0)
+        counts.update(optimizations=0, observations=0, accepted=0, refound=0)
+        counts.update(rejected=0)
         if not len(ensemble):
             self.stats = {**counts, "stop": "no conformers"}
             return ensemble
@@ -184,7 +188,7 @@ class Recombine:
             refined = refine_candidates(ctx, ensemble, made, self.refine, "Recombine")
             counts["rounds"] += 1
             counts["children"] += len(made)
-            counts["refined"] += len(refined)
+            counts["optimizations"] += len(refined)
             add_refined(
                 ctx, population, refined, made, checks, self.rmsd_threshold, counts
             )
@@ -194,7 +198,9 @@ class Recombine:
 
         for conf_id in population.ids:
             ensemble.add_provenance(conf_id, cross_hits=population.hits[conf_id])
-        self.stats = {**counts, "stop": stop}
+        missing, completeness = discovery(population, counts)
+        self.stats = {**counts, "stop": stop, "missing_mass": round(missing, 4)}
+        self.stats.update(completeness=round(completeness, 3))
         logger.info(
             "Recombine: %d rounds, %d torsions, %d parents in the last round; %d "
             "children (%d more with overlapping atoms), %d refined, %d new "
@@ -204,7 +210,7 @@ class Recombine:
             counts["parents"],
             counts["children"],
             counts["overlapping"],
-            counts["refined"],
+            counts["optimizations"],
             counts["accepted"],
             counts["refound"],
             counts["rejected"],

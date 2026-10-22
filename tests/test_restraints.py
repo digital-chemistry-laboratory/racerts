@@ -606,6 +606,17 @@ def test_hint_batches(sn2_ts_water):
     )
     assert {r.stage for r in restraints} == {"embed"}
     assert RestraintSet(restraints).for_stage("refine") == []
+    assert {(r.lower, r.upper) for r in restraints} == {(1.7, 2.3)}
+
+    # -- the window of the hints is a setting
+    diol = Chem.AddHs(Chem.MolFromSmiles("OCCCCCCCO"))
+    narrow = build_restraints(diol, hints=True, hint_window=(1.8, 2.1))
+    assert {(r.lower, r.upper) for r in narrow} == {(1.8, 2.1)}
+    settings = {"restraints": {"hints": True, "hint_window": [1.8, 2.1]}}
+    built = PipelineConfig.from_dict(settings).restraints.build(
+        diol, racerts.FrozenSet()
+    )
+    assert {(r.lower, r.upper) for r in built} == {(1.8, 2.1)}
 
     # -- the combined hint batch is checked with the frozen atoms
     # Each hint fits alone with the frozen core; together they fit only without it.

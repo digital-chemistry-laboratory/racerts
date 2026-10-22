@@ -345,6 +345,8 @@ def test_new_settings_are_checked(section, settings, message):
         ({"user": [[0, 6.5, 4.6]]}, "restraints.user"),
         ({"contacts": [["a", 1]]}, "restraints.contacts"),
         ({"fragment_links": [[0, True]]}, "restraints.fragment_links"),
+        ({"hint_window": [2.3, 1.7]}, "restraints.hint_window"),
+        ({"hint_window": [1.7]}, "restraints.hint_window"),
     ],
 )
 def test_restraint_items_are_checked_when_the_config_is_made(restraints, message):

@@ -123,7 +123,7 @@ pruner with the legacy ones is `racerts.pruner.RMSDPruner`.
   with the neighbours that fix their orientation (`--contact`), the closest contact between
   fragments (`--keep-fragments`), links between the fragments of a ground-state complex
   (`--link-fragments`), and hints: candidate hydrogen bonds from the graph, each tried in its
-  own share of the conformers (`--hints`).
+  own share of the conformers (`--hints`; the H...acceptor window `hint_window`).
 - `restraints.fraction`: each embedding batch takes the restraints of the reference with
   this probability, so biased and unbiased conformers come in one ensemble; the summary
   of the ensemble counts both.

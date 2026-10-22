@@ -36,7 +36,7 @@ from racerts.refine import REFINE_BACKENDS, Refine
 from racerts.refine.forcefield import DIELECTRIC_MODELS
 from racerts.restraints import build_restraints
 from racerts.restraints.model import DEFAULT_FORCE_CONSTANT, DEFAULT_HALF_WIDTH
-from racerts.restraints.sources import LINK_SEED, MAX_HINTS
+from racerts.restraints.sources import HINT_WINDOW, LINK_SEED, MAX_HINTS
 from racerts.system.roles import ROLE_OVERRIDES
 from racerts.task import Task
 from racerts.utils.checks import is_integer
@@ -52,6 +52,7 @@ from racerts.utils.validators import (
     number,
     positive,
     to_bool,
+    to_float,
 )
 from racerts.validate import AttackFace, Connectivity, Validate
 
@@ -230,6 +231,22 @@ def _restraint_items(size: int):
     return field(factory=list, converter=_as_lists, validator=check)
 
 
+def _window(value):
+    """A window [lower, upper] (A) as two floats; other values are left to its check."""
+    if isinstance(value, (list, tuple)) and len(value) == 2:
+        return [to_float(x) for x in value]
+    return value
+
+
+def _is_window(window) -> bool:
+    return (
+        isinstance(window, list)
+        and len(window) == 2
+        and all(isinstance(x, float) for x in window)
+        and 0 < window[0] < window[1]
+    )
+
+
 def _roles(roles) -> dict:
     """{atom: role} with integer atoms (JSON and YAML keys can be strings)."""
     if not isinstance(roles, dict):
@@ -271,7 +288,7 @@ class RestraintConfig:
             embedding-only windows, used in a share hint_share of the conformers. A
             hint that gives no conformer within hint_attempts RDKit attempts per
             conformer is dropped (see [Embed][racerts.embed.Embed]); 0: RDKit's own
-            limit.
+            limit. hint_window: the window of a hint's H...acceptor distance (A).
         contain: Radius (A) of a containment restraint for every fragment that no
             restraint anchors (e.g. a counterion near the core); 0: none.
         fraction: The probability with which an embedding batch takes each restraint
@@ -297,6 +314,11 @@ class RestraintConfig:
         DEFAULT_HINT_SHARE, must(lambda share: 0 <= share <= 1, "be between 0 and 1")
     )
     hint_attempts: int = integer(HINT_ATTEMPTS, non_negative)
+    hint_window: list = field(
+        factory=lambda: list(HINT_WINDOW),
+        converter=_window,
+        validator=must(_is_window, "be a window [lower, upper] with 0 < lower < upper"),
+    )
     contain: float = number(
         0.0, must(lambda radius: radius >= 0, "be a radius >= 0 (0: none)")
     )
@@ -331,6 +353,7 @@ class RestraintConfig:
             seed=seed,
             hints=self.hints,
             max_hints=self.max_hints,
+            hint_window=tuple(self.hint_window),
             contain=self.contain,
         )
 

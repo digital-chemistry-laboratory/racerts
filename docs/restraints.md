@@ -30,7 +30,7 @@ ensemble = racerts.generate_ts("sn2_water.xyz", [0, 1, 2], charge=-1,
 | `link_fragments` | false | links chosen to join every fragment (user pairs between fragments, then charged pairs, then the least buried atoms) |
 | `half_width` | 0.25 | of the `user`, `hbonds`, `contacts` and `keep_fragments` windows |
 | `force_constant` | 20.0 | of all these windows and of the fragment links |
-| `hints`, `max_hints`, `hint_share`, `hint_attempts` | false, 8, 0.3, 20 | see [Hints](#hints) |
+| `hints`, `max_hints`, `hint_share`, `hint_attempts`, `hint_window` | false, 8, 0.3, 20, [1.7, 2.3] | see [Hints](#hints) |
 | `fraction` | 1 | see [Biased and unbiased conformers](#biased-and-unbiased-conformers-in-one-ensemble) |
 | `contain`, `roles` | 0, none | see [Fragment roles and containment](#fragment-roles-and-containment) |
 

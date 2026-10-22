@@ -1,7 +1,7 @@
 """build_restraints: the restraints of a task from the user and the reference."""
 
 import logging
-from typing import Iterable, Optional, Sequence
+from typing import Iterable, Optional, Sequence, Tuple
 
 from rdkit import Chem
 
@@ -33,6 +33,7 @@ def build_restraints(
     hints: bool = False,
     max_hints: int = sources.MAX_HINTS,
     contain: float = 0.0,
+    hint_window: Tuple[float, float] = sources.HINT_WINDOW,
 ) -> RestraintSet:
     """
     The distance restraints for mol, which carries the reference geometry if a source
@@ -62,6 +63,7 @@ def build_restraints(
             hint_share).
         contain: Radius (A) of a containment restraint (racerts.system.roles.
             containment) for every fragment that no other restraint anchors; 0: none.
+        hint_window: The window of the hints' H...acceptor distances (A).
 
     User restraints win over generated ones for the same pair (two user restraints
     for one pair must be equal); of two generated ones the later source wins.
@@ -111,7 +113,7 @@ def build_restraints(
         taken = {r.pair for r in restraints}
         candidates = RestraintSet(
             DistanceRestraint(h, a, lower, upper, stage="embed", source="hint")
-            for h, a, lower, upper in sources.graph_hints(mol, max_hints=max_hints)
+            for h, a, lower, upper in sources.graph_hints(mol, max_hints, hint_window)
             if (min(h, a), max(h, a)) not in taken and not (h in hard and a in hard)
         )
         for hint in consistent_restraints(

@@ -580,3 +580,40 @@ def test_a_window_between_two_placed_atoms_is_said_to_wait_for_refinement(caplog
     assert f"{apart:.2f} A apart" in caplog.text and caplog.text.count("user:0-3") == 1
     embed(apart - 0.2, apart + 0.2)  # a window that holds the reference: nothing to say
     assert "user:0-3" not in caplog.text
+
+
+def test_etkdg_with_held_atoms_out_of_plane():
+    from racerts.system import build_mol
+    from racerts.validate import FrozenCore
+
+    from .conftest import DATA
+
+    sp2, sp3 = Chem.HybridizationType.SP2, Chem.HybridizationType.SP3
+    reacting = [0, 10, 11, 12, 19]
+    aldol = build_mol(
+        f"{DATA}/aldol_ts.xyz",
+        0,
+        reacting,
+        input_smiles=["OC(=O)[C@@H]1CCCN1C(C)=C", "O=Cc1ccccc1"],
+    )
+    task = racerts.TransitionState(reacting)
+    ctx = racerts.Context.create(aldol, task)
+
+    # -- the forming C-C bond pulls its carbons out of plane (21 and 24 degrees), which
+    # the graph types sp2: the embedding takes them as sp3, the planar ones stay sp2
+    assert dg.held_hybridization(ctx.mol, ctx.reference, ctx.frozen) == {
+        10: sp3,
+        12: sp3,
+    }
+    assert ctx.mol.GetAtomWithIdx(8).GetHybridization() == sp2  # 7 degrees: kept
+
+    # -- so ETKDG embeds the TS, the held atoms at the reference; with the planarity of
+    # sp2 atoms every attempt failed after RDKit's minimization of its terms
+    config = PipelineConfig(embed=EmbedConfig(etkdg=True, n_conformers=5))
+    ensemble = racerts.generate(aldol, task, config=config)
+    assert len(ensemble) > 0  # distinct after pruning; NoConformersError before
+    assert FrozenCore(0.05).validate(ctx, ensemble) == {}
+
+    # -- the graph keeps its own types for everything after the embedding
+    types = [atom.GetHybridization() for atom in ensemble.mol.GetAtoms()]
+    assert types == [atom.GetHybridization() for atom in aldol.GetAtoms()]

@@ -1,8 +1,9 @@
 """Distance-geometry embedders: coordinate map (CmapEmbedder) or bounds matrix."""
 
 import logging
-from typing import List, Optional, Sequence, Union
+from typing import Dict, List, Optional, Sequence, Union
 
+import numpy as np
 from rdkit import Chem
 from rdkit.Chem import AllChem
 from rdkit.Chem.AllChem import EmbedMultipleConfs  # type: ignore
@@ -36,6 +37,47 @@ CHIRALITY_FALLBACKS = (True, False, *CHIRALITY_FALLBACK_MODES)  # True: "legacy"
 # With restraints, ETKDG weights the distance bounds this much against its torsion
 # terms (RDKit's boundsMatForceScaling; 1.0 without restraints).
 RESTRAINT_BOUNDS_WEIGHT = 100.0
+# Degrees: a held sp2 atom further out of the plane of its three neighbours, or a held
+# sp atom bent by more, is embedded with ETKDG as what its reference geometry is.
+PLANAR_TOLERANCE = 10.0
+LINEAR_TOLERANCE = 20.0
+_SP, _SP2, _SP3 = (
+    Chem.HybridizationType.SP,
+    Chem.HybridizationType.SP2,
+    Chem.HybridizationType.SP3,
+)
+
+
+def held_hybridization(
+    mol: Chem.Mol, reference: Chem.Mol, frozen: FrozenSet
+) -> Dict[int, Chem.HybridizationType]:
+    """
+    {atom: hybridization} for the hard atoms whose type asks for a geometry that the
+    reference does not have: sp3 for an sp2 atom with three neighbours that is more than
+    PLANAR_TOLERANCE out of their plane (the mean of its three Wilson angles), sp2 for
+    an sp atom bent by more than LINEAR_TOLERANCE. The reacting atoms of a TS are like
+    this: the forming and breaking bonds pull them out of plane.
+    """
+    positions = reference.GetConformer().GetPositions()
+    found = {}
+    for i in frozen.hard:
+        atom = mol.GetAtomWithIdx(i)
+        bonds = [positions[n.GetIdx()] - positions[i] for n in atom.GetNeighbors()]
+        bonds = [b / np.linalg.norm(b) for b in bonds]
+        if atom.GetHybridization() == _SP2 and len(bonds) == 3:
+            angles = []
+            for k in range(3):
+                normal = np.cross(bonds[k - 2], bonds[k - 1])
+                size = np.linalg.norm(normal)
+                if size > 1e-6:
+                    angles.append(np.arcsin(min(1.0, abs(normal @ bonds[k]) / size)))
+            if angles and np.degrees(np.mean(angles)) > PLANAR_TOLERANCE:
+                found[i] = _SP3
+        elif atom.GetHybridization() == _SP and len(bonds) == 2:
+            angle = np.degrees(np.arccos(np.clip(bonds[0] @ bonds[1], -1.0, 1.0)))
+            if 180.0 - angle > LINEAR_TOLERANCE:
+                found[i] = _SP2
+    return found
 
 
 class DistanceGeometryEmbedder(BaseEmbedder):
@@ -177,9 +219,34 @@ class DistanceGeometryEmbedder(BaseEmbedder):
         """
         Add n conformers to mol with the frozen atoms at the reference positions and
         the distances of the restraints (DistanceRestraint) in their windows.
+
+        ETKDG holds sp2 atoms planar and sp atoms linear, which hard atoms whose
+        reference geometry is not (held_hybridization) cannot follow: every attempt
+        would fail. They are embedded with the type of their geometry; mol keeps its
+        own types.
         """
         if not isinstance(mol, Chem.rdchem.Mol):
             raise TypeError("Embedding: input for embedding is not a molecule!")
+        retyped = {}
+        if self.etkdg and reference is not None and frozen.hard:
+            for i, hybridization in held_hybridization(mol, reference, frozen).items():
+                atom = mol.GetAtomWithIdx(i)
+                retyped[i] = atom.GetHybridization()
+                atom.SetHybridization(hybridization)
+            if retyped:
+                logger.info(
+                    "ETKDG: the held atoms %s are embedded with the hybridization of "
+                    "their reference geometry.",
+                    sorted(retyped),
+                )
+        try:
+            return self._embed_conformers(mol, reference, frozen, n, restraints)
+        finally:
+            for i, hybridization in retyped.items():
+                mol.GetAtomWithIdx(i).SetHybridization(hybridization)
+
+    def _embed_conformers(self, mol, reference, frozen, n, restraints):
+        """The embedding of embed, with the types that it set."""
         if self.randomSeed == 0 and not self.sequential_seeds and n > 1:
             logger.warning(
                 "With randomSeed 0 all conformers are identical (RDKit seeds conformer "

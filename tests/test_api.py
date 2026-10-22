@@ -34,6 +34,19 @@ def test_the_entry_points(hept_1_ene_ts):
     }
     assert ensemble.mol.GetIntProp("charge") == 0
 
+    # -- or from a task, with its settings, instead of the keywords for them
+    task = racerts.TransitionState([3, 4, 5], frozen_atoms=[2, 3, 4, 5, 6])
+    by_task = racerts.generate_ts(EX, smiles="CCCCCC=C", config=SMALL, task=task)
+    by_keywords = racerts.generate_ts(
+        EX, [3, 4, 5], smiles="CCCCCC=C", frozen_atoms=[2, 3, 4, 5, 6], config=SMALL
+    )
+    assert np.allclose(by_task.energies(), by_keywords.energies())
+    assert not np.allclose(by_task.energies()[:3], ensemble.energies()[:3])
+    with pytest.raises(ValueError, match="the task or its settings"):
+        racerts.generate_ts(EX, [3, 4, 5], task=task, stratify=3)
+    with pytest.raises(ValueError, match="reacting atoms or a task"):
+        racerts.generate_ts(EX)
+
     # -- ground state conformers without a reference
     config = PipelineConfig(seed=3, embed={"n_conformers": 30})
     ensemble = racerts.generate_gs("CCCCCC=C", config=config)

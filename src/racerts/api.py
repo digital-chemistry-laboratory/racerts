@@ -167,7 +167,7 @@ def _same_conformers(a: ConformerEnsemble, b: ConformerEnsemble) -> bool:
 
 def generate_ts(
     file_name: str,
-    reacting_atoms: Sequence[int],
+    reacting_atoms: Optional[Sequence[int]] = None,
     charge: int = 0,
     smiles: Union[str, Sequence[str], None] = None,
     multiplicity: Optional[int] = None,
@@ -181,7 +181,8 @@ def generate_ts(
     active_window=None,
     active_bonds: Optional[Sequence[Sequence[int]]] = None,
     stratify: Optional[int] = None,
-    neighbor_window: float = 0.10,
+    neighbor_window: Optional[float] = None,
+    task: Optional[TransitionState] = None,
 ) -> ConformerEnsemble:
     """
     A TS conformer ensemble from a TS geometry (xyz or sdf/mol file), with the reacting
@@ -208,7 +209,28 @@ def generate_ts(
         active_window, active_bonds, stratify, neighbor_window: Sample the lengths
             of the forming bonds in a window (see
             [TransitionState][racerts.task.TransitionState]).
+        task: The TransitionState itself, in place of reacting_atoms, frozen_atoms
+            and the settings of the window.
     """
+    settings = dict(
+        reacting_atoms=reacting_atoms,
+        frozen_atoms=frozen_atoms,
+        active_window=active_window,
+        active_bonds=active_bonds,
+        stratify=stratify,
+        neighbor_window=neighbor_window,
+    )
+    if task is not None:
+        given = [name for name, value in settings.items() if value is not None]
+        if given:
+            raise ValueError(
+                f"Give the task or its settings, not both ({', '.join(given)})."
+            )
+    elif reacting_atoms is None:
+        raise ValueError("generate_ts needs the reacting atoms or a task.")
+    else:
+        settings = {k: v for k, v in settings.items() if v is not None}
+        task = TransitionState(**settings)
     if isinstance(smiles, str):
         smiles = [smiles]
     config = config if config is not None else PipelineConfig()
@@ -218,7 +240,7 @@ def generate_ts(
         mol = build_mol(
             file_name,
             charge,
-            list(reacting_atoms),
+            list(task.reacting_atoms),
             input_smiles=list(smiles) if smiles else None,
             mol_getter=mol_getter,
             auto_fallback=auto_fallback,
@@ -227,14 +249,7 @@ def generate_ts(
         raise MoleculeError(f"No valid mol object could be generated from {file_name}.")
     return generate(
         mol,
-        TransitionState(
-            reacting_atoms,
-            frozen_atoms,
-            active_bonds=active_bonds,
-            active_window=active_window,
-            neighbor_window=neighbor_window,
-            stratify=stratify,
-        ),
+        task,
         config=config,
         pipeline=pipeline,
         charge=charge,

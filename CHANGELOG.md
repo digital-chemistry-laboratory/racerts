@@ -81,7 +81,8 @@ pruner with the legacy ones is `racerts.pruner.RMSDPruner`.
 
 - `TransitionState(reacting_atoms, frozen_atoms=None, ...)`: the reacting atoms and their
   neighbours frozen, as legacy racerts; `TransitionState.from_endpoints(reactant, product)`
-  finds the reacting atoms from the bonds that change; `remap` for new atom indices.
+  finds the reacting atoms from the bonds that change; `remap` for new atom indices;
+  `generate_ts(file, task=...)` takes one in place of its keywords.
 - `GroundState()`: nothing frozen, ETKDGv3, stereocentres kept; a graph with radical
   electrons gets the multiplicity 1 + their number.
 - `Constrained(hard=, soft=, core=)` and `FrozenSet`: hard atoms stay at the reference, soft

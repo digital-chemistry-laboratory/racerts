@@ -11,7 +11,6 @@ from ase import units
 from ase.calculators.calculator import Calculator, all_changes
 from ase.constraints import FixAtoms
 from ase.md.langevin import Langevin
-from ase.md.velocitydistribution import MaxwellBoltzmannDistribution
 
 from racerts.refine.parallel import (
     _calculator_payload,
@@ -19,6 +18,14 @@ from racerts.refine.parallel import (
     pin_to_single_thread,
 )
 from racerts.utils import seeds
+
+try:
+    from ase.md.velocitydistribution import thermalize_momenta
+except ImportError:  # ASE < 3.29: the same draws under the older name
+    from ase.md.velocitydistribution import MaxwellBoltzmannDistribution
+
+    def thermalize_momenta(atoms, temperature_K, *, rng=None):
+        MaxwellBoltzmannDistribution(atoms, temperature_K=temperature_K, rng=rng)
 
 
 def bias_terms(positions, references, k: float, alpha: float):
@@ -167,7 +174,7 @@ def _start(atoms, calculator, config, k_per_atom, alpha, stream):
     )
     atoms.calc = bias
     rng = _Normal(stream)
-    MaxwellBoltzmannDistribution(atoms, temperature_K=config.temperature, rng=rng)
+    thermalize_momenta(atoms, config.temperature, rng=rng)
     dynamics = Langevin(
         atoms,
         config.time_step * units.fs,

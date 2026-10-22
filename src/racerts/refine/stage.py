@@ -146,15 +146,10 @@ class Refine:
         if self.anchors and self.stereo_anchors and ctx.reference is not None:
             extra = [i for i in stereo_anchors(ctx.mol, ctx.frozen) if i not in anchors]
             anchors = (*anchors, *extra)
-        restraints = ctx.restraints.for_stage("refine")
-        if not self.restraints:  # only what the task itself holds
-            restraints = [r for r in restraints if r.source in WINDOW_SOURCES]
         released = not self.anchors and getattr(ctx.task, "windowed", False)
-        if released:
-            restraints = [r for r in restraints if r.source not in WINDOW_SOURCES]
         # soft atoms are held at the reference conformer the optimizer aligns on
         conf_id_ref = getattr(optimizer, "conf_id_ref", -1)
-        groups = _refine_groups(ctx, ensemble, restraints, conf_id_ref, not released)
+        groups = self.groups(ctx, ensemble, conf_id_ref)
         if conf_id_ref != -1 and len({id(reference) for reference, *_ in groups}) > 1:
             raise ValueError(
                 "With several references (Embed(references=...)) each conformer is "
@@ -197,6 +192,22 @@ class Refine:
                     conf_id, restraints_released=not self.restraints
                 )
         return ensemble
+
+    def groups(self, ctx, ensemble: ConformerEnsemble, conf_id_ref: int = -1) -> list:
+        """
+        What this refinement holds, as (reference, conformer ids, restraints) groups:
+        the distance restraints of the context for refinement (only the task's own
+        without restraints, without the active-bond windows when anchors are
+        released), at each conformer's active-bond targets and embedding batch, and
+        position restraints for the soft atoms of the task.
+        """
+        restraints = ctx.restraints.for_stage("refine")
+        if not self.restraints:  # only what the task itself holds
+            restraints = [r for r in restraints if r.source in WINDOW_SOURCES]
+        released = not self.anchors and getattr(ctx.task, "windowed", False)
+        if released:
+            restraints = [r for r in restraints if r.source not in WINDOW_SOURCES]
+        return _refine_groups(ctx, ensemble, restraints, conf_id_ref, not released)
 
 
 def _write_back(ensemble: ConformerEnsemble, part: ConformerEnsemble, conf_ids) -> None:

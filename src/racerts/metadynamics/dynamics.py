@@ -17,6 +17,7 @@ from racerts.refine.parallel import (
     _resolve_workers,
     pin_to_single_thread,
 )
+from racerts.refine.restrained import RestrainedCalculator
 from racerts.utils import seeds
 
 try:
@@ -28,12 +29,13 @@ except ImportError:  # ASE < 3.29: the same draws under the older name
         MaxwellBoltzmannDistribution(atoms, temperature_K=temperature_K, rng=rng)
 
 
-def bias_terms(positions, references, k: float, alpha: float):
+def bias_terms(positions, references, k: float, alpha: float, superpose: bool = True):
     """
     Energy and forces of the bias k * sum_i exp(-alpha * RMSD_i^2) at positions (n
     atoms, 3): RMSD_i is that to reference i (references: (m, n, 3), each centred)
-    after the best superposition (Kabsch, proper rotations). The units are those of
-    k and of 1 / alpha (e.g. eV and A^2).
+    after the best superposition (Kabsch, proper rotations), or with superpose False
+    that of the positions as they are (references not centred). The units are those
+    of k and of 1 / alpha (e.g. eV and A^2).
 
     The force: with x and the superposed reference r both centred, RMSD^2 = sum_j
     |x_j - r_j|^2 / n. Its derivative with respect to x_j is 2 (x_j - r_j) / n: the
@@ -42,11 +44,14 @@ def bias_terms(positions, references, k: float, alpha: float):
     (2 alpha k / n) exp(-alpha RMSD^2) (x_j - r_j), away from the reference.
     """
     x = np.asarray(positions, dtype=float)
-    x = x - x.mean(axis=0)
     references = np.asarray(references, dtype=float)
-    u, _, vt = np.linalg.svd(np.swapaxes(references, 1, 2) @ x)
-    u[:, :, 2] *= np.where(np.linalg.det(u @ vt) < 0, -1.0, 1.0)[:, None]
-    delta = x - references @ (u @ vt)
+    if superpose:
+        x = x - x.mean(axis=0)
+        u, _, vt = np.linalg.svd(np.swapaxes(references, 1, 2) @ x)
+        u[:, :, 2] *= np.where(np.linalg.det(u @ vt) < 0, -1.0, 1.0)[:, None]
+        delta = x - references @ (u @ vt)
+    else:
+        delta = x - references
     gauss = k * np.exp(-alpha * (delta**2).sum(axis=(1, 2)) / len(x))
     forces = 2.0 * alpha / len(x) * np.einsum("m,mnj->nj", gauss, delta)
     return float(gauss.sum()), forces
@@ -56,7 +61,8 @@ class BiasedCalculator(Calculator):
     """
     Another ASE calculator plus the bias of a metadynamics run (bias_terms) on the
     atoms given: every structure passed to deposit becomes a reference that pushes
-    the atoms away from it. k in eV, alpha in 1/A^2.
+    the atoms away from it. k in eV, alpha in 1/A^2. superpose: as in bias_terms;
+    False where held atoms fix the frame (frame_is_fixed).
 
     results["energy"] and results["forces"] include the bias; results["bias_energy"]
     is its part of the energy.
@@ -64,18 +70,29 @@ class BiasedCalculator(Calculator):
 
     implemented_properties = ["energy", "free_energy", "forces"]
 
-    def __init__(self, calculator, atoms: Sequence[int], k: float, alpha: float, **kw):
+    def __init__(
+        self,
+        calculator,
+        atoms: Sequence[int],
+        k: float,
+        alpha: float,
+        superpose: bool = True,
+        **kw,
+    ):
         super().__init__(**kw)
         self.calculator = calculator
         self.biased = [int(i) for i in atoms]
         self.k = k
         self.alpha = alpha
+        self.superpose = superpose
         self.references: List[np.ndarray] = []
 
     def deposit(self, positions) -> None:
         """A new reference: the biased atoms at positions (all atoms, A)."""
         chosen = np.asarray(positions, dtype=float)[self.biased]
-        self.references.append(chosen - chosen.mean(axis=0))
+        if self.superpose:
+            chosen = chosen - chosen.mean(axis=0)
+        self.references.append(chosen)
         self.reset()  # the results so far are those of the bias before
 
     def calculate(self, atoms=None, properties=("energy",), system_changes=all_changes):
@@ -85,7 +102,11 @@ class BiasedCalculator(Calculator):
         bias = 0.0
         if self.references:
             bias, pushes = bias_terms(
-                self.atoms.positions[self.biased], self.references, self.k, self.alpha
+                self.atoms.positions[self.biased],
+                self.references,
+                self.k,
+                self.alpha,
+                self.superpose,
             )
             forces[self.biased] += pushes
         self.results = {
@@ -112,6 +133,8 @@ class DynamicsConfig:
         time_step: fs.
         friction: Of the thermostat (1/fs).
         hydrogen_mass: The mass of the hydrogens (u), which allows the time step.
+        superpose: Whether the bias compares the shapes of the biased atoms (see
+            bias_terms); False where the fixed atoms fix the frame.
     """
 
     steps: int
@@ -123,6 +146,16 @@ class DynamicsConfig:
     time_step: float = 2.0
     friction: float = 0.02
     hydrogen_mass: float = 4.0
+    superpose: bool = True
+
+
+def frame_is_fixed(positions) -> bool:
+    """Whether atoms held at positions (A) fix the frame of the others: at least three
+    of them, not on a line."""
+    x = np.asarray(positions, dtype=float).reshape(-1, 3)
+    if len(x) < 3:
+        return False
+    return bool(np.linalg.svd(x - x.mean(axis=0), compute_uv=False)[1] > 0.1)
 
 
 class _Normal:
@@ -143,22 +176,24 @@ def run_dynamics(
     alpha: float,
     stream,
     snapshots=None,
+    restraints: Sequence = (),
 ) -> List[np.ndarray]:
     """
     One run from atoms (which stay as they are) on calculator: Langevin dynamics at
     constant temperature, in which the structure of every config.deposit steps
     becomes a reference of the bias, with the strength k_per_atom (mEh) times the
     number of atoms and the width alpha (1/bohr^2), as in CREST. The velocities and
-    the thermostat draw from stream (racerts.utils.seeds.Stream).
+    the thermostat draw from stream (racerts.utils.seeds.Stream). restraints: distance
+    and position restraints held as in refinement (RestrainedCalculator).
 
     Returns the positions after every config.snapshot steps; they are also appended
     to snapshots, if given, so that those of a run that fails are not lost.
     """
-    started = _start(atoms, calculator, config, k_per_atom, alpha, stream)
+    started = _start(atoms, calculator, config, k_per_atom, alpha, stream, restraints)
     return _advance(started, config, [] if snapshots is None else snapshots)
 
 
-def _start(atoms, calculator, config, k_per_atom, alpha, stream):
+def _start(atoms, calculator, config, k_per_atom, alpha, stream, restraints=()):
     """The run set up: (atoms, bias, dynamics); no calculation yet."""
     atoms = atoms.copy()
     masses = atoms.get_masses()
@@ -166,11 +201,14 @@ def _start(atoms, calculator, config, k_per_atom, alpha, stream):
     atoms.set_masses(masses)
     if config.fixed:
         atoms.set_constraint(FixAtoms(indices=list(config.fixed)))
+    if restraints:
+        calculator = RestrainedCalculator(calculator, restraints)
     bias = BiasedCalculator(
         calculator,
         config.biased,
         k_per_atom * 1e-3 * units.Hartree * len(atoms),
         alpha / units.Bohr**2,
+        config.superpose,
     )
     atoms.calc = bias
     rng = _Normal(stream)
@@ -225,6 +263,7 @@ class Run:
             (see ASEOptimizer).
         expected_errors: The exception types of a calculation that end this run
             only; any other error is raised.
+        restraints: Held in the run (see run_dynamics).
     """
 
     round: int
@@ -238,6 +277,7 @@ class Run:
     prepare: Optional[Callable[[Any, Any], None]] = None
     reference: Any = None
     expected_errors: tuple = (Exception,)
+    restraints: tuple = ()
 
 
 def _run(job) -> Tuple[List[np.ndarray], Optional[str]]:
@@ -249,7 +289,9 @@ def _run(job) -> Tuple[List[np.ndarray], Optional[str]]:
     stream = seeds.Stream(run.seed, "metadynamics", run.round, run.number)
     found: List[np.ndarray] = []
     # an error in setting the run up is no failed calculation: it is raised as it is
-    started = _start(run.atoms, calculator, config, run.k_per_atom, run.alpha, stream)
+    started = _start(
+        run.atoms, calculator, config, run.k_per_atom, run.alpha, stream, run.restraints
+    )
     try:
         _advance(started, config, found)
     except run.expected_errors as error:

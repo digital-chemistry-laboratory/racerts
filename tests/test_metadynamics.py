@@ -265,8 +265,8 @@ def test_what_the_task_holds_stays_where_it_is():
     population.bins = {i: () for i in range(6)}  # no windows: by energy alone
     assert run_starts(population) == [4, 5, 2, 3, 0, 1]
 
-    # -- nothing left to bias: one free heavy atom has no shape
-    ctx, ensemble = _start(mol, optimizer, racerts.Constrained(hard=range(8)))
+    # -- nothing left to bias: every heavy atom held
+    ctx, ensemble = _start(mol, optimizer, racerts.Constrained(hard=range(9)))
     search = Metadynamics(optimizer, runs=1, length=0.2)
     assert search.run(ctx, ensemble).conf_ids == [0]
     assert search.stats["stop"] == "nothing to bias" and search.stats["rounds"] == 0
@@ -274,6 +274,103 @@ def test_what_the_task_holds_stays_where_it_is():
 
 def _hydrogens(smiles):
     return Chem.AddHs(Chem.MolFromSmiles(smiles))
+
+
+# methanol and one water, hydrogen-bonded (O...O 2.93 A): the lowest MMFF complex that
+# racerts.generate_gs gives for "CO.O" with linked fragments
+METHANOL_WATER = [
+    (0.213, 0.675, 0.056),
+    (-0.213, -0.675, -0.056),
+    (1.955, -2.650, -0.088),
+    (0.149, 0.991, 1.100),
+    (1.249, 0.748, -0.283),
+    (-0.420, 1.309, -0.569),
+    (-1.138, -0.698, 0.252),
+    (1.248, -1.984, 0.042),
+    (1.844, -2.878, -1.023),
+]
+METHANOL, WATER = [0, 1, 3, 4, 5, 6], [2, 7, 8]
+
+
+def _methanol_water():
+    mol = _hydrogens("CO.O")
+    conf = Chem.Conformer(mol.GetNumAtoms())
+    for atom, position in enumerate(METHANOL_WATER):
+        conf.SetAtomPosition(atom, position)
+    mol.AddConformer(conf)
+    return mol
+
+
+def test_a_free_molecule_around_held_atoms():
+    from racerts.metadynamics.dynamics import frame_is_fixed
+    from racerts.restraints import DistanceRestraint
+
+    mol = _methanol_water()
+    start = mol.GetConformer().GetPositions()
+    atoms = racerts.ConformerEnsemble(mol).to_ase(0)
+
+    # -- held atoms fix the frame: the bias is on where the water is, not only on its
+    # shape, which does not change when it moves as a whole
+    shifted = start.copy()
+    shifted[WATER] += (1.0, 0.0, 0.0)
+    for superposed, expected in ((True, 1.0), (False, np.exp(-1.0))):
+        bias = BiasedCalculator(MMFFCalculator(mol), WATER, 1.0, 1.0, superposed)
+        bias.deposit(start)
+        atoms.calc = bias
+        atoms.set_positions(shifted)
+        atoms.get_potential_energy()
+        assert bias.results["bias_energy"] == pytest.approx(expected)
+    assert frame_is_fixed(start[METHANOL])
+    assert not frame_is_fixed(start[[0, 1]])  # the others can turn about two atoms
+    assert not frame_is_fixed(np.array([[0.0, 0, 0], [1.2, 0, 0], [2.6, 0, 0]]))
+
+    # -- the distance restraints that refinement holds act in the dynamics too
+    config = DynamicsConfig(
+        steps=500,
+        deposit=50,
+        snapshot=50,
+        biased=tuple(WATER),
+        fixed=tuple(METHANOL),
+        superpose=False,
+    )
+    held = DistanceRestraint(1, 2, 2.6, 3.0, force_constant=100.0)
+    longest = []
+    for restraints in ([], [held]):  # without it, the bias drives the water away
+        stream = seeds.Stream(12, "metadynamics", 0)
+        calculator = MMFFCalculator(mol)
+        snapshots = run_dynamics(
+            atoms, calculator, config, 3.0, 0.28, stream, restraints=restraints
+        )
+        longest.append(max(np.linalg.norm(x[1] - x[2]) for x in snapshots))
+    assert longest[0] > 4.5 and longest[1] < 3.6
+
+    # -- in the stage: one free heavy atom is enough to bias, the water is free, so the
+    # dynamics hold it with a containment restraint, and it ends up elsewhere
+    optimizer = _mmff(mol)
+    ctx, ensemble = _start(mol, optimizer, racerts.Constrained(hard=METHANOL))
+    search = Metadynamics(optimizer, runs=2, length=5.0)
+    assert search.biased_atoms(ctx, ensemble.mol) == [2]
+    refined = ensemble.mol.GetConformer().GetPositions()  # where the run starts
+    out = search.run(ctx, ensemble)
+    radius = search.stats["containment"]  # between the central atoms: C and O
+    assert radius == pytest.approx(np.linalg.norm(refined[0] - refined[2]) + 2.0)
+    positions = _positions(out)
+    assert len(positions) > 1
+    assert max(np.linalg.norm(x[2] - start[2]) for x in positions) > 1.5
+
+    # -- no containment when asked, or when a restraint already holds the water
+    search = Metadynamics(optimizer, runs=1, length=0.2, containment=None)
+    search.run(ctx, ensemble)
+    assert search.stats["containment"] is None
+    linked = racerts.Context.create(
+        mol,
+        racerts.Constrained(hard=METHANOL),
+        restraints=[DistanceRestraint(1, 2, 2.6, 3.4)],
+    )
+    search = Metadynamics(optimizer, runs=1, length=0.2)
+    start = racerts.ConformerEnsemble(Chem.Mol(linked.mol))
+    search.run(linked, racerts.Refine(optimizer).run(linked, start))
+    assert search.stats["containment"] is None
 
 
 def test_the_default_length_of_a_run():

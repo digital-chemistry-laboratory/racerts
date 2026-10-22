@@ -248,6 +248,9 @@ pruner with the legacy ones is `racerts.pruner.RMSDPruner`.
 - The dynamics run on `md_calculator` (any ASE calculator, usually of a cheaper method) or
   on the calculator of the refinement, with the atoms that
   the task holds fixed and out of the bias; with workers of the refinement, in processes.
+  Where the held atoms fix the frame, the bias is on where the other atoms are, not only
+  on their shape; the dynamics hold the restraints of the refinement, and containment
+  restraints keep fragments that nothing holds near the core.
 - Each run draws from the seed of the context; the provenance names the round, the run,
   its strength and the conformer it started from, and `stats` counts rounds, runs, steps,
   snapshots, refined, accepted, found again and rejected, and says why the search stopped.

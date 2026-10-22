@@ -237,9 +237,13 @@ macrocycle. It is the metadynamics of CREST (Grimme 2019), with ASE:
   of CREST, with a flexibility from the graph: 5 ps for butane, 9 ps for
   heptane-1,7-diol, 36 ps for icosane (`racerts.metadynamics.default_length(mol)`);
 - the atoms that the task holds (the frozen atoms of a TS; those that `Exploit` does
-  not move) are fixed in the dynamics and take no part in the bias, which is on the
-  shape of the other atoms, not on where they are relative to the fixed ones.
-  Restraints act when the snapshots are refined, not in the dynamics;
+  not move) are fixed in the dynamics and take no part in the bias. Where they fix the
+  frame (three or more, not on a line), the bias is on where the other atoms are, so
+  that a solvent molecule or a counter-ion moves around them; otherwise it is on the
+  shape of the other atoms. The dynamics hold the restraints that the refinement holds
+  for the conformer a run starts from, and a fragment that nothing holds is kept near
+  the core by a containment restraint (`racerts.system.roles.containment`) at its
+  distance in the start plus `containment` (2 A; `None`: none);
 - a snapshot every `snapshot` (0.1 ps) is refined by the stage's refiner, an
   `ASEOptimizer` as for `Exploit`, and kept if it passes the gate checks and is
   further than `rmsd_threshold` from every conformer of similar energy; a duplicate

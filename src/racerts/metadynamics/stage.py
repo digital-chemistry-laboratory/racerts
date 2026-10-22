@@ -3,6 +3,7 @@
 import logging
 from typing import Iterable, List, Optional, Sequence, Tuple, Union
 
+import numpy as np
 from rdkit import Chem
 
 from racerts.errors import NoConformersError
@@ -22,7 +23,9 @@ from racerts.io import ase as ase_io
 from racerts.pipeline import ConformerEnsemble
 from racerts.prune.targets import round_robin
 from racerts.refine.stage import energy_label
+from racerts.restraints.model import DistanceRestraint
 from racerts.rmsd import heavy_atoms
+from racerts.system.roles import containment
 from racerts.system.spec import infer_charge_and_multiplicity
 from racerts.task.base import check_atom_indices
 from racerts.utils.checks import check_count, check_positive, is_integer
@@ -113,10 +116,13 @@ class Metadynamics:
     ("nothing lower" or "rounds"), also for a single round.
 
     The atoms that the task holds (the hard, core and soft atoms of its FrozenSet:
-    what Exploit does not move either) are fixed in the dynamics and not in the
-    bias, which therefore is on the shape of the other atoms, not on where they are
-    relative to the fixed ones. The distance restraints of the context act in the
-    refinement only.
+    what Exploit does not move either) are fixed in the dynamics and not in the bias.
+    Where they fix the frame (three or more, not on a line), the bias is on where the
+    other atoms are, so that a free molecule moves around them; otherwise it is on
+    their shape, after superposition. The dynamics hold the distance restraints that
+    the refinement holds for the conformer a run starts from, and containment
+    restraints (racerts.system.roles.containment) for the fragments that nothing
+    else holds, at their largest distance in the start plus containment.
 
     The snapshots of a round (one every snapshot ps) are refined in one call. A
     refined snapshot is accepted if it passes the gate checks (frozen atoms, bonds and
@@ -135,7 +141,8 @@ class Metadynamics:
     which keep their parent's reference, active-bond targets and batch; mtd_hits
     (the snapshots that ended in it) for every member. stats holds the numbers of
     the last call: rounds, runs, steps, snapshots, refined, accepted, refound,
-    rejected, length (of a run, ps) and stop.
+    rejected, length (of a run, ps), containment (the largest radius of the
+    containment restraints of the dynamics, or None) and stop.
 
     Args:
         refine: A Refine stage, or an optimizer for one (Refine(optimizer,
@@ -164,6 +171,8 @@ class Metadynamics:
         atoms: The atoms in the RMSD of the bias; default: the heavy atoms. Those
             that the task holds are left out.
         rmsd_threshold, include_hs, clash_factor: As in Exploit.
+        containment: The margin (A) of the containment restraints of the dynamics;
+            None: none (a free fragment then can drift away).
     """
 
     name = "metadynamics"
@@ -185,12 +194,15 @@ class Metadynamics:
         rmsd_threshold: float = 0.25,
         include_hs: bool = False,
         clash_factor: float = CLASH_FACTOR,
+        containment: Optional[float] = 2.0,
     ):
         positive = dict(temperature=temperature, deposit=deposit, snapshot=snapshot)
         positive.update(time_step=time_step, hydrogen_mass=hydrogen_mass)
         positive.update(friction=friction, rmsd_threshold=rmsd_threshold)
         if length is not None:
             positive["length"] = length
+        if containment is not None:
+            positive["containment"] = containment
         check_positive(**positive)
         if length is not None and snapshot > length:
             raise ValueError("A run is shorter than the time to its first snapshot.")
@@ -213,6 +225,7 @@ class Metadynamics:
         self.rmsd_threshold = rmsd_threshold
         self.include_hs = include_hs
         self.clash_factor = clash_factor
+        self.containment = containment
         self.stats: dict = {}
 
     def run(self, ctx, ensemble: ConformerEnsemble) -> ConformerEnsemble:
@@ -225,10 +238,12 @@ class Metadynamics:
             self.stats = {**counts, "stop": "no conformers"}
             return ensemble
         require_refined(ensemble, energy_label(self.refine.optimizer), "Metadynamics")
-        if len(self.biased_atoms(ctx, ensemble.mol)) < 2:
+        fixed = self.frame_is_fixed(ctx, ensemble.mol)
+        if len(self.biased_atoms(ctx, ensemble.mol)) < (1 if fixed else 2):
             logger.warning(
-                "Metadynamics: nothing to bias (the bias is on the shape of at least "
-                "two atoms that the task does not hold); the ensemble passes unchanged."
+                "Metadynamics: nothing to bias (an atom that the task does not hold, "
+                "two where the held atoms do not fix the frame); the ensemble passes "
+                "unchanged."
             )
             self.stats = {**counts, "stop": "nothing to bias"}
             return ensemble
@@ -238,10 +253,11 @@ class Metadynamics:
             length = max(default_length(ensemble.mol, held_atoms(ctx)), self.snapshot)
         population = Population(ctx, ensemble, self.include_hs)
         checks = gate(self.clash_factor).validators
+        self._radius = None
         stop = "rounds"
         for number in range(self.rounds):
             lowest = lowest_by_bin(population)
-            snapshots = self._dynamics(ctx, population, length, number, counts)
+            snapshots = self._dynamics(ctx, population, length, number, counts, fixed)
             refined = refine_candidates(
                 ctx, ensemble, snapshots, self.refine, "Metadynamics"
             )
@@ -257,7 +273,8 @@ class Metadynamics:
 
         for conf_id in population.ids:
             ensemble.add_provenance(conf_id, mtd_hits=population.hits[conf_id])
-        self.stats = {**counts, "length": round(length, 3), "stop": stop}
+        self.stats = {**counts, "length": round(length, 3)}
+        self.stats.update(containment=self._radius, stop=stop)
         logger.info(
             "Metadynamics: %d rounds of %d runs of %.1f ps (%d steps), %d snapshots, "
             "%d refined, %d new conformers, %d found again, %d rejected; stopped (%s).",
@@ -282,7 +299,34 @@ class Metadynamics:
         check_atom_indices(mol, chosen, "atoms of the bias")
         return [i for i in chosen if i not in held]
 
-    def _dynamics(self, ctx, population, length, round_number, counts) -> list:
+    def frame_is_fixed(self, ctx, mol) -> bool:
+        """Whether the atoms that the task holds fix the frame of the others."""
+        from .dynamics import frame_is_fixed
+
+        held = sorted(held_atoms(ctx))
+        return bool(held) and frame_is_fixed(mol.GetConformer().GetPositions()[held])
+
+    def _restraints(self, ctx, population, parent: int, positions) -> tuple:
+        """What the dynamics of a run from parent hold: the distance restraints that
+        refinement holds for it, and containment restraints for free fragments."""
+        groups = self.refine.groups(ctx, population.ensemble.filter([parent]))
+        held = [
+            r for *_, group in groups for r in group if isinstance(r, DistanceRestraint)
+        ]
+        if self.containment is None:
+            return tuple(held)
+        mol = population.ensemble.mol
+        pairs = containment(mol, ctx.frozen, 1.0, held)
+        if not pairs:
+            return tuple(held)
+        radius = self.containment + max(
+            float(np.linalg.norm(positions[r.first] - positions[r.second]))
+            for r in pairs
+        )
+        self._radius = max(radius, self._radius or 0.0)
+        return (*held, *containment(mol, ctx.frozen, radius, held))
+
+    def _dynamics(self, ctx, population, length, round_number, counts, fixed) -> list:
         """
         The snapshots of the runs of a round, each length ps long: (parent,
         positions, record) each, the record with the round, the run, its strength
@@ -302,6 +346,7 @@ class Metadynamics:
             time_step=self.time_step,
             friction=self.friction,
             hydrogen_mass=self.hydrogen_mass,
+            superpose=not fixed,
         )
         optimizer = self.refine.optimizer
         calculator, is_factory = self.md_calculator, self._md_calculator_is_factory
@@ -331,6 +376,9 @@ class Metadynamics:
                     prepare=prepare,
                     reference=reference,
                     expected_errors=optimizer.expected_errors,
+                    restraints=self._restraints(
+                        ctx, population, parent, atoms.positions
+                    ),
                 )
             )
         snapshots = []

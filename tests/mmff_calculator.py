@@ -26,7 +26,9 @@ class MMFFCalculator(Calculator):
 
     def _build(self):
         properties = AllChem.MMFFGetMoleculeProperties(self._graph)
-        self._field = AllChem.MMFFGetMoleculeForceField(self._graph, properties)
+        self._field = AllChem.MMFFGetMoleculeForceField(
+            self._graph, properties, ignoreInterfragInteractions=False
+        )
         self._field.Initialize()
 
     def calculate(self, atoms=None, properties=("energy",), system_changes=all_changes):

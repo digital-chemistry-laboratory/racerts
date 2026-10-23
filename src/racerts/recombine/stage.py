@@ -120,7 +120,7 @@ class Recombine:
         rounds: int = 1,
         overlap_factor: float = OVERLAP_FACTOR,
         rmsd_threshold: float = 0.25,
-        include_hs: Union[bool, str] = False,
+        include_hs: Union[bool, str] = "polar",
         clash_factor: float = CLASH_FACTOR,
     ):
         positive = dict(window=window, temperature=temperature)

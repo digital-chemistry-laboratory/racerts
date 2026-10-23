@@ -129,7 +129,7 @@ class Metadynamics:
     The snapshots of a round (one every snapshot ps) are refined in one call. A
     refined snapshot is accepted if it passes the gate checks (frozen atoms, bonds and
     stereo, clashes, restraints) and is further than rmsd_threshold (symmetry-aware,
-    heavy atoms, or with the polar or all hydrogens by include_hs, as in Exploit) from
+    heavy atoms and the polar hydrogens by default, as in Exploit) from
     every member of similar energy;
     a duplicate counts as a re-find of that member. There is no energy window: a
     pruner after the stage sets it.
@@ -197,7 +197,7 @@ class Metadynamics:
         friction: float = 0.02,
         atoms: Optional[Sequence[int]] = None,
         rmsd_threshold: float = 0.25,
-        include_hs: Union[bool, str] = False,
+        include_hs: Union[bool, str] = "polar",
         clash_factor: float = CLASH_FACTOR,
         containment: Optional[float] = 2.0,
     ):

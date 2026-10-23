@@ -294,8 +294,9 @@ pruner with the legacy ones is `racerts.pruner.RMSDPruner`.
 
 - `include_hs="polar"` for `Exploit`, `Metadynamics`, `Recombine`, `Resample` and `Polish`: their
   duplicates by the heavy atoms and the hydrogens on N, O, P and S, as the default `RMSDPruner`
-  counts them (`racerts.exploit.population.duplicate_atoms`). With the default (heavy atoms) a
-  search merges conformers that differ in an OH rotor only, which the pruner keeps apart.
+  counts them (`racerts.exploit.population.duplicate_atoms`); the default of the search stages
+  (`False`: the heavy atoms only, as before, merges conformers that differ in an OH rotor only,
+  which the pruner keeps apart).
 
 #### Polish
 

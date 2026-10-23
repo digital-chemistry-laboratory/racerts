@@ -189,7 +189,9 @@ PruneRMSD → Exploit → PruneRMSD`). It is usage-directed multiple-minimum Mon
   call by the stage's refiner, which must be an `ASEOptimizer` (xTB, MLIPs: force-field
   minima would be the wrong ones; with MMFF/UFF, Exploit warns and changes nothing);
 - a refined candidate is kept if it passes the gate checks, lies within `energy_window`
-  of the minimum and is further than `rmsd_threshold` from every conformer; a duplicate
+  of the minimum and is further than `rmsd_threshold` from every conformer (by the heavy
+  atoms and the hydrogens on N, O, P and S, as `PruneRMSD` counts them: `include_hs="polar"`,
+  the default of every search stage; `False` the heavy atoms only); a duplicate
   counts as a re-find. A re-find that lies lower than every conformer it duplicates (by
   more than 0.01 kcal/mol) takes the place of the lowest of them, and the others leave:
   as in `PruneRMSD`, the lowest of a set of duplicates stays (the same in every search

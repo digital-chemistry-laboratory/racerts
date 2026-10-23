@@ -8,7 +8,7 @@ from rdkit import Chem
 from rdkit.Chem import AllChem, rdMolTransforms
 
 import racerts
-from racerts import Recombine
+from racerts import Recombine, Resample
 from racerts.exploit import torsion_moves
 from racerts.recombine import set_torsions, torsion_angles, torsions
 from racerts.refine import MMFFOptimizer
@@ -99,6 +99,11 @@ def test_the_torsions_and_a_child():
         ("CC#CC", 0),  # nothing turns about a linear atom
     ):
         assert len(torsions(_hydrogens(smiles))) == count
+    # The rotors of polar hydrogens, with polar_hydrogens: O-H, N-H2, S-H, not C-H3
+    for smiles, count in (("CCO", 1), ("CCN", 1), ("CCS", 1), ("CC", 0)):
+        assert len(torsions(_hydrogens(smiles), polar_hydrogens=True)) == count
+    (hydroxyl,) = torsions(_hydrogens("CCO"), polar_hydrogens=True)
+    assert hydroxyl.atoms[:3] == (0, 1, 2) and hydroxyl.moving == (8,)
     # The planar ones too, which Exploit does not turn: a child gets the value of a
     # parent, cis or trans, and no value in between.
     amide = _hydrogens("CC(=O)NC")
@@ -413,3 +418,118 @@ def test_seeds_and_settings():
         with pytest.raises(ValueError):
             Recombine(MMFFOptimizer(), **wrong)
     assert "Recombine(" in repr(Recombine(MMFFOptimizer()))
+
+
+def test_resample_draws_each_torsion_from_the_ensemble():
+    # A child of Resample is a member with each torsion drawn from the ensemble, from a
+    # member of its own: the torsions of the ensemble in any combination.
+    mol = _heptane((GAUCHE, ANTI, ANTI, ANTI), (ANTI, ANTI, GAUCHE, ANTI))
+    found = torsions(mol)
+    optimizer = Recording()
+    ctx, ensemble = _start(mol, optimizer)
+    members = torsion_angles(
+        [c.GetPositions() for c in ensemble.mol.GetConformers()], found
+    )
+    del optimizer.given[:]
+    stage = Resample(optimizer)
+    out = stage.run(ctx, ensemble)
+
+    # -- every combination of the two, and the lowest of all among them
+    assert sorted(_states(out, i) for i in out.conf_ids) == [
+        "aaaa",
+        "aaga",
+        "gaaa",
+        "gaga",
+    ]
+    assert _states(out, out.best()) == "aaaa"
+    # Each torsion of a child is that of a member, and no child is its parent: each
+    # parent with one or both of the other's two states, no child twice.
+    for child in optimizer.given:
+        assert (
+            _apart(torsion_angles(child, found)[None], members).min(axis=0).max() < 1e-6
+        )
+    stats = stage.stats
+    assert (stats["parents"], stats["torsions"], stats["children"]) == (2, 4, 6)
+    assert (stats["accepted"], stats["refound"], stats["rejected"]) == (2, 4, 0)
+    assert stats["optimizations"] == 6 and 0 <= stats["missing_mass"] <= 1
+    provenance = out.provenance(out.best())
+    assert provenance["route"] == "resample" and len(provenance["parents"]) == 1
+    assert provenance["resample_round"] == 0 and provenance["resample_hits"] == 2
+    # A second round draws from what the first found, and finds nothing lower.
+    ctx, ensemble = _start(mol)
+    stage = Resample(MMFFOptimizer(), rounds=3)
+    stage.run(ctx, ensemble)
+    assert (stage.stats["rounds"], stage.stats["stop"]) == (2, "nothing lower")
+
+    # -- temperature: the members weighted by exp(-E / temperature) instead of evenly;
+    # cold, every torsion comes from the lowest, the second lies 2 kcal/mol above
+    mol = _heptane((ANTI, ANTI, ANTI, ANTI), (GAUCHE, GAUCHE, GAUCHE, ANTI))
+
+    def search(**settings):
+        ctx, ensemble = _start(mol)
+        stage = Resample(MMFFOptimizer(), **settings)
+        stage.run(ctx, ensemble)
+        return stage.stats
+
+    assert search()["children"] == 14  # each parent with 7 others of 2 x 2 x 2
+    cold = search(temperature=0.01)
+    assert (cold["children"], cold["accepted"], cold["refound"]) == (1, 0, 1)
+
+    # -- explore: the share of the torsions that take a random value instead, so one
+    # conformer is enough; never the planar bond of an amide (a cis/trans isomer)
+    amide = _hydrogens("CC(=O)NCCCC")
+    AllChem.EmbedMolecule(amide, randomSeed=7)
+    found = torsions(amide)
+    planar = [k for k, t in enumerate(found) if t.atoms[1:3] in ((1, 3), (3, 1))]
+    assert len(found) == 4 and len(planar) == 1
+
+    def explored(seed=12, **settings):
+        optimizer = Recording()
+        ctx, ensemble = _start(amide, optimizer, seed=seed)
+        del optimizer.given[:]
+        stage = Resample(optimizer, **settings)
+        out = stage.run(ctx, ensemble)
+        return out, stage.stats, optimizer.given
+
+    out, stats, given = explored()
+    assert (stats["parents"], stats["children"], stats["stop"]) == (1, 0, "no children")
+    out, stats, given = explored(explore=1.0, children=10)
+    assert stats["children"] == len(given) == 10 and len(out) > 1
+    start = torsion_angles(out.mol.GetConformer(0).GetPositions(), found)  # the member
+    for child in given:
+        apart = _apart(torsion_angles(child, found), start)
+        assert apart[planar].max() < 1e-6 and apart.max() > 1.0
+
+    # -- the rotors of polar hydrogens are torsions too, by default: butan-1-ol
+    butanol = _hydrogens("OCCCC")
+    AllChem.EmbedMolecule(butanol, randomSeed=7)
+    for polar, count in ((True, 3), (False, 2)):
+        ctx, ensemble = _start(butanol)
+        stage = Resample(
+            MMFFOptimizer(), explore=1.0, children=3, polar_hydrogens=polar
+        )
+        stage.run(ctx, ensemble)
+        assert stage.stats["torsions"] == count
+
+    # -- the same seed makes the same children, another seed others
+    again, other = (
+        explored(explore=1.0, children=10),
+        explored(13, explore=1.0, children=10),
+    )
+    np.testing.assert_array_equal(np.array(given), np.array(again[2]))
+    assert not np.allclose(np.array(given), np.array(other[2]))
+
+    # -- what the settings must be
+    for wrong in (
+        dict(window=0),
+        dict(parents=0),
+        dict(temperature=0),
+        dict(explore=-0.1),
+        dict(explore=1.5),
+        dict(different=0),
+        dict(children=0),
+        dict(rounds=0),
+    ):
+        with pytest.raises(ValueError):
+            Resample(MMFFOptimizer(), **wrong)
+    assert "Resample(" in repr(Resample(MMFFOptimizer()))

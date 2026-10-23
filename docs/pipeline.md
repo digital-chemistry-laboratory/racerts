@@ -139,6 +139,7 @@ More stages:
 | `Exploit(Refine(ASEOptimizer(...)))` | usage-directed Monte Carlo around the pruned conformers: new minima nearby, from torsions, rigid-body moves of fragments and ring flips, refined by an ASE calculator (xTB, MLIPs); stops when new minima become rare (see below) |
 | `Metadynamics(ASEOptimizer(...), md_calculator=...)` | molecular dynamics from the conformers it gets, pushed away from the structures it has visited by a bias on the RMSD (as in CREST); the snapshots are refined by an ASE calculator and added where they are new minima (see below) |
 | `Recombine(optimizer)` | new conformers from the torsions of the low conformers it gets: a child is one of them with some torsions of another (the crossing of CREST, in torsions); the children are refined by any optimizer and added where they are new minima (see below) |
+| `Resample(optimizer)` | new conformers whose torsions are each drawn from all the conformers it gets: a child is one of them in which every torsion takes the value of a member drawn for it alone (the distribution of each torsion over the ensemble); refined and added as by `Recombine` (see below) |
 
 `Pipeline.run(ctx, ensemble)` continues an ensemble (e.g. to refine it with another
 method) and leaves the ensemble passed in unchanged; stages may change the ensemble they
@@ -161,10 +162,10 @@ The pipeline logs every stage with its number of conformers and run time (logger
 `racerts.pipeline.runner`, level INFO); `generate`, `generate_ts` and `generate_gs` take
 `verbose=True` to show these messages.
 
-Three stages search on from the conformers they get. `Exploit` makes local moves around
+Four stages search on from the conformers they get. `Exploit` makes local moves around
 them, `Metadynamics` explores away from them, and `Recombine` combines what they
 already have between them: the stage for a large flexible molecule whose low conformers
-each have a part of a lower one.
+each have a part of a lower one. `Resample` draws each torsion from all of them.
 
 ### Exploit
 
@@ -346,6 +347,31 @@ children that ended in it. `stats` has the numbers of the last call: `rounds`, `
 `torsions`, `children`, `overlapping`, `optimizations`, `observations`, `accepted`,
 `refound`, `rejected`, `missing_mass`, `completeness` (as for `Exploit`) and `stop` (`"rounds"` if the last round still found a lower conformer, `"nothing lower"`,
 or why nothing was made). The same seed gives the same children.
+
+### Resample
+
+`Recombine` passes on what two parents have; `Resample` what the whole ensemble has. A
+child is a conformer of the ensemble, drawn evenly, in which every torsion takes the
+value of a member drawn for that torsion alone: the torsions are drawn independently
+from their distributions over the ensemble, and the child keeps the rest of its parent
+(ring forms, the reference of a held core, its active-bond targets).
+
+- The members drawn from: all, or those within `window` of the lowest, at most `parents`
+  of them. Evenly by default, so a torsion state is drawn as often as the minima found
+  have it; with `temperature` (kcal/mol) by the weights exp(-E / `temperature`).
+- `explore`: the probability that a torsion takes a random value instead, so that states
+  that no member has can appear (never the planar bonds of amides and esters).
+- The torsions are those of `Recombine` and, with `polar_hydrogens` (by default), the
+  rotors of OH, NH2 and SH groups.
+- A child differs from its parent by more than `different` (40°) in one torsion at least,
+  and none is made twice. The torsions, the atoms held, the overlap filter, the
+  refinement, the `children` of a round and the `rounds` are those of `Recombine`; each
+  round draws from the members after the last.
+
+New conformers record `route="resample"`, `parents` (the one parent) and
+`resample_round`; every conformer records `resample_hits`; `stats` has the keys of
+`Recombine`, with `parents` the members drawn from. The defaults are provisional, until a
+benchmark sets them.
 
 ## Independent runs
 

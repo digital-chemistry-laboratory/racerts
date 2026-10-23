@@ -46,7 +46,7 @@ from .pipeline import (
     merge_runs,
 )
 from .prune import PruneCluster, PruneCount, PruneEnergy, PruneRMSD
-from .recombine import Recombine
+from .recombine import Recombine, Resample
 from .refine import Refine, Rescore
 from .system.swap import Swap, SwapError, SwapResult, apply_swap
 from .task import Constrained, FrozenSet, GroundState, Task, TransitionState
@@ -79,6 +79,7 @@ __all__ = [
     "Refine",
     "RefineConfig",
     "Rescore",
+    "Resample",
     "RestraintConfig",
     "Stage",
     "Swap",

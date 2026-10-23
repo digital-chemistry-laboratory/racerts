@@ -104,6 +104,8 @@ class Recombine:
     """
 
     name = "recombine"
+    route = "cross"  # of the children's provenance, and the prefix of its keys
+    fewest_parents = 2
 
     def __init__(
         self,
@@ -152,13 +154,16 @@ class Recombine:
         if not len(ensemble):
             self.stats = {**counts, "stop": "no conformers"}
             return ensemble
-        require_refined(ensemble, self._labels(), "Recombine")
-        found = torsions(ensemble.mol, held_atoms(ctx))
+        stage = type(self).__name__
+        require_refined(ensemble, self._labels(), stage)
+        found = self._torsions(ensemble.mol, held_atoms(ctx))
         counts["torsions"] = len(found)
         if not found:
             logger.warning(
-                "Recombine: nothing to recombine (no torsion outside the atoms that "
-                "the task holds); the ensemble passes unchanged."
+                "%s: nothing to %s (no torsion outside the atoms that the task holds); "
+                "the ensemble passes unchanged.",
+                stage,
+                self.name,
             )
             self.stats = {**counts, "stop": "no torsions"}
             return ensemble
@@ -172,20 +177,20 @@ class Recombine:
             lowest = lowest_by_bin(population)
             parents = self._parents(population, lowest)
             counts["parents"] = len(parents)
-            if len(parents) < 2:
+            if len(parents) < self.fewest_parents:
                 stop = "no parents"
                 break
-            rng = seeds.Stream(ctx.seed, "recombine", number)
+            rng = seeds.Stream(ctx.seed, self.name, number)
             made, overlapping = self._children(
                 ctx, population, parents, lowest, found, n, rng, pairs
             )
             counts["overlapping"] += overlapping
             for _, _, record in made:
-                record["cross_round"] = number
+                record[f"{self.route}_round"] = number
             if not made:
                 stop = "no children"
                 break
-            refined = refine_candidates(ctx, ensemble, made, self.refine, "Recombine")
+            refined = refine_candidates(ctx, ensemble, made, self.refine, stage)
             counts["rounds"] += 1
             counts["children"] += len(made)
             counts["optimizations"] += len(refined)
@@ -197,14 +202,16 @@ class Recombine:
                 break
 
         for conf_id in population.ids:
-            ensemble.add_provenance(conf_id, cross_hits=population.hits[conf_id])
+            hits = {f"{self.route}_hits": population.hits[conf_id]}
+            ensemble.add_provenance(conf_id, **hits)
         missing, completeness = discovery(population, counts)
         self.stats = {**counts, "stop": stop, "missing_mass": round(missing, 4)}
         self.stats.update(completeness=round(completeness, 3))
         logger.info(
-            "Recombine: %d rounds, %d torsions, %d parents in the last round; %d "
+            "%s: %d rounds, %d torsions, %d parents in the last round; %d "
             "children (%d more with overlapping atoms), %d refined, %d new "
             "conformers, %d found again, %d rejected; stopped (%s).",
+            stage,
             counts["rounds"],
             counts["torsions"],
             counts["parents"],
@@ -217,6 +224,9 @@ class Recombine:
             stop,
         )
         return ensemble
+
+    def _torsions(self, mol, held) -> list:
+        return torsions(mol, held)
 
     def _labels(self) -> list:
         """The names that the energies of the refiner can have: its own, and that
@@ -254,7 +264,6 @@ class Recombine:
             [population.energies[i] - lowest[population.bins[i]] for i in parents]
         )
         weights = np.cumsum(np.exp(-above / self.temperature))
-        held = held_atoms(ctx)
         made, seen, overlapping = [], {}, 0
         for _ in range(DRAWS * n):
             if len(made) == n:
@@ -280,22 +289,27 @@ class Recombine:
             child = set_torsions(
                 positions[first], found, {k: angles[second, k] for k in take}
             )
-            ref_id = population.provenance(parents[first]).get("reference")
-            if ref_id not in pairs:
-                pairs[ref_id] = clash_limits(
-                    population.ensemble.mol,
-                    held,
-                    reference_positions(ctx, ref_id),
-                    self.overlap_factor,
-                    hydrogen_factor=self.overlap_factor,
-                )
-            if first_clash(child, pairs[ref_id]) is not None:
+            if self._overlaps(ctx, population, parents[first], child, pairs):
                 overlapping += 1
                 continue
-            record = dict(route="cross", parents=[parents[first], parents[second]])
+            record = dict(route=self.route, parents=[parents[first], parents[second]])
             record["cross_torsions"] = len(take)
             made.append((parents[first], child, record))
         return made, overlapping
+
+    def _overlaps(self, ctx, population, parent, child, pairs) -> bool:
+        """Whether atoms of the child of parent overlap (overlap_factor); pairs: the
+        pairs of atoms that may, by reference id, filled as needed."""
+        ref_id = population.provenance(parent).get("reference")
+        if ref_id not in pairs:
+            pairs[ref_id] = clash_limits(
+                population.ensemble.mol,
+                held_atoms(ctx),
+                reference_positions(ctx, ref_id),
+                self.overlap_factor,
+                hydrogen_factor=self.overlap_factor,
+            )
+        return first_clash(child, pairs[ref_id]) is not None
 
     def __repr__(self) -> str:
         return (

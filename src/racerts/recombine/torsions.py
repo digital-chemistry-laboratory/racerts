@@ -21,11 +21,14 @@ class Torsion:
     moving: Tuple[int, ...]
 
 
-def torsions(mol: Chem.Mol, held: Iterable[int] = ()) -> List[Torsion]:
+def torsions(
+    mol: Chem.Mol, held: Iterable[int] = (), polar_hydrogens: bool = False
+) -> List[Torsion]:
     """
     A torsion for every single bond outside rings between two heavy atoms that each
     carry another heavy atom (so not of methyl or hydroxyl groups), and not next to a
-    linear atom. A side of the bond without held atoms turns (the smaller one if both
+    linear atom; with polar_hydrogens also for the bond to an O, N or S whose other
+    neighbours are hydrogens (the rotors of OH, NH2, SH), measured to its first one. A side of the bond without held atoms turns (the smaller one if both
     qualify); the two atoms of the bond stay where they are, so they may be held. A
     bond whose turn would move held atoms on either side is no torsion.
 
@@ -54,6 +57,12 @@ def torsions(mol: Chem.Mol, held: Iterable[int] = ()) -> List[Torsion]:
             )
             for atom in ends
         }
+        if polar_hydrogens:
+            for atom in ends:
+                if not others[atom.GetIdx()] and atom.GetAtomicNum() in (7, 8, 16):
+                    others[atom.GetIdx()] = sorted(
+                        n.GetIdx() for n in atom.GetNeighbors() if n.GetAtomicNum() == 1
+                    )
         if not all(others.values()):
             continue
         turn = turning_side(mol, a, b, held)

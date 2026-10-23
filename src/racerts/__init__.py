@@ -45,6 +45,7 @@ from .pipeline import (
     compare_runs,
     merge_runs,
 )
+from .polish import Polish
 from .prune import PruneCluster, PruneCount, PruneEnergy, PruneRMSD
 from .recombine import Recombine, Resample
 from .refine import Refine, Rescore
@@ -69,6 +70,7 @@ __all__ = [
     "NoConformersError",
     "Pipeline",
     "PipelineConfig",
+    "Polish",
     "PruneCluster",
     "PruneConfig",
     "PruneCount",

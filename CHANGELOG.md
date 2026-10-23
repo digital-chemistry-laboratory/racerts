@@ -18,12 +18,12 @@ working and gives the same files.
 |---|---|
 | Entry points | `generate_ts`, `generate_gs`, `generate` (any task), `generate_runs` (independent seeds, merged and compared), `swap`; `racerts ts`, `gs`, `swap` on the command line |
 | Tasks | transition states, ground states, and `Constrained`: any motif held fixed (hard), kept near the reference (soft), or free |
-| Pipeline | conformer generation as stages (`Embed`, `Refine`, `Rescore`, `PruneEnergy`, `PruneRMSD`, `PruneCluster`, `PruneCount`, `Validate`, `Exploit`, `Metadynamics`, `Recombine`, `Resample`) that can be reordered, replaced or extended; all settings as one checked `PipelineConfig` (JSON/YAML) |
+| Pipeline | conformer generation as stages (`Embed`, `Refine`, `Rescore`, `PruneEnergy`, `PruneRMSD`, `PruneCluster`, `PruneCount`, `Validate`, `Exploit`, `Metadynamics`, `Recombine`, `Resample`, `Polish`) that can be reordered, replaced or extended; all settings as one checked `PipelineConfig` (JSON/YAML) |
 | Restraints | distance windows from the user, from the hydrogen bonds and contacts of the reference, between the fragments of a complex, and as hints from the graph; held in embedding and refinement; exported for xtb, CREST and ORCA |
 | Active bonds | the forming and breaking bonds of a TS sampled over a window instead of frozen, at stratified targets |
 | Validation | checks after any stage: connectivity, stereo, frozen core, clashes, restraints, attack face, reaction core, number and character of imaginary modes, convergence; `gate()` bundles the cheap ones |
 | Other levels | any ASE calculator (extras `ase`, and `xtb` for GFN2-xTB with tblite) as optimizer or for re-ranking, with worker processes; a staged recipe (cheap levels first, the expensive one on what survives) and a saddle-point recipe |
-| Search | `Exploit`: a Monte Carlo search around the conformers found (torsions, ring flips, rigid moves of fragments) that stops when it rarely finds new minima; `Metadynamics`: molecular dynamics pushed away from where it has been, on a cheap potential, with the snapshots refined at the level of the pipeline; `Recombine`: the torsions of the low conformers in new combinations; `Resample`: each torsion drawn from the whole ensemble |
+| Search | `Exploit`: a Monte Carlo search around the conformers found (torsions, ring flips, rigid moves of fragments) that stops when it rarely finds new minima; `Metadynamics`: molecular dynamics pushed away from where it has been, on a cheap potential, with the snapshots refined at the level of the pipeline; `Recombine`: the torsions of the low conformers in new combinations; `Resample`: each torsion drawn from the whole ensemble; `Polish`: the lowest families completed one torsion or ring change at a time |
 | Other searches | CREST and ORCA's GOAT run from racerts and read back as ensembles (`racerts.interfaces`), for benchmarks against the searches of racerts |
 | Swaps | replace a group, a ligand or ring atoms of a reference ensemble and sample only the new part, with stereo taken from the reference or given explicitly |
 | Pruning | duplicates decided by a symmetry-aware RMSD that does not list every atom mapping (so hydrogens can count), cluster pruning, family selection |
@@ -283,6 +283,15 @@ pruner with the legacy ones is `racerts.pruner.RMSDPruner`.
   value of a member drawn for it alone, evenly or with Boltzmann weights (`temperature`), and
   with the probability `explore` a random value instead (not for amides and esters). The rest
   is as in `Recombine` (`racerts.recombine.Resample`, a subclass), with `route="resample"`.
+
+#### Polish
+
+- `Polish(refine)`: the lowest `families` (torsion-state combinations) completed one after the
+  other: each pass refines every child with one change (a torsion in each of its other
+  states, a five- or six-membered ring in each of its other canonical forms) and goes on from
+  the lowest child while it is more than `tolerance` lower. Deterministic; the atoms that the
+  task holds do not move; `max_optimizations` as a budget.
+  `mode="lowest"`: the lowest families chosen again after every round, each best member once.
 
 #### Recipes
 

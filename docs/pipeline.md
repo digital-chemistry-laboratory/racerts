@@ -139,6 +139,7 @@ More stages:
 | `Exploit(Refine(ASEOptimizer(...)))` | usage-directed Monte Carlo around the pruned conformers: new minima nearby, from torsions, rigid-body moves of fragments and ring flips, refined by an ASE calculator (xTB, MLIPs); stops when new minima become rare (see below) |
 | `Metadynamics(ASEOptimizer(...), md_calculator=...)` | molecular dynamics from the conformers it gets, pushed away from the structures it has visited by a bias on the RMSD (as in CREST); the snapshots are refined by an ASE calculator and added where they are new minima (see below) |
 | `Recombine(optimizer)` | new conformers from the torsions of the low conformers it gets: a child is one of them with some torsions of another (the crossing of CREST, in torsions); the children are refined by any optimizer and added where they are new minima (see below) |
+| `Polish(optimizer)` | the lowest families of the conformers it gets completed one change at a time: every torsion in each of its other states, every ring in each of its other forms, from the best child on while one is lower; deterministic (see below) |
 | `Resample(optimizer)` | new conformers whose torsions are each drawn from all the conformers it gets: a child is one of them in which every torsion takes the value of a member drawn for it alone (the distribution of each torsion over the ensemble); refined and added as by `Recombine` (see below) |
 
 `Pipeline.run(ctx, ensemble)` continues an ensemble (e.g. to refine it with another
@@ -165,7 +166,8 @@ The pipeline logs every stage with its number of conformers and run time (logger
 Four stages search on from the conformers they get. `Exploit` makes local moves around
 them, `Metadynamics` explores away from them, and `Recombine` combines what they
 already have between them: the stage for a large flexible molecule whose low conformers
-each have a part of a lower one. `Resample` draws each torsion from all of them.
+each have a part of a lower one. `Resample` draws each torsion from all of them, and
+`Polish` completes the lowest of them one change at a time.
 
 ### Exploit
 
@@ -372,6 +374,36 @@ New conformers record `route="resample"`, `parents` (the one parent) and
 `resample_round`; every conformer records `resample_hits`; `stats` has the keys of
 `Recombine`, with `parents` the members drawn from. The defaults are provisional, until a
 benchmark sets them.
+
+### Polish
+
+A stochastic search can stall one change away from a lower minimum: a torsion in
+another state, a ring in another form. `Polish` tries every such change of the lowest
+conformers, without random numbers:
+
+- a family is a combination of torsion states of the rotatable bonds (those of
+  `Exploit`'s torsion moves): gauche+, anti, gauche- between two sp3 atoms, otherwise two
+  states. The `families` (3) lowest at the start are completed one after the other;
+- a pass refines every child of the family's current best with one change: a torsion
+  turned to each of its other states (by ±120° between sp3 atoms, otherwise by 180°), or
+  a non-aromatic five- or six-membered ring in each of its other canonical forms (two
+  chairs and six twist-boats; ten envelopes and ten twists), one ring at a time
+  (`kinds=("torsion", "pucker")`);
+- if the lowest child lies more than `tolerance` (0.1 kcal/mol) below the current best,
+  the next pass starts from it; otherwise, or when it reaches a conformer that a pass
+  started from before, the family is complete (`mode="descent"`). With `mode="lowest"`
+  the families are chosen again after every round: each of the `families` lowest whose
+  best member no pass has started from gets one, until none is left, so a lower child
+  starts a family of its own. `max_optimizations` stops it early;
+- the atoms that the task holds do not move; overlapping children are dropped, the others
+  refined, checked by the gate and added where they are new minima, as by `Recombine`.
+
+A pass costs about 2 × (rotatable bonds) + (ring forms) refinements. New conformers
+record `route="polish"`, `parents`, `polish_change` (e.g. `"torsion 1-2 +120"`),
+`polish_family` and `polish_pass`; every conformer records `polish_hits`; `stats` has
+`families`, `passes`, `children`, `overlapping`, `optimizations`, `observations`,
+`accepted`, `refound`, `rejected`, `missing_mass`, `completeness` and `stop`
+(`"converged"` or `"budget"`). The defaults are provisional, until a benchmark sets them.
 
 ## Independent runs
 

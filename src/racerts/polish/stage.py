@@ -1,7 +1,7 @@
 """Polish: the lowest families of an ensemble completed one change at a time."""
 
 import logging
-from typing import List, Optional, Sequence
+from typing import List, Optional, Sequence, Union
 
 import numpy as np
 from rdkit import Chem
@@ -11,6 +11,7 @@ from racerts.exploit.population import (
     Population,
     add_refined,
     discovery,
+    duplicate_atoms,
     failed_checks,
     held_atoms,
     lowest_by_bin,
@@ -100,7 +101,7 @@ class Polish:
         max_optimizations: Optional[int] = None,
         overlap_factor: float = OVERLAP_FACTOR,
         rmsd_threshold: float = 0.25,
-        include_hs: bool = False,
+        include_hs: Union[bool, str] = False,
         clash_factor: float = CLASH_FACTOR,
     ):
         kinds = tuple(kinds)
@@ -121,6 +122,7 @@ class Polish:
         self.max_optimizations = max_optimizations
         self.overlap_factor = overlap_factor
         self.rmsd_threshold = rmsd_threshold
+        duplicate_atoms(include_hs)  # checks it
         self.include_hs = include_hs
         self.clash_factor = clash_factor
         self.stats: dict = {}

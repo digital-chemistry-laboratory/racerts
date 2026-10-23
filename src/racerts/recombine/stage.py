@@ -2,7 +2,7 @@
 has."""
 
 import logging
-from typing import Optional
+from typing import Optional, Union
 
 import numpy as np
 
@@ -10,6 +10,7 @@ from racerts.exploit.population import (
     Population,
     add_refined,
     discovery,
+    duplicate_atoms,
     found_lower,
     held_atoms,
     lowest_by_bin,
@@ -119,7 +120,7 @@ class Recombine:
         rounds: int = 1,
         overlap_factor: float = OVERLAP_FACTOR,
         rmsd_threshold: float = 0.25,
-        include_hs: bool = False,
+        include_hs: Union[bool, str] = False,
         clash_factor: float = CLASH_FACTOR,
     ):
         positive = dict(window=window, temperature=temperature)
@@ -143,6 +144,7 @@ class Recombine:
         self.rounds = rounds
         self.overlap_factor = overlap_factor
         self.rmsd_threshold = rmsd_threshold
+        duplicate_atoms(include_hs)  # checks it
         self.include_hs = include_hs
         self.clash_factor = clash_factor
         self.stats: dict = {}

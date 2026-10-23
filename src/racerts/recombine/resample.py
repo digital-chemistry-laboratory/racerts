@@ -1,12 +1,12 @@
 """Resample: each torsion of a new conformer drawn from the conformers of the
 ensemble, one by one."""
 
-from typing import Optional
+from typing import Optional, Union
 
 import numpy as np
 
 from racerts.exploit.moves import planar_bonds
-from racerts.exploit.population import refine_stage
+from racerts.exploit.population import duplicate_atoms, refine_stage
 from racerts.utils.checks import check_count, check_positive
 from racerts.validate.checks import CLASH_FACTOR, OVERLAP_FACTOR
 
@@ -76,7 +76,7 @@ class Resample(Recombine):
         rounds: int = 1,
         overlap_factor: float = OVERLAP_FACTOR,
         rmsd_threshold: float = 0.25,
-        include_hs: bool = False,
+        include_hs: Union[bool, str] = False,
         clash_factor: float = CLASH_FACTOR,
     ):
         # Recombine's settings of its pairs (share) are not Resample's: the same
@@ -107,6 +107,7 @@ class Resample(Recombine):
         self.rounds = rounds
         self.overlap_factor = overlap_factor
         self.rmsd_threshold = rmsd_threshold
+        duplicate_atoms(include_hs)  # checks it
         self.include_hs = include_hs
         self.clash_factor = clash_factor
         self.stats: dict = {}

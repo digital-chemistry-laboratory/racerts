@@ -12,6 +12,7 @@ from racerts.exploit.population import (
     Population,
     add_refined,
     discovery,
+    duplicate_atoms,
     found_lower,
     has_ase_refiner,
     held_atoms,
@@ -128,7 +129,8 @@ class Metadynamics:
     The snapshots of a round (one every snapshot ps) are refined in one call. A
     refined snapshot is accepted if it passes the gate checks (frozen atoms, bonds and
     stereo, clashes, restraints) and is further than rmsd_threshold (symmetry-aware,
-    heavy atoms, or all atoms with include_hs) from every member of similar energy;
+    heavy atoms, or with the polar or all hydrogens by include_hs, as in Exploit) from
+    every member of similar energy;
     a duplicate counts as a re-find of that member. There is no energy window: a
     pruner after the stage sets it.
 
@@ -195,7 +197,7 @@ class Metadynamics:
         friction: float = 0.02,
         atoms: Optional[Sequence[int]] = None,
         rmsd_threshold: float = 0.25,
-        include_hs: bool = False,
+        include_hs: Union[bool, str] = False,
         clash_factor: float = CLASH_FACTOR,
         containment: Optional[float] = 2.0,
     ):
@@ -226,6 +228,7 @@ class Metadynamics:
         self.friction = friction
         self.atoms = None if atoms is None else [int(i) for i in atoms]
         self.rmsd_threshold = rmsd_threshold
+        duplicate_atoms(include_hs)  # checks it
         self.include_hs = include_hs
         self.clash_factor = clash_factor
         self.containment = containment

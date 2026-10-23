@@ -284,6 +284,13 @@ pruner with the legacy ones is `racerts.pruner.RMSDPruner`.
   with the probability `explore` a random value instead (not for amides and esters). The rest
   is as in `Recombine` (`racerts.recombine.Resample`, a subclass), with `route="resample"`.
 
+#### Duplicates in the search stages
+
+- `include_hs="polar"` for `Exploit`, `Metadynamics`, `Recombine`, `Resample` and `Polish`: their
+  duplicates by the heavy atoms and the hydrogens on N, O, P and S, as the default `RMSDPruner`
+  counts them (`racerts.exploit.population.duplicate_atoms`). With the default (heavy atoms) a
+  search merges conformers that differ in an OH rotor only, which the pruner keeps apart.
+
 #### Polish
 
 - `Polish(refine)`: the lowest `families` (torsion-state combinations) completed one after the

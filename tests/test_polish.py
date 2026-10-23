@@ -115,3 +115,48 @@ def test_polish_takes_a_ring_to_its_lowest_form():
         with pytest.raises(ValueError):
             Polish(MMFFOptimizer(), **wrong)
     assert "Polish(" in repr(Polish(MMFFOptimizer()))
+
+
+def test_duplicates_by_the_polar_hydrogens():
+    # Butan-1-ol with its O-H rotor turned, or its methyl group: by the heavy atoms
+    # both are the same conformer; by the polar hydrogens (include_hs="polar", as the
+    # default RMSDPruner counts them) the first is another one; by all, both are.
+    from rdkit.Chem import rdMolTransforms
+
+    from racerts.exploit.population import Population
+
+    mol = Chem.AddHs(Chem.MolFromSmiles("OCCCC"))
+    AllChem.EmbedMolecule(mol, randomSeed=7)
+
+    def hydrogen(atom):
+        return next(
+            n.GetIdx()
+            for n in mol.GetAtomWithIdx(atom).GetNeighbors()
+            if n.GetAtomicNum() == 1
+        )
+
+    conf = mol.GetConformer()
+    rdMolTransforms.SetDihedralDeg(conf, 2, 1, 0, hydrogen(0), 180.0)
+    turned, methyl = Chem.Conformer(conf), Chem.Conformer(conf)
+    rdMolTransforms.SetDihedralDeg(turned, 2, 1, 0, hydrogen(0), 60.0)
+    now = rdMolTransforms.GetDihedralDeg(conf, 2, 3, 4, hydrogen(4))
+    rdMolTransforms.SetDihedralDeg(methyl, 2, 3, 4, hydrogen(4), now + 60.0)
+    conf.SetDoubleProp("energy", 0.0)
+    ensemble = racerts.ConformerEnsemble(mol)
+    ctx = racerts.Context.create(mol, racerts.GroundState())
+    for include_hs, twins in (
+        (False, (0, 0)),
+        ("polar", (None, 0)),
+        (True, (None, None)),
+    ):
+        population = Population(ctx, ensemble, include_hs)
+        key = population.bins[0]
+        found = [
+            population.duplicate(c.GetPositions(), 0.1, key, 0.25)
+            for c in (turned, methyl)
+        ]
+        assert tuple(found) == twins, include_hs
+    for stage in (Polish, racerts.Recombine, racerts.Resample):
+        assert stage(MMFFOptimizer(), include_hs="polar").include_hs == "polar"
+        with pytest.raises(ValueError, match="include_hs"):
+            stage(MMFFOptimizer(), include_hs="some")

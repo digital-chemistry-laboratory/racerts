@@ -509,6 +509,7 @@ def _embedded_by_routes(
             config.seed,
             mode="cmap",
             etkdg=config.embed.etkdg,
+            torsion_preferences=config.embed.torsion_preferences,
             chirality_fallback="frozen_first",
             useRandomCoords=config.embed.use_random_coords,
             sequential_seeds=config.embed.sequential_seeds,

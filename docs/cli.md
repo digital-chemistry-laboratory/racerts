@@ -28,6 +28,7 @@ $ racerts gs "OC(=O)[C@@H]1CCCN1C(C)=C" [options]
 | `--count-policy` | how the default number is counted: `legacy`, `fragments`, `per_bond` |
 | `--embed` | `cmap` or `bounds` (`embed.mode`) |
 | `--etkdg`, `--no-etkdg` | ETKDGv3 instead of plain distance geometry (default: only for gs) |
+| `--torsion-preferences`, `--no-torsion-preferences` | ETKDG with its torsion preferences from crystal structures (default), or its knowledge terms only (KDG) |
 | `--sequential-seeds`, `--no-sequential-seeds` | one seed per conformer |
 | `--chirality-fallback` (ts) | `legacy` or `frozen_first` |
 | `--reference-bounds` (ts, swap) | `fallback`, `always` or `never`: bounds of the graph that exclude a distance of the reference are widened to it when embedding fails without, always, or never |

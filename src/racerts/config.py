@@ -57,6 +57,14 @@ from racerts.utils.validators import (
 from racerts.validate import AttackFace, Connectivity, Validate
 
 
+def _torsion_preferences_of_etkdg(instance, attribute, value) -> None:
+    etkdg, preferences = current(
+        instance, attribute, value, "etkdg", "torsion_preferences"
+    )
+    if etkdg is False and not preferences:
+        raise ValueError("torsion_preferences applies to ETKDG only (etkdg is false).")
+
+
 @define
 class EmbedConfig:
     """
@@ -67,6 +75,10 @@ class EmbedConfig:
         conf_factor: Conformers per rotatable bond for the default count.
         etkdg: Use ETKDGv3 instead of plain distance geometry. None: plain distance
             geometry when atoms are frozen (as in legacy racerts), ETKDGv3 otherwise.
+        torsion_preferences: ETKDG with its experimental torsion preferences
+            (statistics of crystal structures, with the small-ring and macrocycle
+            terms). False: its knowledge terms only (RDKit's KDG: planar sp2 atoms,
+            linear sp atoms). A setting of ETKDG: plain distance geometry has neither.
         use_random_coords: Start embedding from random coordinates.
         count_policy: How n_conformers=-1 is counted: "fragments" (the default; adds
             the rigid-body freedom of fragments that move relative to the frozen core,
@@ -92,8 +104,11 @@ class EmbedConfig:
     )
     conf_factor: int = integer(DEFAULT_CONF_FACTOR, non_negative)
     etkdg: Optional[bool] = field(
-        default=None, converter=to_bool, validator=optional(is_bool)
+        default=None,
+        converter=to_bool,
+        validator=[optional(is_bool), _torsion_preferences_of_etkdg],
     )
+    torsion_preferences: bool = flag(True, _torsion_preferences_of_etkdg)
     use_random_coords: bool = flag(True)
     count_policy: str = choice("fragments", COUNT_POLICIES)
     sequential_seeds: bool = flag(True)
@@ -470,6 +485,7 @@ class PipelineConfig:
             self.seed,
             mode=embed.mode,
             etkdg=embed.etkdg,
+            torsion_preferences=embed.torsion_preferences,
             chirality_fallback=embed.chirality_fallback,
             reference_bounds=embed.reference_bounds,
             useRandomCoords=embed.use_random_coords,

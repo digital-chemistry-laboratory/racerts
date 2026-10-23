@@ -146,7 +146,10 @@ get in place. `Embed` starts an ensemble: to combine two embedding runs (with di
 seeds), merge their ensembles. Components passed to a stage (an embedder with its seed,
 an optimizer) keep their own settings; stages create default ones for the task, e.g.
 `Embed()` uses ETKDGv3 for ground states, with RDKit's macrocycle and small-ring torsion
-terms. With restraints, ETKDG weights the distance bounds 100 times higher against its
+terms. ETKDG's torsion preferences are statistics of small-molecule crystal structures;
+`embed.torsion_preferences = false` leaves them out (RDKit's KDG), for molecules whose
+conformers in solution need not follow them, and keeps the knowledge terms (planar sp2
+atoms, linear sp atoms). With restraints, ETKDG weights the distance bounds 100 times higher against its
 torsion terms (`racerts.embed.RESTRAINT_BOUNDS_WEIGHT`, RDKit's `boundsMatForceScaling`),
 which override about 60 % of the windows otherwise, and leaves the small-ring terms out,
 so that a window can take a ring out of its chair. Conformers that are embedded with

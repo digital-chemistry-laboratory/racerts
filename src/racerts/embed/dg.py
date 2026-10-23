@@ -83,7 +83,9 @@ def held_hybridization(
 class DistanceGeometryEmbedder(BaseEmbedder):
     """
     Embedding with RDKit's EmbedMultipleConfs: plain distance geometry by default,
-    ETKDGv3 with etkdg=True (the same settings otherwise).
+    ETKDGv3 with etkdg=True (the same settings otherwise). torsion_preferences=False
+    leaves out ETKDG's experimental torsion preferences, statistics of crystal
+    structures, and keeps its knowledge terms (RDKit's KDG).
 
     chirality_fallback: the first min(n, 3) conformers show whether the fixed atoms
     contradict a chiral tag. If most of them fail on chirality:
@@ -122,6 +124,7 @@ class DistanceGeometryEmbedder(BaseEmbedder):
         ETversion: int = 2,
         useRandomCoords: bool = True,
         etkdg: bool = False,
+        torsion_preferences: bool = True,
         chirality_fallback: Union[bool, str] = True,
         sequential_seeds: bool = True,
         reference_bounds: str = "fallback",
@@ -143,6 +146,7 @@ class DistanceGeometryEmbedder(BaseEmbedder):
         self.useRandomCoords = useRandomCoords
         self.max_attempts = max_attempts
         self.etkdg = etkdg
+        self.torsion_preferences = torsion_preferences
         self.chirality_fallback = chirality_fallback
         self.sequential_seeds = sequential_seeds
         self.reference_bounds = reference_bounds
@@ -185,6 +189,9 @@ class DistanceGeometryEmbedder(BaseEmbedder):
         params.clearConfs = False
         if trans_in_small_rings(mol):
             # ETKDG's torsion preferences hold the double bonds of small rings cis
+            params.useExpTorsionAnglePrefs = False
+        if not getattr(self, "torsion_preferences", True):
+            # KDG; the small-ring and macrocycle terms act only with the preferences
             params.useExpTorsionAnglePrefs = False
         self.widened = []
         self._configure(params, mol, reference, frozen, restraints)

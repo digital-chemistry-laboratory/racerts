@@ -218,6 +218,7 @@ def test_what_the_options_of_ts_and_gs_set(call, capsys, tmp_path):
         (["--conf-factor", "40"], {"embed.conf_factor": 40}),
         (["--etkdg"], {"embed.etkdg": True}),
         (["--no-etkdg"], {"embed.etkdg": False}),
+        (["--no-torsion-preferences"], {"embed.torsion_preferences": False}),
         (["--embed", "bounds"], {"embed.mode": "bounds"}),
         (["--count-policy", "fragments"], {"embed.count_policy": "fragments"}),
         (["--sequential-seeds"], {"embed.sequential_seeds": True}),

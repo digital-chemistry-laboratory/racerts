@@ -278,6 +278,43 @@ def test_with_restraints_etkdg_weights_the_bounds(monkeypatch):
     assert set(weights) == {racerts.embed.RESTRAINT_BOUNDS_WEIGHT} == {100.0}
 
 
+def test_etkdg_without_torsion_preferences(hept_1_ene_ts, monkeypatch):
+    # ETKDG's torsion preferences are statistics of crystal structures. Without them
+    # (RDKit's KDG) its knowledge terms stay: planar sp2 atoms, linear sp atoms.
+    rdkit_embed, used = dg.EmbedMultipleConfs, []
+
+    def recorded(mol, count, params):
+        used.append((params.useExpTorsionAnglePrefs, params.useBasicKnowledge))
+        return rdkit_embed(mol, count, params)
+
+    monkeypatch.setattr(dg, "EmbedMultipleConfs", recorded)
+
+    def embedded(ts=False, **embed):
+        used.clear()
+        config = PipelineConfig(embed=EmbedConfig(n_conformers=2, **embed))
+        if ts:
+            task = racerts.TransitionState([3, 4, 5])
+            return racerts.generate(hept_1_ene_ts, task, config=config)
+        return racerts.generate_gs("OCCCCO", config=config)
+
+    # -- a ground state: ETKDG with its torsion preferences, or without them
+    ensemble = embedded()
+    assert set(used) == {(True, True)}
+    assert "torsion_preferences" not in ensemble.provenance(ensemble.conf_ids[0])
+    ensemble = embedded(torsion_preferences=False)
+    assert set(used) == {(False, True)} and len(ensemble) > 0
+    assert ensemble.provenance(ensemble.conf_ids[0])["torsion_preferences"] is False
+
+    # -- a setting of ETKDG: with plain distance geometry, as for frozen atoms by
+    # default, there is nothing to leave out
+    embedded(ts=True, torsion_preferences=False)
+    assert set(used) == {(False, False)}
+    embedded(ts=True, etkdg=True, torsion_preferences=False)
+    assert set(used) == {(False, True)}
+    with pytest.raises(ValueError, match="torsion_preferences.*ETKDG"):
+        EmbedConfig(etkdg=False, torsion_preferences=False)
+
+
 @pytest.fixture
 def butanol():
     """(S)-butan-2-ol with a geometry."""

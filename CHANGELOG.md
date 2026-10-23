@@ -113,6 +113,10 @@ pruner with the legacy ones is `racerts.pruner.RMSDPruner`.
   restraints the small-ring terms are left out: from RDKit 2026.09 on they override a
   window that needs another ring conformation. RDKit fails with them on cyclopentane rings
   ("bad direction in linearSearch"): the embedding goes on without them, with a warning.
+- `embed.torsion_preferences = false` (`--no-torsion-preferences`): ETKDG without its
+  experimental torsion preferences, which are statistics of crystal structures (RDKit's
+  KDG: the knowledge terms only; the small-ring and macrocycle terms act only with the
+  preferences). The provenance records it.
 - ETKDG with held atoms (a TS core): a held atom typed sp2 that its reference geometry has
   out of plane, or a bent sp atom, is embedded with the type of its geometry
   (`racerts.embed.dg.held_hybridization`). ETKDG holds sp2 atoms planar, so before nothing

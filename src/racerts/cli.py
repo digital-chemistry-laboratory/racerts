@@ -363,6 +363,13 @@ def _add_pipeline_options(command, defaults) -> None:
         help="ETKDGv3 instead of plain distance geometry (default: only for gs).",
     )
     command.add_argument(
+        "--torsion-preferences",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="ETKDG with its torsion preferences from crystal structures (default); "
+        "--no-torsion-preferences: its knowledge terms only (KDG).",
+    )
+    command.add_argument(
         "--count-policy",
         choices=list(COUNT_POLICIES),
         help="How the default number of conformers is counted: legacy, fragments "
@@ -509,6 +516,7 @@ def _config_from_args(args) -> PipelineConfig:
             conf_factor=args.conf_factor,
             mode=given("embed"),
             etkdg=args.etkdg,
+            torsion_preferences=args.torsion_preferences,
             count_policy=args.count_policy,
             sequential_seeds=args.sequential_seeds,
             chirality_fallback=given("chirality_fallback"),

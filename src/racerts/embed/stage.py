@@ -222,6 +222,8 @@ class Embed:
         }
         if getattr(embedder, "etkdg", None) is not None:
             provenance["etkdg"] = embedder.etkdg
+            if embedder.etkdg and not getattr(embedder, "torsion_preferences", True):
+                provenance["torsion_preferences"] = False
         restraints = ctx.restraints.for_stage("embed")
         if restraints:
             if not accepts_restraints(embedder.embed):

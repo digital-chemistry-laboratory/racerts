@@ -22,6 +22,7 @@ ensemble = racerts.generate_ts("ts.xyz", [3, 4, 5], config=config)
 | | `n_conformers` | -1 | conformers to embed; -1: rotatable bonds × `conf_factor` + 30 |
 | | `conf_factor` | 80 | |
 | | `etkdg` | None | ETKDGv3 instead of plain distance geometry; None: only without frozen atoms |
+| | `torsion_preferences` | true | ETKDG with its experimental torsion preferences (statistics of crystal structures; the small-ring and macrocycle terms come with them); false: its knowledge terms only (RDKit's KDG: planar sp2 atoms, linear sp atoms). Only with ETKDG |
 | | `use_random_coords` | true | |
 | | `count_policy` | `fragments` | how -1 is counted: `legacy`; `fragments` (adds 3 or 6 rigid-body degrees of freedom per fragment without frozen atoms, e.g. a solvent molecule); `per_bond` (max(7, 10 × rotatable bonds)) |
 | | `sequential_seeds` | true | one seed per conformer, in a stream that starts at a value derived from `seed` (different seeds do not overlap); legacy racerts embeds its first 3 conformers twice |

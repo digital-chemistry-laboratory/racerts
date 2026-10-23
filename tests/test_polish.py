@@ -160,3 +160,89 @@ def test_duplicates_by_the_polar_hydrogens():
         assert stage(MMFFOptimizer(), include_hs="polar").include_hs == "polar"
         with pytest.raises(ValueError, match="include_hs"):
             stage(MMFFOptimizer(), include_hs="some")
+
+
+def test_a_lower_refind_takes_the_place_of_its_twins():
+    # A refined candidate that duplicates members but lies lower than all of them takes
+    # their place: the lowest of a set of duplicates stays, as RMSDPruner keeps it.
+    # Butan-1-ol with its O-H turned: duplicates by the heavy atoms.
+    from rdkit.Chem import rdMolTransforms
+
+    from racerts.exploit.population import Population, add_refined
+
+    mol = Chem.AddHs(Chem.MolFromSmiles("OCCCC"))
+    AllChem.EmbedMolecule(mol, randomSeed=7)
+    hydrogen = next(
+        n.GetIdx()
+        for n in mol.GetAtomWithIdx(0).GetNeighbors()
+        if n.GetAtomicNum() == 1
+    )
+
+    def turned(angle, energy=None):
+        conf = Chem.Conformer(mol.GetConformer())
+        rdMolTransforms.SetDihedralDeg(conf, 2, 1, 0, hydrogen, angle)
+        if energy is not None:
+            conf.SetDoubleProp("energy", energy)
+        return conf
+
+    def population_of(*members):
+        start = Chem.Mol(mol)
+        start.RemoveAllConformers()
+        for angle, energy in members:
+            start.AddConformer(turned(angle, energy), assignId=True)
+        ensemble = racerts.ConformerEnsemble(start)
+        ctx = racerts.Context.create(start, racerts.GroundState())
+        return ctx, ensemble, Population(ctx, ensemble, False)
+
+    def candidate(ctx, population, angle, energy):
+        refined = Chem.Mol(mol)
+        refined.RemoveAllConformers()
+        refined.AddConformer(turned(angle, energy), assignId=True)
+        counts = dict(rejected=0, refound=0, accepted=0, observations=0)
+        counts.update(lowered=0, merged=0)
+        positions = turned(angle).GetPositions()
+        add_refined(
+            ctx,
+            population,
+            racerts.ConformerEnsemble(refined),
+            [(0, positions, {"route": "test"})],
+            [],
+            0.25,
+            counts,
+        )
+        return counts
+
+    # -- higher: a re-find, the member stays as it is
+    ctx, ensemble, population = population_of((60.0, 0.5))
+    before = ensemble.mol.GetConformer(0).GetPositions()
+    counts = candidate(ctx, population, 180.0, 0.8)
+    assert (counts["refound"], counts["accepted"], counts["lowered"]) == (1, 0, 0)
+    assert ensemble.energy(0) == 0.5
+    np.testing.assert_array_equal(ensemble.mol.GetConformer(0).GetPositions(), before)
+
+    # -- lower: still a re-find, but the member takes its structure and energy
+    counts = candidate(ctx, population, 180.0, 0.0)
+    assert (counts["refound"], counts["lowered"], counts["merged"]) == (1, 1, 0)
+    assert ensemble.energy(0) == population.energies[0] == 0.0
+    np.testing.assert_allclose(
+        ensemble.mol.GetConformer(0).GetPositions(), turned(180.0).GetPositions()
+    )
+    provenance = ensemble.provenance(0)
+    assert provenance["route"] == "test" and provenance["lowered_from"] == 0.5
+    assert population.hits[0] == 2
+    # within REFIND_LOWER of the member: the same minimum refined again, no change
+    counts = candidate(ctx, population, 60.0, -0.005)
+    assert (counts["refound"], counts["lowered"]) == (1, 0) and ensemble.energy(
+        0
+    ) == 0.0
+
+    # -- lower than two members that duplicate it: the lower of them takes its place,
+    # the other leaves; lower than one only: a re-find of that one
+    ctx, ensemble, population = population_of((60.0, 0.5), (300.0, 0.3))
+    counts = candidate(ctx, population, 180.0, 0.45)  # between them: a re-find
+    assert (counts["refound"], counts["lowered"], counts["merged"]) == (1, 0, 0)
+    assert ensemble.conf_ids == [0, 1] and population.hits == {0: 1, 1: 0}
+    counts = candidate(ctx, population, 180.0, 0.0)
+    assert (counts["refound"], counts["lowered"], counts["merged"]) == (1, 1, 1)
+    assert ensemble.conf_ids == population.ids == [1] and ensemble.energy(1) == 0.0
+    assert population.hits == {1: 2}  # this re-find, and the hit of member 0

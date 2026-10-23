@@ -286,6 +286,12 @@ pruner with the legacy ones is `racerts.pruner.RMSDPruner`.
 
 #### Duplicates in the search stages
 
+- The lowest of a set of duplicates stays, as in `RMSDPruner`: a re-find that lies lower than
+  every member it duplicates (by more than `REFIND_LOWER`, 0.01 kcal/mol) takes the place of the
+  lowest of them (structure, energy, provenance with `lowered_from`), and the others leave the
+  ensemble, their hits added (`racerts.exploit.population.Population.admit`; `stats` `lowered`
+  and `merged`). Before, a re-find was dropped also when it was lower.
+
 - `include_hs="polar"` for `Exploit`, `Metadynamics`, `Recombine`, `Resample` and `Polish`: their
   duplicates by the heavy atoms and the hydrogens on N, O, P and S, as the default `RMSDPruner`
   counts them (`racerts.exploit.population.duplicate_atoms`). With the default (heavy atoms) a

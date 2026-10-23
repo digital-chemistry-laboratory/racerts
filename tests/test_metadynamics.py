@@ -170,7 +170,9 @@ def test_the_search_on_a_diol():
             assert not kernel.within(first, structures[j], 0.25)
 
     # -- the provenance and the statistics
-    assert out.conf_ids[0] == 0 and "route" not in out.provenance(0)
+    # The start stays, or a lower snapshot of its own takes its place (lowered).
+    start = out.provenance(0)
+    assert out.conf_ids[0] == 0 and ("route" not in start or "lowered_from" in start)
     for conf_id in out.conf_ids[1:]:
         provenance = out.provenance(conf_id)
         assert provenance["route"] == "mtd" and provenance["parent"] == 0
@@ -181,7 +183,8 @@ def test_the_search_on_a_diol():
     stats = search.stats
     assert (stats["runs"], stats["steps"], stats["snapshots"]) == (3, 4500, 45)
     assert stats["optimizations"] == 45 and stats["rounds"] == 1
-    assert stats["length"] == 3.0 and stats["accepted"] == len(out) - 1
+    assert stats["length"] == 3.0
+    assert stats["accepted"] - stats["merged"] == len(out) - 1
     assert stats["accepted"] + stats["refound"] + stats["rejected"] == 45
     # as Exploit's: the members within 3 kcal/mol found once, per observation there
     low = [i for i in out.conf_ids if out.energy(i) <= min(out.energies()) + 3.0]

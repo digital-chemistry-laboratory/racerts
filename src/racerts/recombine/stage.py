@@ -76,7 +76,7 @@ class Recombine:
     cross_hits (the children that ended in it) for every member. stats holds the
     numbers of the last call: rounds, parents and torsions (of the last round),
     children, overlapping, optimizations (the refined children), observations,
-    accepted, refound, rejected, missing_mass and completeness (as for Exploit, of the
+    accepted, refound, lowered, merged, rejected, missing_mass and completeness (as for Exploit, of the
     minima within 3 kcal/mol) and stop ("rounds", "nothing lower", or why nothing was
     made).
 
@@ -152,7 +152,7 @@ class Recombine:
     def run(self, ctx, ensemble: ConformerEnsemble) -> ConformerEnsemble:
         counts = dict(rounds=0, parents=0, torsions=0, children=0, overlapping=0)
         counts.update(optimizations=0, observations=0, accepted=0, refound=0)
-        counts.update(rejected=0)
+        counts.update(rejected=0, lowered=0, merged=0)
         if not len(ensemble):
             self.stats = {**counts, "stop": "no conformers"}
             return ensemble

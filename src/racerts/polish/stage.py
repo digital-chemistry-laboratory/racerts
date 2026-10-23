@@ -73,7 +73,7 @@ class Polish:
     "torsion 1-2 +120" or "ring 0-1-2-3-4-5 chair"), polish_family and polish_pass (both
     counted from 0) for the new conformers; polish_hits for every member. stats holds
     the numbers of the last call: families, passes, children, overlapping,
-    optimizations, observations, accepted, refound, rejected, missing_mass and
+    optimizations, observations, accepted, refound, lowered, merged, rejected, missing_mass and
     completeness (as for Exploit), and stop ("converged", "budget", or why nothing was
     changed).
 
@@ -130,7 +130,7 @@ class Polish:
     def run(self, ctx, ensemble: ConformerEnsemble) -> ConformerEnsemble:
         counts = dict(families=0, passes=0, children=0, overlapping=0)
         counts.update(optimizations=0, observations=0, accepted=0, refound=0)
-        counts.update(rejected=0)
+        counts.update(rejected=0, lowered=0, merged=0)
         if not len(ensemble):
             self.stats = {**counts, "stop": "no conformers"}
             return ensemble

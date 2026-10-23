@@ -144,7 +144,7 @@ class Metadynamics:
     which keep their parent's reference, active-bond targets and batch; mtd_hits
     (the snapshots that ended in it) for every member. stats holds the numbers of
     the last call: rounds, runs, steps, snapshots, optimizations (the refined
-    snapshots), observations, accepted, refound, rejected, missing_mass and
+    snapshots), observations, accepted, refound, lowered, merged, rejected, missing_mass and
     completeness (as for Exploit, of the minima within 3 kcal/mol), length (of a run,
     ps), containment (the largest radius of the containment restraints of the
     dynamics, or None) and stop.
@@ -236,7 +236,9 @@ class Metadynamics:
 
     def run(self, ctx, ensemble: ConformerEnsemble) -> ConformerEnsemble:
         counts = dict(rounds=0, runs=0, steps=0, snapshots=0, optimizations=0)
-        counts.update(observations=0, accepted=0, refound=0, rejected=0)
+        counts.update(
+            observations=0, accepted=0, refound=0, rejected=0, lowered=0, merged=0
+        )
         if not has_ase_refiner(self.refine, "Metadynamics"):
             self.stats = {**counts, "stop": "no ASE refiner"}
             return ensemble

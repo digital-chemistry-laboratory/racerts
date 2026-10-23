@@ -190,7 +190,10 @@ PruneRMSD → Exploit → PruneRMSD`). It is usage-directed multiple-minimum Mon
   minima would be the wrong ones; with MMFF/UFF, Exploit warns and changes nothing);
 - a refined candidate is kept if it passes the gate checks, lies within `energy_window`
   of the minimum and is further than `rmsd_threshold` from every conformer; a duplicate
-  counts as a re-find. Structures that stop on a torsional barrier (turning a moved
+  counts as a re-find. A re-find that lies lower than every conformer it duplicates (by
+  more than 0.01 kcal/mol) takes the place of the lowest of them, and the others leave:
+  as in `PruneRMSD`, the lowest of a set of duplicates stays (the same in every search
+  stage; `stats` count `lowered` and `merged`). Structures that stop on a torsional barrier (turning a moved
   torsion by ±10° lowers the energy) are optimized again;
 - it stops when the estimated chance of a new minimum within `stop_window` of the
   minimum drops below `saturation` (Good–Turing: the conformers found once, divided by
@@ -303,7 +306,7 @@ New conformers record `route="mtd"`, `parent` (the conformer their run started f
 `mtd_round`, `mtd_run`, `mtd_k`, `mtd_alpha` and `mtd_time` (ps); every conformer
 records `mtd_hits`, the snapshots that ended in it. `stats` has the numbers of the last
 call: `rounds`, `runs`, `steps`, `snapshots`, `optimizations`, `observations`,
-`accepted`, `refound`, `rejected`, `missing_mass` and `completeness` (as for `Exploit`,
+`accepted`, `refound`, `lowered`, `merged`, `rejected`, `missing_mass` and `completeness` (as for `Exploit`,
 of the minima within 3 kcal/mol), the `length` of a run, `containment` and `stop`.
 
 ### Recombine
@@ -347,7 +350,7 @@ conformers record `route="cross"`, `parents` (the first and the second), `cross_
 (how many were turned) and `cross_round`; every conformer records `cross_hits`, the
 children that ended in it. `stats` has the numbers of the last call: `rounds`, `parents`,
 `torsions`, `children`, `overlapping`, `optimizations`, `observations`, `accepted`,
-`refound`, `rejected`, `missing_mass`, `completeness` (as for `Exploit`) and `stop` (`"rounds"` if the last round still found a lower conformer, `"nothing lower"`,
+`refound`, `lowered`, `merged`, `rejected`, `missing_mass`, `completeness` (as for `Exploit`) and `stop` (`"rounds"` if the last round still found a lower conformer, `"nothing lower"`,
 or why nothing was made). The same seed gives the same children.
 
 ### Resample
@@ -402,7 +405,7 @@ A pass costs about 2 × (rotatable bonds) + (ring forms) refinements. New confor
 record `route="polish"`, `parents`, `polish_change` (e.g. `"torsion 1-2 +120"`),
 `polish_family` and `polish_pass`; every conformer records `polish_hits`; `stats` has
 `families`, `passes`, `children`, `overlapping`, `optimizations`, `observations`,
-`accepted`, `refound`, `rejected`, `missing_mass`, `completeness` and `stop`
+`accepted`, `refound`, `lowered`, `merged`, `rejected`, `missing_mass`, `completeness` and `stop`
 (`"converged"` or `"budget"`). The defaults are provisional, until a benchmark sets them.
 
 ## Independent runs

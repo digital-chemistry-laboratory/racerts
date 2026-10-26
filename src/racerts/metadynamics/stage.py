@@ -11,12 +11,14 @@ from racerts.exploit.moves import planar_bonds, torsion_moves
 from racerts.exploit.population import (
     Population,
     add_refined,
+    check_rank,
     discovery,
     duplicate_atoms,
     found_lower,
     has_ase_refiner,
     held_atoms,
     lowest_by_bin,
+    ranked_seeds,
     refine_candidates,
     refine_stage,
     require_refined,
@@ -24,6 +26,7 @@ from racerts.exploit.population import (
 from racerts.io import ase as ase_io
 from racerts.pipeline import ConformerEnsemble
 from racerts.prune.targets import round_robin
+from racerts.refine.rescore import Rescore
 from racerts.refine.stage import energy_label
 from racerts.restraints.model import DistanceRestraint
 from racerts.rmsd import heavy_atoms
@@ -175,7 +178,7 @@ class Metadynamics:
         friction: Of the thermostat (1/fs).
         atoms: The atoms in the RMSD of the bias; default: the heavy atoms. Those
             that the task holds are left out.
-        rmsd_threshold, include_hs, clash_factor: As in Exploit.
+        rmsd_threshold, include_hs, clash_factor, rank: As in Exploit.
         containment: The margin (A) of the containment restraints of the dynamics;
             None: none (a free fragment then can drift away).
     """
@@ -200,6 +203,7 @@ class Metadynamics:
         include_hs: Union[bool, str] = "polar",
         clash_factor: float = CLASH_FACTOR,
         containment: Optional[float] = 2.0,
+        rank: Optional[Rescore] = None,
     ):
         positive = dict(temperature=temperature, deposit=deposit, snapshot=snapshot)
         positive.update(time_step=time_step, hydrogen_mass=hydrogen_mass)
@@ -231,6 +235,7 @@ class Metadynamics:
         duplicate_atoms(include_hs)  # checks it
         self.include_hs = include_hs
         self.clash_factor = clash_factor
+        self.rank = check_rank(rank)
         self.containment = containment
         self.stats: dict = {}
 
@@ -245,7 +250,9 @@ class Metadynamics:
         if not len(ensemble):
             self.stats = {**counts, "stop": "no conformers"}
             return ensemble
-        require_refined(ensemble, energy_label(self.refine.optimizer), "Metadynamics")
+        labels = [energy_label(self.refine.optimizer)]
+        ensemble, labels = ranked_seeds(ctx, ensemble, labels, self.rank)
+        require_refined(ensemble, labels, "Metadynamics")
         fixed = self.frame_is_fixed(ctx, ensemble.mol)
         if len(self.biased_atoms(ctx, ensemble.mol)) < (1 if fixed else 2):
             logger.warning(
@@ -267,7 +274,7 @@ class Metadynamics:
             lowest = lowest_by_bin(population)
             snapshots = self._dynamics(ctx, population, length, number, counts, fixed)
             refined = refine_candidates(
-                ctx, ensemble, snapshots, self.refine, "Metadynamics"
+                ctx, ensemble, snapshots, self.refine, "Metadynamics", self.rank
             )
             counts["rounds"] += 1
             counts["snapshots"] += len(snapshots)

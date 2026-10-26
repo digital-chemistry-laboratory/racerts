@@ -169,6 +169,14 @@ already have between them: the stage for a large flexible molecule whose low con
 each have a part of a lower one. `Resample` draws each torsion from all of them, and
 `Polish` completes the lowest of them one change at a time.
 
+Each of them takes `rank=Rescore(...)`: the energy that the search ranks by (its windows,
+parents, duplicates and stop) is then a rescoring of every refined candidate, e.g. single
+points at a more expensive target level, while the refiner, a cheaper level, makes the
+minima. The seeds are ranked first if they carry the refiner's energies; the refiner's
+energy stays in the provenance (`previous_energy`). A search on a cheap level that ranks by
+its own energies refines the region that is low at that level, which can differ from the
+low region at the target.
+
 ### Exploit
 
 `Exploit` searches around the conformers it gets, after the pruners: it never leaves

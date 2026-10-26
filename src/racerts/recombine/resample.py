@@ -6,7 +6,8 @@ from typing import Optional, Union
 import numpy as np
 
 from racerts.exploit.moves import planar_bonds
-from racerts.exploit.population import duplicate_atoms, refine_stage
+from racerts.exploit.population import check_rank, duplicate_atoms, refine_stage
+from racerts.refine.rescore import Rescore
 from racerts.utils.checks import check_count, check_positive
 from racerts.validate.checks import CLASH_FACTOR, OVERLAP_FACTOR
 
@@ -56,7 +57,7 @@ class Resample(Recombine):
             energy (kcal/mol). None: even.
         explore, polar_hydrogens: See above.
         different, children, rounds, overlap_factor, rmsd_threshold, include_hs,
-        clash_factor: As in Recombine.
+        clash_factor, rank: As in Recombine.
     """
 
     name = "resample"
@@ -78,6 +79,7 @@ class Resample(Recombine):
         rmsd_threshold: float = 0.25,
         include_hs: Union[bool, str] = "polar",
         clash_factor: float = CLASH_FACTOR,
+        rank: Optional[Rescore] = None,
     ):
         # Recombine's settings of its pairs (share) are not Resample's: the same
         # attributes, set here.
@@ -110,6 +112,7 @@ class Resample(Recombine):
         duplicate_atoms(include_hs)  # checks it
         self.include_hs = include_hs
         self.clash_factor = clash_factor
+        self.rank = check_rank(rank)
         self.stats: dict = {}
 
     def _torsions(self, mol, held) -> list:

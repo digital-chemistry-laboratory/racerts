@@ -9,11 +9,13 @@ import numpy as np
 from racerts.exploit.population import (
     Population,
     add_refined,
+    check_rank,
     discovery,
     duplicate_atoms,
     found_lower,
     held_atoms,
     lowest_by_bin,
+    ranked_seeds,
     reference_positions,
     refine_candidates,
     refine_stage,
@@ -21,6 +23,7 @@ from racerts.exploit.population import (
 )
 from racerts.pipeline import ConformerEnsemble
 from racerts.refine.forcefield import MMFFOptimizer, UFFOptimizer
+from racerts.refine.rescore import Rescore
 from racerts.refine.stage import energy_label
 from racerts.utils import seeds
 from racerts.utils.checks import check_count, check_positive
@@ -101,7 +104,8 @@ class Recombine:
         overlap_factor: See above; the default is that of the clash filter of the
             staged workflow, below the clash_factor of the gate: the refinement
             relaxes close contacts.
-        rmsd_threshold, include_hs, clash_factor: As in Exploit.
+        rmsd_threshold, include_hs, clash_factor, rank: As in Exploit (rank: a
+            Rescore stage whose energies the search ranks by).
     """
 
     name = "recombine"
@@ -122,6 +126,7 @@ class Recombine:
         rmsd_threshold: float = 0.25,
         include_hs: Union[bool, str] = "polar",
         clash_factor: float = CLASH_FACTOR,
+        rank: Optional[Rescore] = None,
     ):
         positive = dict(window=window, temperature=temperature)
         positive.update(overlap_factor=overlap_factor, rmsd_threshold=rmsd_threshold)
@@ -147,6 +152,7 @@ class Recombine:
         duplicate_atoms(include_hs)  # checks it
         self.include_hs = include_hs
         self.clash_factor = clash_factor
+        self.rank = check_rank(rank)
         self.stats: dict = {}
 
     def run(self, ctx, ensemble: ConformerEnsemble) -> ConformerEnsemble:
@@ -157,7 +163,8 @@ class Recombine:
             self.stats = {**counts, "stop": "no conformers"}
             return ensemble
         stage = type(self).__name__
-        require_refined(ensemble, self._labels(), stage)
+        ensemble, labels = ranked_seeds(ctx, ensemble, self._labels(), self.rank)
+        require_refined(ensemble, labels, stage)
         found = self._torsions(ensemble.mol, held_atoms(ctx))
         counts["torsions"] = len(found)
         if not found:
@@ -192,7 +199,9 @@ class Recombine:
             if not made:
                 stop = "no children"
                 break
-            refined = refine_candidates(ctx, ensemble, made, self.refine, stage)
+            refined = refine_candidates(
+                ctx, ensemble, made, self.refine, stage, self.rank
+            )
             counts["rounds"] += 1
             counts["children"] += len(made)
             counts["optimizations"] += len(refined)

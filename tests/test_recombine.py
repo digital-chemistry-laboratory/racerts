@@ -8,7 +8,7 @@ from rdkit import Chem
 from rdkit.Chem import AllChem, rdMolTransforms
 
 import racerts
-from racerts import Recombine, Resample
+from racerts import Polish, Recombine, Resample
 from racerts.exploit import torsion_moves
 from racerts.recombine import set_torsions, torsion_angles, torsions
 from racerts.refine import MMFFOptimizer
@@ -533,3 +533,61 @@ def test_resample_draws_each_torsion_from_the_ensemble():
         with pytest.raises(ValueError):
             Resample(MMFFOptimizer(), **wrong)
     assert "Resample(" in repr(Resample(MMFFOptimizer()))
+
+
+def _gauche_first(method="ranked"):
+    """A Rescore stage that puts each gauche C-C-C-C torsion of heptane 2 kcal/mol lower
+    (MMFF prefers anti): a ranking energy that is not the refiner's."""
+    from racerts.refine import Rescore
+    from racerts.utils.units import EV_TO_KCAL_MOL
+
+    def batch(structures):
+        energies = []
+        for atoms in structures:
+            angles = [atoms.get_dihedral(k, k + 1, k + 2, k + 3) for k in range(4)]
+            gauche = sum(abs((a % 360) - 180) > 60 for a in angles)
+            energies.append(-2.0 * gauche / EV_TO_KCAL_MOL)
+        return energies
+
+    return Rescore(batch=batch, method=method)
+
+
+@pytest.mark.ase
+def test_the_search_stages_rank_by_a_rescoring():
+    # rank: the energy that a search ranks by (windows, parents, duplicates, stop) is a
+    # rescoring of every refined candidate, e.g. single points at the target level,
+    # while the refiner (a cheaper level) makes the minima; as in Exploit.
+    pytest.importorskip("ase")
+    mol = _heptane((GAUCHE, ANTI, ANTI, ANTI), (ANTI, ANTI, GAUCHE, ANTI))
+
+    # -- Recombine and Resample: the combination of both gauche torsions ranks lowest
+    for stage in (Recombine, Resample):
+        ctx, ensemble = _start(mol)
+        out = stage(MMFFOptimizer(), rank=_gauche_first()).run(ctx, ensemble)
+        assert out.energy_method == "ranked"  # the seeds are ranked first
+        assert _states(out, out.best()) == "gaga" and out.energy(out.best()) == -4.0
+        provenance = out.provenance(out.best())
+        assert provenance["previous_energy_method"] == "MMFFOptimizer"
+        # without it the refiner's lowest, all anti
+        ctx, ensemble = _start(mol)
+        plain = stage(MMFFOptimizer()).run(ctx, ensemble)
+        assert _states(plain, plain.best()) == "aaaa"
+
+    # -- Polish descends by the ranking energy: from all anti to gauche torsions
+    ctx, ensemble = _start(_heptane((ANTI,) * 4))
+    stage = Polish(MMFFOptimizer(), rank=_gauche_first())
+    out = stage.run(ctx, ensemble)
+    assert out.energy_method == "ranked" and stage.stats["passes"] >= 2
+    assert _states(out, out.best()).count("g") >= 2
+
+    # -- seeds that carry the ranking energy already pass; others are refused
+    ctx, ensemble = _start(mol)
+    ranked = Recombine(MMFFOptimizer(), rank=_gauche_first()).run(ctx, ensemble)
+    again = Recombine(MMFFOptimizer(), rank=_gauche_first()).run(ctx, ranked)
+    assert again.energy_method == "ranked"
+    ctx, ensemble = _start(mol, racerts.refine.UFFOptimizer())
+    with pytest.raises(ValueError, match="energy_method"):
+        Recombine(MMFFOptimizer(), rank=_gauche_first()).run(ctx, ensemble)
+    for stage in (Recombine, Resample, Polish):
+        with pytest.raises(TypeError, match="Rescore"):
+            stage(MMFFOptimizer(), rank=lambda atoms: 0.0)

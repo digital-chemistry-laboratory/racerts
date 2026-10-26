@@ -547,6 +547,19 @@ def test_the_calculators_and_what_the_stage_needs(caplog):
         assert 2 <= Counted.calls < 10  # the refinements only
         assert out.energy_method == "MMFF94"
 
+    # -- rank: the snapshots, and the seeds first, ranked by a rescoring (as Exploit)
+    from racerts.refine import Rescore
+
+    ctx, ensemble = _start(mol, optimizer)
+    flat = Rescore(batch=lambda structures: [0.0] * len(structures), method="flat")
+    out = Metadynamics(
+        optimizer, md_calculator=MMFFCalculator(mol), rank=flat, **few
+    ).run(ctx, ensemble)
+    assert out.energy_method == "flat" and set(out.energies()) == {0.0}
+    assert out.provenance(out.conf_ids[0])["previous_energy_method"] == "MMFF94"
+    with pytest.raises(TypeError, match="Rescore"):
+        Metadynamics(optimizer, rank=lambda atoms: 0.0)
+
     # -- the refinement's prepare hook also prepares the calculator of the dynamics
     for calculator in (Prepared(mol), lambda: Prepared(mol)):
         optimizer = ASEOptimizer(

@@ -284,6 +284,13 @@ pruner with the legacy ones is `racerts.pruner.RMSDPruner`.
   with the probability `explore` a random value instead (not for amides and esters). The rest
   is as in `Recombine` (`racerts.recombine.Resample`, a subclass), with `route="resample"`.
 
+#### Ranking by a rescoring in every search stage
+
+- `rank=Rescore(...)` for `Recombine`, `Resample`, `Polish` and `Metadynamics`, as `Exploit` had it:
+  the search ranks by a rescoring of its candidates (e.g. single points at the target level)
+  while its refiner makes the minima; the seeds with the refiner's energies are ranked first
+  (`racerts.exploit.population.ranked_seeds`, `refine_candidates(..., rank)`).
+
 #### Duplicates in the search stages
 
 - The lowest of a set of duplicates stays, as in `RMSDPruner`: a re-find that lies lower than

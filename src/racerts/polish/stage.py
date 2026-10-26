@@ -10,11 +10,13 @@ from racerts.exploit.moves import ring_moves, rotate, torsion_moves
 from racerts.exploit.population import (
     Population,
     add_refined,
+    check_rank,
     discovery,
     duplicate_atoms,
     failed_checks,
     held_atoms,
     lowest_by_bin,
+    ranked_seeds,
     reference_positions,
     refine_candidates,
     refine_stage,
@@ -24,6 +26,7 @@ from racerts.pipeline import ConformerEnsemble
 from racerts.prune.targets import window_bins
 from racerts.recombine.torsions import Torsion, torsion_angles
 from racerts.refine.forcefield import MMFFOptimizer, UFFOptimizer
+from racerts.refine.rescore import Rescore
 from racerts.refine.stage import energy_label
 from racerts.system.rings import closest_form, mean_plane, pucker_forms
 from racerts.utils.checks import check_count, check_positive
@@ -86,7 +89,7 @@ class Polish:
         mode: "descent" or "lowest" (see above).
         max_optimizations: The most refinements, then it stops ("budget"). None: until
             every family is complete.
-        overlap_factor, rmsd_threshold, include_hs, clash_factor: As in Recombine.
+        overlap_factor, rmsd_threshold, include_hs, clash_factor, rank: As in Recombine.
     """
 
     name = "polish"
@@ -103,6 +106,7 @@ class Polish:
         rmsd_threshold: float = 0.25,
         include_hs: Union[bool, str] = "polar",
         clash_factor: float = CLASH_FACTOR,
+        rank: Optional[Rescore] = None,
     ):
         kinds = tuple(kinds)
         if not kinds or set(kinds) - set(KINDS):
@@ -125,6 +129,7 @@ class Polish:
         duplicate_atoms(include_hs)  # checks it
         self.include_hs = include_hs
         self.clash_factor = clash_factor
+        self.rank = check_rank(rank)
         self.stats: dict = {}
 
     def run(self, ctx, ensemble: ConformerEnsemble) -> ConformerEnsemble:
@@ -134,7 +139,8 @@ class Polish:
         if not len(ensemble):
             self.stats = {**counts, "stop": "no conformers"}
             return ensemble
-        require_refined(ensemble, self._labels(), "Polish")
+        ensemble, labels = ranked_seeds(ctx, ensemble, self._labels(), self.rank)
+        require_refined(ensemble, labels, "Polish")
         held = held_atoms(ctx)
         mol = ensemble.mol
         turns = torsion_moves(mol, held) if "torsion" in self.kinds else []
@@ -170,7 +176,9 @@ class Polish:
                 record.update(polish_family=family, polish_pass=number)
             if not made:
                 return None, budget
-            refined = refine_candidates(ctx, ensemble, made, self.refine, "Polish")
+            refined = refine_candidates(
+                ctx, ensemble, made, self.refine, "Polish", self.rank
+            )
             counts["passes"] += 1
             counts["children"] += len(made)
             counts["optimizations"] += len(refined)

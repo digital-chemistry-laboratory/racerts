@@ -212,6 +212,7 @@ class Recombine:
                 stop = "nothing lower"
                 break
 
+        population.drop_merged()
         for conf_id in population.ids:
             hits = {f"{self.route}_hits": population.hits[conf_id]}
             ensemble.add_provenance(conf_id, **hits)

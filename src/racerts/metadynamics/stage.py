@@ -286,6 +286,7 @@ class Metadynamics:
                 stop = "nothing lower"
                 break
 
+        population.drop_merged()
         for conf_id in population.ids:
             ensemble.add_provenance(conf_id, mtd_hits=population.hits[conf_id])
         missing, completeness = discovery(population, counts)

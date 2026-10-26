@@ -244,5 +244,15 @@ def test_a_lower_refind_takes_the_place_of_its_twins():
     assert ensemble.conf_ids == [0, 1] and population.hits == {0: 1, 1: 0}
     counts = candidate(ctx, population, 180.0, 0.0)
     assert (counts["refound"], counts["lowered"], counts["merged"]) == (1, 1, 1)
-    assert ensemble.conf_ids == population.ids == [1] and ensemble.energy(1) == 0.0
+    assert population.ids == [1] and ensemble.energy(1) == 0.0
     assert population.hits == {1: 2}  # this re-find, and the hit of member 0
+    # Member 0 leaves the search at once, its conformer the ensemble only at the end of
+    # the stage: a candidate of the same batch may still have it as its parent.
+    from racerts.exploit.population import candidates_ensemble
+
+    assert ensemble.conf_ids == [0, 1] and population.survivor(0) == 1
+    assert population.survivor(1) == 1
+    made = candidates_ensemble(ensemble, [(0, turned(180.0).GetPositions(), {})])
+    assert len(made) == 1
+    population.drop_merged()
+    assert ensemble.conf_ids == [1] and population.survivor(0) == 1

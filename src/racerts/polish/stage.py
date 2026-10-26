@@ -198,6 +198,7 @@ class Polish:
                     if budget:
                         stop = "budget"
                         break
+                    current = population.survivor(current)  # merged in its pass
                     if lowest is None or (
                         population.energies[lowest]
                         >= population.energies[current] - self.tolerance
@@ -224,6 +225,7 @@ class Polish:
                 number += 1
             counts["families"] = len(families)
 
+        population.drop_merged()
         for conf_id in population.ids:
             ensemble.add_provenance(conf_id, polish_hits=population.hits[conf_id])
         missing, completeness = discovery(population, counts)

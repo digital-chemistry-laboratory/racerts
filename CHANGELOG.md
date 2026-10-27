@@ -221,6 +221,9 @@ pruner with the legacy ones is `racerts.pruner.RMSDPruner`.
   order that takes them in turns, for a selection of one's own.
 - `prune.check_stereo`: conformers whose stereo differs from the graph are removed after
   refinement, centres with a lone pair and ring double bonds included.
+- `prune.max_conformers` (default 0: all) keeps at most that many conformers, the lowest, after
+  the duplicates: about 70 % of the embeddings of a 100-atom metal complex TS survive the
+  pruning (1100 of 1550), and a slower level after the pipeline pays for each.
 
 #### Validation
 

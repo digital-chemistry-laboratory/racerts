@@ -177,6 +177,13 @@ def test_settings_reach_the_components():
     with pytest.raises(ValueError, match="prune.cluster_method"):
         PipelineConfig.from_dict({"prune": {"cluster_method": "kmeans"}})
 
+    # -- at most max_conformers, the lowest, after the duplicates (0, the default: all)
+    capped = PipelineConfig.from_dict({"prune": {"max_conformers": 50}})
+    last = capped.build(TransitionState([0])).stages[-1]
+    assert (last.name, last.n_max) == ("prune_count", 50)
+    with pytest.raises(ValueError, match="prune.max_conformers"):
+        PipelineConfig.from_dict({"prune": {"max_conformers": -1}})
+
     # -- sections can be given as mappings
     config = PipelineConfig(embed={"mode": "bounds"}, refine={"backend": "uff"})
 

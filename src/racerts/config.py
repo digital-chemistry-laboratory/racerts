@@ -26,6 +26,7 @@ from racerts.prune import (
     ClusterPruner,
     EnergyPruner,
     PruneCluster,
+    PruneCount,
     PruneEnergy,
     PruneRMSD,
     RMSDPruner,
@@ -196,6 +197,10 @@ class PruneConfig:
             conformer per cluster, see [ClusterPruner][racerts.prune.ClusterPruner]).
         cluster_method: "butina", "hierarchical" or "leader".
         cluster_threshold: Cluster distance (A, heavy-atom RMSD after superposition).
+        max_conformers: Keep at most this many conformers, the lowest, after the
+            duplicates are pruned (PruneCount): a bound on what a slower level after the
+            pipeline gets, whose cost grows with the conformers that survive the
+            pruning; 0 (the default): all.
     """
 
     _section = "prune"
@@ -212,6 +217,7 @@ class PruneConfig:
     method: str = choice("rmsd", ("rmsd", "cluster"))
     cluster_method: str = choice("butina", CLUSTER_METHODS)
     cluster_threshold: float = number(1.5, non_negative)
+    max_conformers: int = integer(0, non_negative)
 
 
 def _is_restraint_item(item, size: int) -> bool:
@@ -537,6 +543,7 @@ class PipelineConfig:
         checks = []
         if prune.check_stereo:
             checks.append(Validate(Connectivity(bonds=False)))
+        count = [PruneCount(prune.max_conformers)] if prune.max_conformers else []
         return Pipeline(
             [
                 self.embed_stage(task),
@@ -545,6 +552,7 @@ class PipelineConfig:
                 *checks,
                 PruneEnergy(energy_pruner),
                 self._duplicates(),
+                *count,
             ]
         )
 

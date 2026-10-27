@@ -247,6 +247,11 @@ pruner with the legacy ones is `racerts.pruner.RMSDPruner`.
 - The minimum checks of a batch go to the refiner together: one call for the checks, one for
   the structures optimized again and one for their checks (before, a call, and with workers a
   pool of processes, for every candidate).
+- The minimum check assumes minima converged in their soft torsions: Exploit warns about an
+  optimizer converged more loosely than fmax 0.02 eV/A (`LOOSE_FMAX`). With LBFGS to fmax 0.05
+  the check optimized 40 % of a budget again and rejected half the candidates on a 77-atom
+  cyclic peptide; with Sella to fmax 0.01 it optimized 1 of 1895 structures again on 20
+  transition states.
 
 #### Metadynamics
 

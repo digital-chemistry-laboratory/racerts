@@ -244,6 +244,9 @@ pruner with the legacy ones is `racerts.pruner.RMSDPruner`.
   `saturation`; `stats` reports the missing mass and a Chao1 completeness.
 - A ranking energy (`rank=Rescore(...)`) can differ from the energy of the optimizer; for a
   windowed TS children keep their parent's targets.
+- The minimum checks of a batch go to the refiner together: one call for the checks, one for
+  the structures optimized again and one for their checks (before, a call, and with workers a
+  pool of processes, for every candidate).
 
 #### Metadynamics
 
